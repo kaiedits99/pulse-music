@@ -1,0 +1,14 @@
+# Netlify build config for the FRONTEND only.
+# The backend (Express + SQLite) must be hosted separately (see DEPLOY.md).
+# Build with the backend URL, e.g.:
+#   VITE_API_URL=https://your-backend.onrender.com npm run build
+[build]
+  base = "client"
+  command = "npm install && npm run build"
+  publish = "dist"
+
+# SPA fallback — send all routes to index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

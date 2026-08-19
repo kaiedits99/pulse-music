@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: pulse-music
+    runtime: node
+    plan: free
+    buildCommand: "npm install && cd client && npm install && npm run build && cd .."
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: JWT_SECRET
+        generateValue: true
