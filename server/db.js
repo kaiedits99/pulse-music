@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS songs (
   genre TEXT,
   duration_seconds REAL,
   file_path TEXT,
+  -- Direct playback URL from a licensed provider. We never proxy or download third-party audio.
+  source_url TEXT,
   cover_url TEXT,
   plays INTEGER NOT NULL DEFAULT 0,
   downloads INTEGER NOT NULL DEFAULT 0,
@@ -91,5 +93,9 @@ CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist_id);
 CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album_id);
 CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
 `);
+
+// Lightweight migration for installations created before licensed-source support.
+const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);
+if (!songColumns.includes('source_url')) db.exec('ALTER TABLE songs ADD COLUMN source_url TEXT');
 
 export default db;

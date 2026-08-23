@@ -49,6 +49,19 @@ function wavDuration(filePath) {
 }
 
 // ---------- Helpers ----------
+function sanitizeSourceUrl(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(String(value).trim());
+    if (url.protocol !== 'https:') throw new Error('Only HTTPS sources are permitted');
+    return url.toString();
+  } catch {
+    const error = new Error('Playback URL must be a valid HTTPS URL from a licensed provider');
+    error.status = 400;
+    throw error;
+  }
+}
+
 function artistForUser(userId) {
   return db.prepare('SELECT * FROM artists WHERE user_id = ?').get(userId);
 }
@@ -182,6 +195,8 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   const coverFile = req.files && req.files.cover && req.files.cover[0];
   let filePath = null;
   if (audioFile) filePath = '/media/uploads/' + audioFile.filename;
+  const sourceUrl = sanitizeSourceUrl(body.source_url);
+  if (!filePath && !sourceUrl) return res.status(400).json({ error: 'Choose an audio file or provide an approved HTTPS playback URL' });
 
   const duration = wavDuration(audioFile ? audioFile.path : '') || parseFloat(body.duration) || 0;
   const albumId = body.album_id ? parseInt(body.album_id, 10) : null;
@@ -194,9 +209,9 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   }
 
   const info = db.prepare(
-    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, cover_url)
-     VALUES (?,?,?,?,?,?,?)`
-  ).run(title, artistId, albumId, body.genre || null, duration, filePath, coverUrl);
+    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
@@ -221,6 +236,8 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
 
   let filePath = existing.file_path;
   if (audioFile) filePath = '/media/uploads/' + audioFile.filename;
+  const sourceUrl = body.source_url !== undefined ? sanitizeSourceUrl(body.source_url) : existing.source_url;
+  if (!filePath && !sourceUrl) return res.status(400).json({ error: 'A playable audio source is required' });
   let duration = existing.duration_seconds;
   if (audioFile) duration = wavDuration(audioFile.path) || parseFloat(body.duration) || duration;
 
@@ -228,8 +245,8 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
   if (coverFile) coverUrl = '/media/uploads/' + coverFile.filename;
 
   db.prepare(
-    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, cover_url=? WHERE id=?`
-  ).run(title, artistId, albumId, body.genre || existing.genre, duration, filePath, coverUrl, existing.id);
+    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, cover_url=? WHERE id=?`
+  ).run(title, artistId, albumId, body.genre || existing.genre, duration, filePath, sourceUrl, coverUrl, existing.id);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title

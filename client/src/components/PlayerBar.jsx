@@ -10,7 +10,7 @@ import { useFavoriteToggle, downloadSong } from './SongTable.jsx';
 export default function PlayerBar() {
   const {
     current, isPlaying, togglePlay, next, prev, seek, currentTime, duration,
-    volume, setVolume, shuffle, setShuffle, repeat, setRepeat
+    volume, setVolume, shuffle, setShuffle, repeat, setRepeat, error
   } = usePlayer();
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
@@ -21,8 +21,10 @@ export default function PlayerBar() {
   const pct = duration ? (currentTime / duration) * 100 : 0;
 
   const seekFromEvent = (e) => {
+    if (!barRef.current || !duration) return;
     const rect = barRef.current.getBoundingClientRect();
-    const p = (e.clientX - rect.left) / rect.width;
+    if (!rect.width) return;
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     seek(p * duration);
   };
 
@@ -64,6 +66,7 @@ export default function PlayerBar() {
           <button className="icon-btn" onClick={next} title="Next"><Icon name="next" size={20} /></button>
           <button className={`icon-btn ${repeat ? 'active-ctl' : ''}`} onClick={() => setRepeat(!repeat)} title="Repeat"><Icon name="clock" size={17} /></button>
         </div>
+        {error && <div className="player-error" role="status">{error}</div>}
         <div className="progress-row">
           <span className="progress-time">{formatDuration(currentTime)}</span>
           <div className="progress-bar" ref={barRef} onMouseDown={seekFromEvent}>
