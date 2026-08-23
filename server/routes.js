@@ -177,6 +177,29 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
   res.json(s);
 });
 
+// Bulk import is intentionally limited to ten files per request. Audio stays in Pulse storage;
+// only upload music you own or are authorized to make available.
+router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'Choose at least one audio file' });
+  const artistId = parseInt(req.body.artist_id, 10) || artistForUser(req.user.id)?.id;
+  if (!artistId) return res.status(400).json({ error: 'Artist is required' });
+  if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'You can only upload for your own artist profile' });
+  const albumId = req.body.album_id ? parseInt(req.body.album_id, 10) : null;
+  const genre = (req.body.genre || '').trim() || null;
+  const insert = db.prepare(`INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path)
+    VALUES (?,?,?,?,?,?)`);
+  const getSong = db.prepare(`SELECT s.*, a.name artist_name, al.title album_title FROM songs s
+    JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id WHERE s.id = ?`);
+  const imported = db.transaction(() => files.map((file) => {
+    const title = path.basename(file.originalname, path.extname(file.originalname)).replace(/[-_]+/g, ' ').trim() || 'Untitled track';
+    const duration = wavDuration(file.path) || 0;
+    const id = insert.run(title, artistId, albumId, genre, duration, '/media/uploads/' + file.filename).lastInsertRowid;
+    return getSong.get(id);
+  }))();
+  res.status(201).json({ imported, count: imported.length });
+});
+
 router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
   const body = req.body;
   const title = (body.title || '').trim();
