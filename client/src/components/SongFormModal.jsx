@@ -10,7 +10,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    title: '', artist_id: '', album_id: '', genre: '', audio: null, cover: null
+    title: '', artist_id: '', album_id: '', genre: '', audio: null, source_url: '', cover: null
   });
 
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
         album_id: song?.album_id || '',
         genre: song?.genre || '',
         audio: null,
+        source_url: song?.source_url || '',
         cover: null
       });
     }
@@ -31,7 +32,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) { toast('Title is required', 'error'); return; }
-    if (!song && !form.audio) { toast('Please choose an audio file', 'error'); return; }
+    if (!song && !form.audio && !form.source_url.trim()) { toast('Choose an audio file or provide a licensed HTTPS playback URL', 'error'); return; }
 
     const fd = new FormData();
     fd.append('title', form.title.trim());
@@ -39,6 +40,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
     if (form.audio) fd.append('audio', form.audio);
+    if (form.source_url.trim()) fd.append('source_url', form.source_url.trim());
     if (form.cover) fd.append('cover', form.cover);
 
     setSaving(true);
@@ -87,6 +89,12 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
             <option value="">— Select genre —</option>
             {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
+        </label>
+
+        <label className="field">
+          <span>Licensed playback URL (optional)</span>
+          <input type="url" value={form.source_url} onChange={(e) => set('source_url', e.target.value)} placeholder="https://licensed-provider.example/track" />
+          <small className="muted">Use an HTTPS audio URL supplied by a provider that authorizes playback. Pulse plays it directly and never copies or proxies it.</small>
         </label>
 
         <div className="field-row">

@@ -10,7 +10,9 @@ function mulberry32(a) {
   };
 }
 
-const SAMPLE_RATE = 22050;
+// Small demo files need to seed quickly on constrained hosts such as Render free instances.
+// 11.025 kHz mono is more than adequate for preview loops and cuts seed CPU/storage substantially.
+const SAMPLE_RATE = 11025;
 
 // pentatonic scale semitone offsets
 const PENTA = [0, 2, 4, 7, 9];

@@ -1,128 +1,134 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { api } from '../api';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { api } from '../api.js';
 import { mediaUrl } from '../config.js';
 
 const PlayerContext = createContext(null);
 
 export function PlayerProvider({ children }) {
   const audioRef = useRef(null);
+  const queueRef = useRef([]);
+  const indexRef = useRef(-1);
+  const repeatRef = useRef(false);
+  const shuffleRef = useRef(false);
+  const volumeRef = useRef(0.9);
   const [queue, setQueue] = useState([]);
   const [index, setIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(0.9);
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState(false);
+  const [shuffle, setShuffleState] = useState(false);
+  const [repeat, setRepeatState] = useState(false);
+  const [error, setError] = useState('');
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
-
-  useEffect(() => {
-    if (!audioRef.current) {
-      const a = new Audio();
-      a.preload = 'metadata';
-      a.addEventListener('timeupdate', () => setCurrentTime(a.currentTime));
-      a.addEventListener('loadedmetadata', () => setDuration(a.duration || 0));
-      a.addEventListener('play', () => setIsPlaying(true));
-      a.addEventListener('pause', () => setIsPlaying(false));
-      a.addEventListener('ended', () => handleEnded());
-      audioRef.current = a;
-    }
-    return () => {};
-  }, []);
-
-  function handleEnded() {
-    if (repeat) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-      return;
-    }
-    next();
-  }
+  const updateIndex = (value) => { indexRef.current = value; setIndex(value); };
+  const updateQueue = (value) => { queueRef.current = value; setQueue(value); };
 
   const loadSong = useCallback((song) => {
-    const a = audioRef.current;
-    if (!a || !song) return;
-    a.src = mediaUrl(song.file_path);
-    a.volume = volume;
-    a.play().catch(() => {});
-    // fire-and-forget play count
+    const audio = audioRef.current;
+    const source = song && (song.source_url || song.file_path);
+    if (!audio || !source) {
+      setError('This track does not have a playable audio source.');
+      return;
+    }
+    setError('');
+    setCurrentTime(0);
+    setDuration(0);
+    audio.pause();
+    audio.src = mediaUrl(source);
+    audio.volume = volumeRef.current;
+    audio.load();
+    audio.play().catch(() => setError('Playback was blocked or this audio source is unavailable. Try play again.'));
     if (song.id) api.post(`/api/songs/${song.id}/play`).catch(() => {});
-  }, [volume]);
+  }, []);
+
+  const advance = useCallback(() => {
+    const items = queueRef.current;
+    if (!items.length) return;
+    if (repeatRef.current) {
+      const audio = audioRef.current;
+      if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+      return;
+    }
+    const oldIndex = indexRef.current;
+    let nextIndex = shuffleRef.current ? Math.floor(Math.random() * items.length) : oldIndex + 1;
+    if (shuffleRef.current && items.length > 1 && nextIndex === oldIndex) nextIndex = (nextIndex + 1) % items.length;
+    // Do not silently loop a one-track queue unless repeat is selected.
+    if (nextIndex >= items.length) { setIsPlaying(false); return; }
+    updateIndex(nextIndex);
+    loadSong(items[nextIndex]);
+  }, [loadSong]);
+
+  useEffect(() => {
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    const onTime = () => setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+    const onMetadata = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const onPlay = () => { setIsPlaying(true); setError(''); };
+    const onPause = () => setIsPlaying(false);
+    const onError = () => setError('We could not load this audio source.');
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('loadedmetadata', onMetadata);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('ended', advance);
+    audio.addEventListener('error', onError);
+    audioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('loadedmetadata', onMetadata);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('ended', advance);
+      audio.removeEventListener('error', onError);
+      audioRef.current = null;
+    };
+  }, [advance]);
 
   const play = useCallback((songs, startIndex = 0) => {
-    if (!songs || !songs.length) return;
-    setQueue(songs);
-    setIndex(startIndex);
-    setCurrentTime(0);
-    const song = songs[startIndex];
-    loadSong(song);
+    if (!Array.isArray(songs) || !songs.length) return;
+    const safeIndex = Math.max(0, Math.min(startIndex, songs.length - 1));
+    updateQueue(songs);
+    updateIndex(safeIndex);
+    loadSong(songs[safeIndex]);
   }, [loadSong]);
 
   const togglePlay = useCallback(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (!current && queue.length) { loadSong(queue[0]); setIndex(0); return; }
-    if (a.paused) a.play().catch(() => {});
-    else a.pause();
-  }, [current, queue, loadSong]);
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!current && queueRef.current.length) { updateIndex(0); loadSong(queueRef.current[0]); return; }
+    if (!audio.src) { if (current) loadSong(current); return; }
+    if (audio.paused) audio.play().catch(() => setError('Playback was blocked. Try play again.'));
+    else audio.pause();
+  }, [current, loadSong]);
 
-  const next = useCallback(() => {
-    if (!queue.length) return;
-    let ni;
-    if (shuffle) {
-      ni = Math.floor(Math.random() * queue.length);
-      if (ni === index) ni = (ni + 1) % queue.length;
-    } else {
-      ni = (index + 1) % queue.length;
-    }
-    setIndex(ni);
-    loadSong(queue[ni]);
-  }, [queue, index, shuffle, loadSong]);
-
+  const next = useCallback(() => advance(), [advance]);
   const prev = useCallback(() => {
-    if (!queue.length) return;
-    const a = audioRef.current;
-    if (a && a.currentTime > 3) { a.currentTime = 0; return; }
-    let pi = shuffle ? Math.floor(Math.random() * queue.length) : (index - 1 + queue.length) % queue.length;
-    setIndex(pi);
-    loadSong(queue[pi]);
-  }, [queue, index, shuffle, loadSong]);
-
-  const seek = useCallback((t) => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.currentTime = t;
-    setCurrentTime(t);
+    const items = queueRef.current;
+    const audio = audioRef.current;
+    if (!items.length) return;
+    if (audio && audio.currentTime > 3) { audio.currentTime = 0; return; }
+    const previous = shuffleRef.current ? Math.floor(Math.random() * items.length) : Math.max(0, indexRef.current - 1);
+    updateIndex(previous);
+    loadSong(items[previous]);
+  }, [loadSong]);
+  const seek = useCallback((time) => {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(time)) return;
+    audio.currentTime = Math.max(0, Math.min(time, Number.isFinite(audio.duration) ? audio.duration : time));
+    setCurrentTime(audio.currentTime);
   }, []);
-
-  const setVolume = useCallback((v) => {
-    const a = audioRef.current;
-    setVolumeState(v);
-    if (a) a.volume = v;
+  const setVolume = useCallback((value) => {
+    const safe = Math.max(0, Math.min(1, Number(value) || 0));
+    volumeRef.current = safe; setVolumeState(safe);
+    if (audioRef.current) audioRef.current.volume = safe;
   }, []);
+  const setShuffle = useCallback((value) => { shuffleRef.current = value; setShuffleState(value); }, []);
+  const setRepeat = useCallback((value) => { repeatRef.current = value; setRepeatState(value); }, []);
+  const markFavorite = useCallback((songId, value) => updateQueue(queueRef.current.map((song) => song.id === songId ? { ...song, is_favorite: value } : song)), []);
 
-  const playSongAt = useCallback((i) => {
-    if (i < 0 || i >= queue.length) return;
-    setIndex(i);
-    loadSong(queue[i]);
-  }, [queue, loadSong]);
-
-  // update is_favorite optimistically via a flag we can lift through queue
-  const markFavorite = useCallback((songId, val) => {
-    setQueue((q) => q.map((s) => (s.id === songId ? { ...s, is_favorite: val } : s)));
-  }, []);
-
-  return (
-    <PlayerContext.Provider value={{
-      current, queue, index, isPlaying, currentTime, duration, volume, shuffle, repeat,
-      play, togglePlay, next, prev, seek, setVolume, setShuffle, setRepeat, playSongAt, markFavorite
-    }}>
-      {children}
-    </PlayerContext.Provider>
-  );
+  return <PlayerContext.Provider value={{ current, queue, index, isPlaying, currentTime, duration, volume, shuffle, repeat, error, play, togglePlay, next, prev, seek, setVolume, setShuffle, setRepeat, markFavorite }}>{children}</PlayerContext.Provider>;
 }
-
-export function usePlayer() {
-  return useContext(PlayerContext);
-}
+export function usePlayer() { return useContext(PlayerContext); }

@@ -16,6 +16,8 @@ export default function Upload() {
   const [albums, setAlbums] = useState([]);
   const [saving, setSaving] = useState(false);
   const [audio, setAudio] = useState(null);
+  const [audioFiles, setAudioFiles] = useState([]);
+  const [trackMetadata, setTrackMetadata] = useState([]);
   const [cover, setCover] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [form, setForm] = useState({ title: '', artist_id: '', album_id: '', genre: '' });
@@ -35,30 +37,44 @@ export default function Upload() {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   }, [previewUrl]);
 
-  const pickAudio = (file) => {
-    if (!file) return;
-    if (!/\.(wav|mp3|m4a|ogg|flac|aac)$/i.test(file.name)) { toast('Unsupported audio format', 'error'); return; }
-    setAudio(file);
+  const pickAudio = (selected) => {
+    const allFiles = Array.from(selected || []);
+    if (!allFiles.length) return;
+    if (allFiles.length > 10) { toast('You can import up to 10 tracks at once', 'error'); return; }
+    const files = allFiles;
+    if (files.some((file) => !/\.(wav|mp3|m4a|ogg|flac|aac)$/i.test(file.name))) { toast('Use MP3, M4A, WAV, OGG, FLAC, or AAC files', 'error'); return; }
+    setAudioFiles(files);
+    setTrackMetadata(files.map((file) => ({
+      title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim(),
+      genre: form.genre || ''
+    })));
+    setAudio(files[0]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(URL.createObjectURL(file));
-    if (!form.title) setForm((f) => ({ ...f, title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') }));
+    setPreviewUrl(files.length === 1 ? URL.createObjectURL(files[0]) : null);
+    if (files.length === 1 && !form.title) setForm((f) => ({ ...f, title: files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') }));
   };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.title.trim()) { toast('Title is required', 'error'); return; }
-    if (!audio) { toast('Please choose an audio file', 'error'); return; }
+    if (audioFiles.length <= 1 && !form.title.trim()) { toast('Title is required', 'error'); return; }
+    if (!audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
     const fd = new FormData();
-    fd.append('title', form.title.trim());
     if (form.artist_id) fd.append('artist_id', form.artist_id);
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
-    fd.append('audio', audio);
-    if (cover) fd.append('cover', cover);
+    const isBulk = audioFiles.length > 1;
+    if (isBulk) {
+      audioFiles.forEach((file) => fd.append('audio', file));
+      fd.append('metadata', JSON.stringify(trackMetadata));
+    } else {
+      fd.append('title', form.title.trim());
+      fd.append('audio', audioFiles[0]);
+      if (cover) fd.append('cover', cover);
+    }
     setSaving(true);
     try {
-      await api.upload('/api/songs', fd);
-      toast('Track uploaded successfully 🎉');
+      await api.upload(isBulk ? '/api/songs/import' : '/api/songs', fd);
+      toast(isBulk ? `${audioFiles.length} tracks imported successfully 🎉` : 'Track uploaded successfully 🎉');
       navigate('/songs');
     } catch (err) { toast(err.message || 'Upload failed', 'error'); }
     finally { setSaving(false); }
@@ -74,28 +90,42 @@ export default function Upload() {
             className={`dropzone ${dragging ? 'dragging' : ''} ${audio ? 'has-file' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
-            onDrop={(e) => { e.preventDefault(); setDragging(false); pickAudio(e.dataTransfer.files[0]); }}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); pickAudio(e.dataTransfer.files); }}
           >
-            <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.aac" onChange={(e) => pickAudio(e.target.files[0])} style={{ display: 'none' }} id="audio-input" />
+            <input type="file" multiple accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.aac" onChange={(e) => pickAudio(e.target.files)} style={{ display: 'none' }} id="audio-input" />
             {audio ? (
               <div className="dropzone-file">
                 <div className="dropzone-icon done"><Icon name="check" size={26} /></div>
-                <div className="dz-title">{audio.name}</div>
-                <div className="dz-sub">{(audio.size / 1024 / 1024).toFixed(1)} MB — ready to upload</div>
+                <div className="dz-title">{audioFiles.length > 1 ? `${audioFiles.length} tracks selected` : audio.name}</div>
+                <div className="dz-sub">{audioFiles.length > 1 ? 'Track titles will be created from file names' : `${(audio.size / 1024 / 1024).toFixed(1)} MB — ready to upload`}</div>
+                {audioFiles.length > 1 && <div className="file-note">{audioFiles.map((file) => file.name).join(' · ')}</div>}
                 {previewUrl && <audio controls src={previewUrl} className="audio-preview" />}
-                <span className="btn btn-ghost btn-sm" onClick={() => { setAudio(null); setPreviewUrl(null); }}>Choose different file</span>
+                <span className="btn btn-ghost btn-sm" onClick={() => { setAudio(null); setAudioFiles([]); setPreviewUrl(null); }}>Choose different file</span>
               </div>
             ) : (
               <div className="dropzone-empty">
                 <div className="dropzone-icon"><Icon name="upload" size={26} /></div>
                 <div className="dz-title">Drag & drop your audio here</div>
-                <div className="dz-sub">or click to browse — WAV, MP3, M4A, OGG, FLAC (max 60MB)</div>
+                <div className="dz-sub">or click to browse — up to 10 MP3, M4A, WAV, OGG, FLAC, or AAC files (60MB each)</div>
                 <span className="btn btn-primary btn-sm">Browse files</span>
               </div>
             )}
           </label>
 
-          <div className="panel upload-fields">
+          {audioFiles.length > 1 && (
+          <section className="panel upload-fields bulk-metadata">
+            <h3 className="panel-title-sm">Track metadata</h3>
+            <p className="muted">Review the titles and set a genre for each track before importing.</p>
+            {trackMetadata.map((meta, index) => (
+              <div className="field-row" key={`${audioFiles[index].name}-${index}`}>
+                <label className="field"><span>Title</span><input value={meta.title} onChange={(e) => setTrackMetadata((items) => items.map((item, i) => i === index ? { ...item, title: e.target.value } : item))} /></label>
+                <label className="field"><span>Genre</span><select value={meta.genre} onChange={(e) => setTrackMetadata((items) => items.map((item, i) => i === index ? { ...item, genre: e.target.value } : item))}><option value="">Use common genre</option>{GENRES.map((genre) => <option key={genre} value={genre}>{genre}</option>)}</select></label>
+              </div>
+            ))}
+          </section>
+        )}
+
+        <div className="panel upload-fields">
             <div className="field">
               <span>Track title *</span>
               <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Midnight Drive" />
