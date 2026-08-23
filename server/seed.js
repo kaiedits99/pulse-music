@@ -145,7 +145,8 @@ function seed() {
 
     const rootMidi = 53 + (songCounter % 9);
     const seedBase = hashCode(title) % 100000;
-    const { durationSec } = generateTrack({ seed: seedBase, filePath: audioPath, durationSec: 34 + (songCounter % 4) * 3, rootMidi, bpm });
+    // Short original preview loops keep first boot responsive on low-resource deployments.
+    const { durationSec } = generateTrack({ seed: seedBase, filePath: audioPath, durationSec: 10 + (songCounter % 3) * 2, rootMidi, bpm });
 
     const downloads = Math.floor(plays / 14);
     const createdAt = new Date(Date.now() - (songCounter * 6 + 3) * 86400000).toISOString();
