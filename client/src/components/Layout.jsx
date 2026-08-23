@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 import PlayerBar from './PlayerBar.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -12,10 +13,14 @@ export default function Layout() {
       <div className="app-main">
         <Topbar onMenu={() => setMenuOpen(true)} />
         <main className="content">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
-      <PlayerBar />
+      <ErrorBoundary minimal>
+        <PlayerBar />
+      </ErrorBoundary>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { PlayerProvider } from './context/PlayerContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import Layout from './components/Layout.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
 import AuthPage from './pages/AuthPage.jsx';
@@ -34,30 +35,32 @@ function RequireAuth({ children }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <ToastProvider>
-        <AuthProvider>
-          <PlayerProvider>
-            <Routes>
-              <Route path="/login" element={<AuthPage />} />
-              <Route element={<RequireAuth><Layout /></RequireAuth>}>
-                <Route path="/" element={<Overview />} />
-                <Route path="/songs" element={<Songs />} />
-                <Route path="/albums" element={<Albums />} />
-                <Route path="/albums/:id" element={<AlbumDetail />} />
-                <Route path="/artists" element={<Artists />} />
-                <Route path="/artists/:id" element={<ArtistDetail />} />
-                <Route path="/playlists" element={<Playlists />} />
-                <Route path="/playlists/:id" element={<PlaylistDetail />} />
-                <Route path="/favorites" element={<Favorites />} />
-                <Route path="/upload" element={<Upload />} />
-                <Route path="/settings" element={<Settings />} />
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </PlayerProvider>
-        </AuthProvider>
-      </ToastProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <ToastProvider>
+          <AuthProvider>
+            <PlayerProvider>
+              <Routes>
+                <Route path="/login" element={<AuthPage />} />
+                <Route element={<RequireAuth><Layout /></RequireAuth>}>
+                  <Route path="/" element={<Overview />} />
+                  <Route path="/songs" element={<Songs />} />
+                  <Route path="/albums" element={<Albums />} />
+                  <Route path="/albums/:id" element={<AlbumDetail />} />
+                  <Route path="/artists" element={<Artists />} />
+                  <Route path="/artists/:id" element={<ArtistDetail />} />
+                  <Route path="/playlists" element={<Playlists />} />
+                  <Route path="/playlists/:id" element={<PlaylistDetail />} />
+                  <Route path="/favorites" element={<Favorites />} />
+                  <Route path="/upload" element={<Upload />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Route>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </PlayerProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

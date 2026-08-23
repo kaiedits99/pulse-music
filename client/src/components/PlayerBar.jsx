@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { Cover } from './ui.jsx';
@@ -16,69 +16,89 @@ export default function PlayerBar() {
   const toggleFavorite = useFavoriteToggle();
   const barRef = useRef(null);
 
-  if (!current) return null;
+  /* ---- Keyboard shortcut (space to toggle play) ---- */
+  const onKey = useCallback((e) => {
+    if (e.code === 'Space' && !e.target.closest('input,textarea,button,select')) {
+      e.preventDefault();
+      togglePlay();
+    }
+  }, [togglePlay]);
 
-  const pct = duration ? (currentTime / duration) * 100 : 0;
+  useEffect(() => {
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onKey]);
 
-  const seekFromEvent = (e) => {
+  /* ---- Seek from click on progress bar ---- */
+  const seekFromEvent = useCallback((e) => {
     if (!barRef.current || !duration) return;
     const rect = barRef.current.getBoundingClientRect();
     if (!rect.width) return;
     const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     seek(p * duration);
-  };
+  }, [duration, seek]);
 
-  const onKey = (e) => {
-    if (e.code === 'Space' && !e.target.closest('input,textarea,button,select')) {
-      e.preventDefault();
-      togglePlay();
-    }
-  };
-  useEffect(() => {
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  });
+  /* ---- Always render the bar shell so the layout is stable.
+         When no song is selected, render an invisible placeholder. ---- */
+  if (!current) {
+    return <div className="playerbar playerbar--empty" aria-hidden="true" />;
+  }
+
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0;
+  const pct = safeDuration ? (safeCurrentTime / safeDuration) * 100 : 0;
+
+  const title = current.title || 'Unknown Track';
+  const artistName = current.artist_name || 'Unknown Artist';
+  const artistId = current.artist_id;
+  const coverSrc = current.cover_url || current.album_cover || null;
+  const isFav = !!current.is_favorite;
+  const fallbackDur = Number.isFinite(current.duration_seconds) ? current.duration_seconds : 0;
 
   return (
     <div className="playerbar">
       <div className="player-left">
-        <Cover src={current.cover_url || current.album_cover} alt={current.title} size={48} />
+        <Cover src={coverSrc} alt={title} size={48} />
         <div className="player-meta">
-          <span className="player-title">{current.title}</span>
-          <Link to={`/artists/${current.artist_id}`} className="player-artist">{current.artist_name}</Link>
+          <span className="player-title">{title}</span>
+          {artistId ? (
+            <Link to={`/artists/${artistId}`} className="player-artist">{artistName}</Link>
+          ) : (
+            <span className="player-artist">{artistName}</span>
+          )}
         </div>
         <button
-          className={`icon-btn icon-btn-sm fav-btn ${current.is_favorite ? 'active' : ''}`}
-          onClick={() => toggleFavorite(current)}
+          className={`icon-btn icon-btn-sm fav-btn ${isFav ? 'active' : ''}`}
+          onClick={() => { try { toggleFavorite(current); } catch { /* ignore */ } }}
           aria-label="Favorite"
         >
-          <Icon name={current.is_favorite ? 'heartFill' : 'heart'} size={18} />
+          <Icon name={isFav ? 'heartFill' : 'heart'} size={18} />
         </button>
       </div>
 
       <div className="player-center">
         <div className="player-controls">
           <button className={`icon-btn ${shuffle ? 'active-ctl' : ''}`} onClick={() => setShuffle(!shuffle)} title="Shuffle"><Icon name="shuffle" size={18} /></button>
-          <button className="icon-btn" onClick={prev} title="Previous"><Icon name="prev" size={20} /></button>
-          <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+          <button className="icon-btn" onClick={() => { try { prev(); } catch { /* ignore */ } }} title="Previous"><Icon name="prev" size={20} /></button>
+          <button className="play-btn" onClick={() => { try { togglePlay(); } catch { /* ignore */ } }} aria-label={isPlaying ? 'Pause' : 'Play'}>
             {isPlaying ? <Icon name="pause" size={22} /> : <Icon name="play" size={22} />}
           </button>
-          <button className="icon-btn" onClick={next} title="Next"><Icon name="next" size={20} /></button>
+          <button className="icon-btn" onClick={() => { try { next(); } catch { /* ignore */ } }} title="Next"><Icon name="next" size={20} /></button>
           <button className={`icon-btn ${repeat ? 'active-ctl' : ''}`} onClick={() => setRepeat(!repeat)} title="Repeat"><Icon name="clock" size={17} /></button>
         </div>
         {error && <div className="player-error" role="status">{error}</div>}
         <div className="progress-row">
-          <span className="progress-time">{formatDuration(currentTime)}</span>
+          <span className="progress-time">{formatDuration(safeCurrentTime)}</span>
           <div className="progress-bar" ref={barRef} onMouseDown={seekFromEvent}>
             <div className="progress-fill" style={{ width: `${pct}%` }} />
             <div className="progress-thumb" style={{ left: `${pct}%` }} />
           </div>
-          <span className="progress-time">{formatDuration(duration || current.duration_seconds)}</span>
+          <span className="progress-time">{formatDuration(safeDuration || fallbackDur)}</span>
         </div>
       </div>
 
       <div className="player-right">
-        <button className="icon-btn icon-btn-sm" onClick={() => downloadSong(current, toast)} title="Download"><Icon name="download" size={18} /></button>
+        <button className="icon-btn icon-btn-sm" onClick={() => { try { downloadSong(current, toast); } catch { /* ignore */ } }} title="Download"><Icon name="download" size={18} /></button>
         <Icon name="volume" size={17} className="vol-icon" />
         <input
           type="range" min="0" max="1" step="0.01" value={volume}
