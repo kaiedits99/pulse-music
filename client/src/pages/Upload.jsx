@@ -17,6 +17,7 @@ export default function Upload() {
   const [saving, setSaving] = useState(false);
   const [audio, setAudio] = useState(null);
   const [audioFiles, setAudioFiles] = useState([]);
+  const [trackMetadata, setTrackMetadata] = useState([]);
   const [cover, setCover] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [form, setForm] = useState({ title: '', artist_id: '', album_id: '', genre: '' });
@@ -43,6 +44,10 @@ export default function Upload() {
     const files = allFiles;
     if (files.some((file) => !/\.(wav|mp3|m4a|ogg|flac|aac)$/i.test(file.name))) { toast('Use MP3, M4A, WAV, OGG, FLAC, or AAC files', 'error'); return; }
     setAudioFiles(files);
+    setTrackMetadata(files.map((file) => ({
+      title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim(),
+      genre: form.genre || ''
+    })));
     setAudio(files[0]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(files.length === 1 ? URL.createObjectURL(files[0]) : null);
@@ -58,8 +63,10 @@ export default function Upload() {
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
     const isBulk = audioFiles.length > 1;
-    if (isBulk) audioFiles.forEach((file) => fd.append('audio', file));
-    else {
+    if (isBulk) {
+      audioFiles.forEach((file) => fd.append('audio', file));
+      fd.append('metadata', JSON.stringify(trackMetadata));
+    } else {
       fd.append('title', form.title.trim());
       fd.append('audio', audioFiles[0]);
       if (cover) fd.append('cover', cover);
@@ -105,7 +112,20 @@ export default function Upload() {
             )}
           </label>
 
-          <div className="panel upload-fields">
+          {audioFiles.length > 1 && (
+          <section className="panel upload-fields bulk-metadata">
+            <h3 className="panel-title-sm">Track metadata</h3>
+            <p className="muted">Review the titles and set a genre for each track before importing.</p>
+            {trackMetadata.map((meta, index) => (
+              <div className="field-row" key={`${audioFiles[index].name}-${index}`}>
+                <label className="field"><span>Title</span><input value={meta.title} onChange={(e) => setTrackMetadata((items) => items.map((item, i) => i === index ? { ...item, title: e.target.value } : item))} /></label>
+                <label className="field"><span>Genre</span><select value={meta.genre} onChange={(e) => setTrackMetadata((items) => items.map((item, i) => i === index ? { ...item, genre: e.target.value } : item))}><option value="">Use common genre</option>{GENRES.map((genre) => <option key={genre} value={genre}>{genre}</option>)}</select></label>
+              </div>
+            ))}
+          </section>
+        )}
+
+        <div className="panel upload-fields">
             <div className="field">
               <span>Track title *</span>
               <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Midnight Drive" />
