@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from './Icon.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { initials } from '../format.js';
 
 const TITLES = {
   '/': 'Overview',
@@ -13,7 +15,8 @@ const TITLES = {
   '/settings': 'Settings'
 };
 
-export default function Topbar({ onMenu }) {
+export default function Topbar({ onMenu, onAccount }) {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [q, setQ] = useState('');
@@ -46,6 +49,7 @@ export default function Topbar({ onMenu }) {
           aria-label="Search"
         />
       </form>
+      <button className="topbar-avatar avatar" onClick={onAccount} aria-label="Open account menu">{initials(user?.name)}</button>
     </header>
   );
 }
