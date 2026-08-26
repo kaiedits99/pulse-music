@@ -10,7 +10,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    title: '', artist_id: '', album_id: '', genre: '', audio: null, source_url: '', cover: null
+    title: '', artist_id: '', album_id: '', artist_name: '', album_title: '', genre: '', audio: null, source_url: '', cover: null
   });
 
   useEffect(() => {
@@ -19,6 +19,8 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
         title: song?.title || '',
         artist_id: song?.artist_id || defaultArtistId || '',
         album_id: song?.album_id || '',
+        artist_name: song?.artist_name || artists.find((a) => a.id === song?.artist_id)?.name || '',
+        album_title: song?.album_title || albums.find((a) => a.id === song?.album_id)?.title || '',
         genre: song?.genre || '',
         audio: null,
         source_url: song?.source_url || '',
@@ -37,7 +39,9 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
     const fd = new FormData();
     fd.append('title', form.title.trim());
     if (form.artist_id) fd.append('artist_id', form.artist_id);
+    if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
     if (form.album_id) fd.append('album_id', form.album_id);
+    if (form.album_title.trim()) fd.append('album_title', form.album_title.trim());
     if (form.genre) fd.append('genre', form.genre);
     if (form.audio) fd.append('audio', form.audio);
     if (form.source_url.trim()) fd.append('source_url', form.source_url.trim());
@@ -69,17 +73,13 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
         <div className="field-row">
           <label className="field">
             <span>Artist</span>
-            <select value={form.artist_id} onChange={(e) => set('artist_id', e.target.value)}>
-              <option value="">— Select artist —</option>
-              {artists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+            <input list="artist-options" value={form.artist_name} onChange={(e) => { const a = artists.find((x) => x.name === e.target.value); setForm((f) => ({ ...f, artist_name: e.target.value, artist_id: a?.id || '' })); }} placeholder="Type an artist name" />
+            <datalist id="artist-options">{artists.map((a) => <option key={a.id} value={a.name} />)}</datalist>
           </label>
           <label className="field">
             <span>Album (optional)</span>
-            <select value={form.album_id} onChange={(e) => set('album_id', e.target.value)}>
-              <option value="">— None —</option>
-              {albums.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
-            </select>
+            <input list="album-options" value={form.album_title} onChange={(e) => { const a = albums.find((x) => x.title === e.target.value); setForm((f) => ({ ...f, album_title: e.target.value, album_id: a?.id || '' })); }} placeholder="Type an album title" />
+            <datalist id="album-options">{albums.map((a) => <option key={a.id} value={a.title} />)}</datalist>
           </label>
         </div>
 
