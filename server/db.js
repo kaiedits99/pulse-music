@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS albums (
   cover_url TEXT,
   release_year INTEGER,
   genre TEXT,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -61,6 +62,9 @@ CREATE TABLE IF NOT EXISTS songs (
   -- Direct playback URL from a licensed provider. We never proxy or download third-party audio.
   source_url TEXT,
   cover_url TEXT,
+  -- User who uploaded the track. Uploads live in the shared catalog, so this is
+  -- only used for provenance and the "My music" view, never for access control.
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   plays INTEGER NOT NULL DEFAULT 0,
   downloads INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -97,5 +101,18 @@ CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
 // Lightweight migration for installations created before licensed-source support.
 const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);
 if (!songColumns.includes('source_url')) db.exec('ALTER TABLE songs ADD COLUMN source_url TEXT');
+// Migration for installations created before upload provenance tracking.
+if (!songColumns.includes('uploaded_by')) {
+  db.exec('ALTER TABLE songs ADD COLUMN uploaded_by INTEGER REFERENCES users(id)');
+  // backfill: seed the uploader from the artist profile's linked account
+  db.exec(`UPDATE songs SET uploaded_by = (SELECT a.user_id FROM artists a WHERE a.id = songs.artist_id)
+           WHERE uploaded_by IS NULL`);
+}
+const albumColumns = db.prepare('PRAGMA table_info(albums)').all().map((column) => column.name);
+if (!albumColumns.includes('uploaded_by')) {
+  db.exec('ALTER TABLE albums ADD COLUMN uploaded_by INTEGER REFERENCES users(id)');
+  db.exec(`UPDATE albums SET uploaded_by = (SELECT a.user_id FROM artists a WHERE a.id = albums.artist_id)
+           WHERE uploaded_by IS NULL`);
+}
 
 export default db;

@@ -37,12 +37,12 @@ export default function Songs() {
       if (q) params.set('q', q);
       if (genre) params.set('genre', genre);
       if (sort !== 'recent') params.set('sort', sort);
-      let data = await api.get(`/api/songs?${params.toString()}`);
-      if (mineOnly && artist) data = data.filter((s) => s.artist_id === artist.id);
+      if (mineOnly) params.set('mine', '1');
+      const data = await api.get(`/api/songs?${params.toString()}`);
       setSongs(data);
     } catch (err) { toast(err.message, 'error'); }
     finally { setLoading(false); }
-  }, [q, genre, sort, mineOnly, artist, toast]);
+  }, [q, genre, sort, mineOnly, toast]);
 
   useEffect(() => { loadSongs(); }, [loadSongs]);
 
@@ -80,7 +80,7 @@ export default function Songs() {
               <button onClick={() => setSearchParams({})} aria-label="Clear search"><Icon name="close" size={14} /></button>
             </span>
           )}
-          {artist && (
+          {user && (
             <button className={`filter-tab ${mineOnly ? 'active' : ''}`} onClick={() => setMineOnly(!mineOnly)}>
               <Icon name="artist" size={15} /> My music
             </button>

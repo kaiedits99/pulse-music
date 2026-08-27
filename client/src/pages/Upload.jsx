@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Spinner, PageHeader } from '../components/ui.jsx';
+import ArtistField from '../components/ArtistField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -133,17 +134,7 @@ export default function Upload() {
             <div className="field-row">
               <label className="field">
                 <span>Artist (song owner)</span>
-                <input
-                  list="upload-artist-options"
-                  value={form.artist_name}
-                  onChange={(e) => setForm((f) => ({ ...f, artist_name: e.target.value }))}
-                  placeholder="Type the artist's name — existing or new"
-                  autoComplete="off"
-                />
-                <datalist id="upload-artist-options">
-                  {artists.map((a) => <option key={a.id} value={a.name} />)}
-                </datalist>
-                <ArtistHint name={form.artist_name} artists={artists} ownArtist={artist} />
+                <ArtistField value={form.artist_name} onChange={(v) => setForm((f) => ({ ...f, artist_name: v }))} artists={artists} listId="upload-artist-options" />
               </label>
               <label className="field">
                 <span>Album (optional)</span>
@@ -186,21 +177,3 @@ export default function Upload() {
   );
 }
 
-/** Live hint under the artist input explaining what will happen on upload. */
-function ArtistHint({ name, artists, ownArtist }) {
-  const typed = name.trim();
-  if (!typed) {
-    return (
-      <small className="field-hint">
-        {ownArtist
-          ? `Defaults to your artist profile — ${ownArtist.name}. Type any name to change the owner.`
-          : 'Type the artist who owns this track — a new profile is created if the name is new.'}
-      </small>
-    );
-  }
-  const match = artists.find((a) => a.name.toLowerCase() === typed.toLowerCase());
-  if (match) {
-    return <small className="field-hint ok">Links to the existing artist profile — {match.name}.</small>;
-  }
-  return <small className="field-hint new">“{typed}” will be created as a new artist profile.</small>;
-}

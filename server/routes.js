@@ -69,8 +69,19 @@ function artistForUser(userId) {
 function songOwnerIs(req, song) {
   if (!req.user) return false;
   if (req.user.role === 'admin') return true;
+  // the uploader keeps rights over their upload even when it is attributed
+  // to a typed artist profile that isn't their own
+  if (song.uploaded_by === req.user.id) return true;
   const artist = artistForUser(req.user.id);
   return artist && artist.id === song.artist_id;
+}
+
+function albumOwnerIs(req, album) {
+  if (!req.user) return false;
+  if (req.user.role === 'admin') return true;
+  if (album.uploaded_by === req.user.id) return true;
+  const artist = artistForUser(req.user.id);
+  return artist && artist.id === album.artist_id;
 }
 
 function artistOwnerIs(req, artistId) {
@@ -182,6 +193,13 @@ router.get('/songs', optionalAuth, (req, res) => {
   if (artist_id) { where.push('s.artist_id = ?'); params.push(artist_id); }
   if (album_id) { where.push('s.album_id = ?'); params.push(album_id); }
   if (genre) { where.push('s.genre = ?'); params.push(genre); }
+  // "My music": everything uploaded by this user plus everything attributed to
+  // their own artist profile. Purely a filter — the catalog itself is shared.
+  if (req.query.mine === '1' && req.user) {
+    const own = artistForUser(req.user.id);
+    where.push('(s.uploaded_by = ? OR s.artist_id = ?)');
+    params.push(req.user.id, own ? own.id : -1);
+  }
   let order = 's.created_at DESC';
   if (sort === 'plays') order = 's.plays DESC';
   if (sort === 'downloads') order = 's.downloads DESC';
@@ -230,8 +248,8 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
   } catch {
     return res.status(400).json({ error: 'Track metadata is invalid' });
   }
-  const insert = db.prepare(`INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path)
-    VALUES (?,?,?,?,?,?)`);
+  const insert = db.prepare(`INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, uploaded_by)
+    VALUES (?,?,?,?,?,?,?)`);
   const getSong = db.prepare(`SELECT s.*, a.name artist_name, al.title album_title FROM songs s
     JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id WHERE s.id = ?`);
   const imported = db.transaction(() => files.map((file, index) => {
@@ -240,7 +258,7 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
     const title = String(meta.title || fallbackTitle || 'Untitled track').trim().slice(0, 250) || 'Untitled track';
     const trackGenre = String(meta.genre || genre || '').trim().slice(0, 100) || null;
     const duration = wavDuration(file.path) || 0;
-    const id = insert.run(title, artistId, albumId, trackGenre, duration, '/media/uploads/' + file.filename).lastInsertRowid;
+    const id = insert.run(title, artistId, albumId, trackGenre, duration, '/media/uploads/' + file.filename, req.user.id).lastInsertRowid;
     return getSong.get(id);
   }))();
   res.status(201).json({ imported, count: imported.length });
@@ -272,9 +290,9 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   }
 
   const info = db.prepare(
-    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url)
-     VALUES (?,?,?,?,?,?,?,?)`
-  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl);
+    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url, uploaded_by)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl, req.user.id);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
@@ -295,9 +313,13 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
   if (typedArtist) {
     // re-typing the owner links to the existing profile or creates a new one
     artistId = findOrCreateArtist(typedArtist).id;
-  } else {
-    artistId = body.artist_id ? parseInt(body.artist_id, 10) : existing.artist_id;
+  } else if (body.artist_id) {
+    // explicitly changing the attributed artist requires owning that profile
+    artistId = parseInt(body.artist_id, 10) || existing.artist_id;
     if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'Not allowed' });
+  } else {
+    // artist untouched - keep the attributed profile
+    artistId = existing.artist_id;
   }
 
   const albumId = body.album_id ? parseInt(body.album_id, 10) : existing.album_id;
@@ -400,14 +422,12 @@ router.get('/albums/:id', optionalAuth, (req, res) => {
 });
 
 router.post('/albums', authMiddleware, (req, res) => {
-  const { title, artist_id, release_year, genre } = req.body || {};
+  const { title, release_year, genre } = req.body || {};
   if (!title) return res.status(400).json({ error: 'Title is required' });
-  let aId = artist_id ? parseInt(artist_id, 10) : null;
-  if (!aId) { const own = artistForUser(req.user.id); if (own) aId = own.id; }
-  if (!aId) return res.status(400).json({ error: 'Artist is required' });
-  if (!artistOwnerIs(req, aId)) return res.status(403).json({ error: 'Not allowed' });
-  const info = db.prepare('INSERT INTO albums (title, artist_id, release_year, genre) VALUES (?,?,?,?)')
-    .run(title, aId, release_year || new Date().getFullYear(), genre || null);
+  // typed artist name wins: links to an existing profile or creates a new one
+  const aId = resolveUploadArtist(req, req.body || {});
+  const info = db.prepare('INSERT INTO albums (title, artist_id, release_year, genre, uploaded_by) VALUES (?,?,?,?,?)')
+    .run(title, aId, release_year || new Date().getFullYear(), genre || null, req.user.id);
   const al = db.prepare('SELECT * FROM albums WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(al);
 });
@@ -415,17 +435,21 @@ router.post('/albums', authMiddleware, (req, res) => {
 router.put('/albums/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM albums WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Album not found' });
-  if (!artistOwnerIs(req, existing.artist_id)) return res.status(403).json({ error: 'Not allowed' });
+  if (!albumOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
   const b = req.body || {};
-  db.prepare('UPDATE albums SET title=?, release_year=?, genre=? WHERE id=?')
-    .run(b.title || existing.title, b.release_year || existing.release_year, b.genre || existing.genre, existing.id);
+  let artistId = existing.artist_id;
+  const typedArtist = normaliseArtistName(b.artist_name);
+  if (typedArtist) artistId = findOrCreateArtist(typedArtist).id;
+  else if (b.artist_id) artistId = parseInt(b.artist_id, 10) || existing.artist_id;
+  db.prepare('UPDATE albums SET title=?, artist_id=?, release_year=?, genre=? WHERE id=?')
+    .run(b.title || existing.title, artistId, b.release_year || existing.release_year, b.genre || existing.genre, existing.id);
   res.json(db.prepare('SELECT * FROM albums WHERE id = ?').get(existing.id));
 });
 
 router.delete('/albums/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM albums WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Album not found' });
-  if (!artistOwnerIs(req, existing.artist_id)) return res.status(403).json({ error: 'Not allowed' });
+  if (!albumOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
   db.prepare('DELETE FROM albums WHERE id = ?').run(existing.id);
   res.json({ ok: true });
 });

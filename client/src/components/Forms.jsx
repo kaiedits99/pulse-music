@@ -2,29 +2,33 @@ import { useState, useEffect } from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
 import { Spinner } from './ui.jsx';
+import ArtistField from './ArtistField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 
 export function AlbumFormModal({ open, onClose, onSaved, album, artists, defaultArtistId }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ title: '', artist_id: '', release_year: new Date().getFullYear(), genre: '' });
+  const [form, setForm] = useState({ title: '', artist_name: '', release_year: new Date().getFullYear(), genre: '' });
 
   useEffect(() => {
     if (open) setForm({
       title: album?.title || '',
-      artist_id: album?.artist_id || defaultArtistId || '',
+      artist_name: album?.artist_name
+        || artists.find((a) => a.id === (album?.artist_id || defaultArtistId))?.name
+        || '',
       release_year: album?.release_year || new Date().getFullYear(),
       genre: album?.genre || ''
     });
-  }, [open, album, defaultArtistId]);
+  }, [open, album, defaultArtistId, artists]);
 
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) { toast('Title is required', 'error'); return; }
     setSaving(true);
     try {
-      const payload = { title: form.title.trim(), artist_id: form.artist_id || undefined, release_year: form.release_year, genre: form.genre || undefined };
+      const payload = { title: form.title.trim(), release_year: form.release_year, genre: form.genre || undefined };
+      if (form.artist_name.trim()) payload.artist_name = form.artist_name.trim();
       const saved = album
         ? await api.put(`/api/albums/${album.id}`, payload)
         : await api.post('/api/albums', payload);
@@ -42,11 +46,8 @@ export function AlbumFormModal({ open, onClose, onSaved, album, artists, default
           <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Golden Hour" autoFocus />
         </label>
         <div className="field-row">
-          <label className="field"><span>Artist</span>
-            <select value={form.artist_id} onChange={(e) => setForm((f) => ({ ...f, artist_id: e.target.value }))}>
-              <option value="">— Select —</option>
-              {artists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+          <label className="field"><span>Artist (album owner)</span>
+            <ArtistField value={form.artist_name} onChange={(v) => setForm((f) => ({ ...f, artist_name: v }))} artists={artists} listId="album-artist-options" />
           </label>
           <label className="field"><span>Release year</span>
             <input type="number" min="1950" max="2100" value={form.release_year} onChange={(e) => setForm((f) => ({ ...f, release_year: e.target.value }))} />
