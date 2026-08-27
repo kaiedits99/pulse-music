@@ -80,6 +80,44 @@ function artistOwnerIs(req, artistId) {
   return artist && artist.id === artistId;
 }
 
+function normaliseArtistName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+/** Case-insensitive lookup by name; creates the artist profile when new. */
+function findOrCreateArtist(name) {
+  const clean = normaliseArtistName(name);
+  const existing = db.prepare('SELECT * FROM artists WHERE LOWER(name) = LOWER(?) ORDER BY id LIMIT 1').get(clean);
+  if (existing) return existing;
+  const info = db.prepare('INSERT INTO artists (name) VALUES (?)').run(clean);
+  return db.prepare('SELECT * FROM artists WHERE id = ?').get(info.lastInsertRowid);
+}
+
+/**
+ * Resolve the owner of an uploaded song. A typed artist name always wins:
+ * it links to an existing profile with the same name (case-insensitive) or
+ * creates a brand-new artist, so uploaders are never limited to a fixed list.
+ */
+function resolveUploadArtist(req, body) {
+  const typed = normaliseArtistName(body.artist_name);
+  if (typed) return findOrCreateArtist(typed).id;
+
+  let artistId = parseInt(body.artist_id, 10) || null;
+  if (!artistId) {
+    const own = artistForUser(req.user.id);
+    if (own) artistId = own.id;
+  }
+  if (!artistId) throw httpError(400, 'Artist is required');
+  if (!artistOwnerIs(req, artistId)) throw httpError(403, 'You can only upload for your own artist profile');
+  return artistId;
+}
+
 // ============================== AUTH ==============================
 router.post('/auth/register', (req, res) => {
   const { name, email, password, artistName } = req.body || {};
@@ -182,9 +220,7 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
 router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'Choose at least one audio file' });
-  const artistId = parseInt(req.body.artist_id, 10) || artistForUser(req.user.id)?.id;
-  if (!artistId) return res.status(400).json({ error: 'Artist is required' });
-  if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'You can only upload for your own artist profile' });
+  const artistId = resolveUploadArtist(req, req.body);
   const albumId = req.body.album_id ? parseInt(req.body.album_id, 10) : null;
   const genre = (req.body.genre || '').trim() || null;
   let metadata = [];
@@ -215,14 +251,8 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   const title = (body.title || '').trim();
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
-  // resolve artist
-  let artistId = parseInt(body.artist_id, 10);
-  if (!artistId && req.user) {
-    const own = artistForUser(req.user.id);
-    if (own) artistId = own.id;
-  }
-  if (!artistId) return res.status(400).json({ error: 'Artist is required' });
-  if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'You can only upload for your own artist profile' });
+  // resolve artist — a typed name can be brand-new or belong to another profile
+  const artistId = resolveUploadArtist(req, body);
 
   const audioFile = req.files && req.files.audio && req.files.audio[0];
   const coverFile = req.files && req.files.cover && req.files.cover[0];
@@ -260,8 +290,15 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
 
   const body = req.body;
   const title = body.title != null ? (body.title || '').trim() : existing.title;
-  let artistId = body.artist_id ? parseInt(body.artist_id, 10) : existing.artist_id;
-  if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'Not allowed' });
+  let artistId;
+  const typedArtist = normaliseArtistName(body.artist_name);
+  if (typedArtist) {
+    // re-typing the owner links to the existing profile or creates a new one
+    artistId = findOrCreateArtist(typedArtist).id;
+  } else {
+    artistId = body.artist_id ? parseInt(body.artist_id, 10) : existing.artist_id;
+    if (!artistOwnerIs(req, artistId)) return res.status(403).json({ error: 'Not allowed' });
+  }
 
   const albumId = body.album_id ? parseInt(body.album_id, 10) : existing.album_id;
   const audioFile = req.files && req.files.audio && req.files.audio[0];

@@ -20,7 +20,7 @@ export default function Upload() {
   const [trackMetadata, setTrackMetadata] = useState([]);
   const [cover, setCover] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [form, setForm] = useState({ title: '', artist_id: '', album_id: '', genre: '' });
+  const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '' });
   const audioPreview = useRef(null);
   const [previewUrl, setPreviewUrl] = useState(null);
 
@@ -30,7 +30,7 @@ export default function Upload() {
   }, []);
 
   useEffect(() => {
-    if (artist && !form.artist_id) setForm((f) => ({ ...f, artist_id: artist.id }));
+    if (artist && !form.artist_name) setForm((f) => ({ ...f, artist_name: artist.name }));
   }, [artist]);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export default function Upload() {
     if (audioFiles.length <= 1 && !form.title.trim()) { toast('Title is required', 'error'); return; }
     if (!audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
     const fd = new FormData();
-    if (form.artist_id) fd.append('artist_id', form.artist_id);
+    if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
     const isBulk = audioFiles.length > 1;
@@ -132,11 +132,18 @@ export default function Upload() {
             </div>
             <div className="field-row">
               <label className="field">
-                <span>Artist</span>
-                <select value={form.artist_id} onChange={(e) => setForm((f) => ({ ...f, artist_id: e.target.value }))}>
-                  <option value="">— Select artist —</option>
-                  {artists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                <span>Artist (song owner)</span>
+                <input
+                  list="upload-artist-options"
+                  value={form.artist_name}
+                  onChange={(e) => setForm((f) => ({ ...f, artist_name: e.target.value }))}
+                  placeholder="Type the artist's name — existing or new"
+                  autoComplete="off"
+                />
+                <datalist id="upload-artist-options">
+                  {artists.map((a) => <option key={a.id} value={a.name} />)}
+                </datalist>
+                <ArtistHint name={form.artist_name} artists={artists} ownArtist={artist} />
               </label>
               <label className="field">
                 <span>Album (optional)</span>
@@ -177,4 +184,23 @@ export default function Upload() {
       </form>
     </div>
   );
+}
+
+/** Live hint under the artist input explaining what will happen on upload. */
+function ArtistHint({ name, artists, ownArtist }) {
+  const typed = name.trim();
+  if (!typed) {
+    return (
+      <small className="field-hint">
+        {ownArtist
+          ? `Defaults to your artist profile — ${ownArtist.name}. Type any name to change the owner.`
+          : 'Type the artist who owns this track — a new profile is created if the name is new.'}
+      </small>
+    );
+  }
+  const match = artists.find((a) => a.name.toLowerCase() === typed.toLowerCase());
+  if (match) {
+    return <small className="field-hint ok">Links to the existing artist profile — {match.name}.</small>;
+  }
+  return <small className="field-hint new">“{typed}” will be created as a new artist profile.</small>;
 }

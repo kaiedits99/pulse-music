@@ -557,6 +557,9 @@ tr:hover .row-actions .fav-btn { opacity: 1; }
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > span { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.field-hint { font-size: 12px; color: var(--text-faint); line-height: 1.4; }
+.field-hint.ok { color: var(--success); }
+.field-hint.new { color: var(--info); }
 .field input, .field select, .field textarea {
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
