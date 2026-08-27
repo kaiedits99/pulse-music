@@ -1,6 +1,7 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
+import NowPlaying from './NowPlaying.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
@@ -15,6 +16,26 @@ export default function PlayerBar() {
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
   const barRef = useRef(null);
+  const swipeStartY = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const openExpanded = useCallback(() => setExpanded(true), []);
+  const closeExpanded = useCallback(() => setExpanded(false), []);
+
+  /* ---- Tap anywhere on the bar (except real controls) to expand ---- */
+  const onBarClick = useCallback((e) => {
+    if (e.target.closest('button, a, input, .progress-bar, .player-error')) return;
+    openExpanded();
+  }, [openExpanded]);
+
+  /* ---- Swipe up on the bar to expand (mobile) ---- */
+  const onBarTouchStart = useCallback((e) => { swipeStartY.current = e.touches[0].clientY; }, []);
+  const onBarTouchEnd = useCallback((e) => {
+    if (swipeStartY.current == null) return;
+    const dy = e.changedTouches[0].clientY - swipeStartY.current;
+    swipeStartY.current = null;
+    if (dy < -45) openExpanded();
+  }, [openExpanded]);
 
   /* ---- Keyboard shortcut (space to toggle play) ---- */
   const onKey = useCallback((e) => {
@@ -56,8 +77,16 @@ export default function PlayerBar() {
   const fallbackDur = Number.isFinite(current.duration_seconds) ? current.duration_seconds : 0;
 
   return (
-    <div className="playerbar">
+    <div
+      className="playerbar playerbar--tappable"
+      onClick={onBarClick}
+      onTouchStart={onBarTouchStart}
+      onTouchEnd={onBarTouchEnd}
+      title="Open Now Playing"
+    >
+      <NowPlaying open={expanded} onClose={closeExpanded} />
       <div className="player-left">
+        <span className="expand-hint" aria-hidden="true"><Icon name="chevronDown" size={16} className="flip-up" /></span>
         <Cover src={coverSrc} alt={title} size={48} />
         <div className="player-meta">
           <span className="player-title">{title}</span>
@@ -84,7 +113,7 @@ export default function PlayerBar() {
             {isPlaying ? <Icon name="pause" size={22} /> : <Icon name="play" size={22} />}
           </button>
           <button className="icon-btn" onClick={() => { try { next(); } catch { /* ignore */ } }} title="Next"><Icon name="next" size={20} /></button>
-          <button className={`icon-btn ${repeat ? 'active-ctl' : ''}`} onClick={() => setRepeat(!repeat)} title="Repeat"><Icon name="clock" size={17} /></button>
+          <button className={`icon-btn ${repeat ? 'active-ctl' : ''}`} onClick={() => setRepeat(!repeat)} title="Repeat"><Icon name="repeat" size={18} /></button>
         </div>
         {error && <div className="player-error" role="status">{error}</div>}
         <div className="progress-row">
