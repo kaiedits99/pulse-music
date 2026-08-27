@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Spinner, PageHeader } from '../components/ui.jsx';
+import ArtistField from '../components/ArtistField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -20,7 +21,7 @@ export default function Upload() {
   const [trackMetadata, setTrackMetadata] = useState([]);
   const [cover, setCover] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [form, setForm] = useState({ title: '', artist_id: '', album_id: '', genre: '' });
+  const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '' });
   const audioPreview = useRef(null);
   const [previewUrl, setPreviewUrl] = useState(null);
 
@@ -30,7 +31,7 @@ export default function Upload() {
   }, []);
 
   useEffect(() => {
-    if (artist && !form.artist_id) setForm((f) => ({ ...f, artist_id: artist.id }));
+    if (artist && !form.artist_name) setForm((f) => ({ ...f, artist_name: artist.name }));
   }, [artist]);
 
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function Upload() {
     if (audioFiles.length <= 1 && !form.title.trim()) { toast('Title is required', 'error'); return; }
     if (!audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
     const fd = new FormData();
-    if (form.artist_id) fd.append('artist_id', form.artist_id);
+    if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
     const isBulk = audioFiles.length > 1;
@@ -132,11 +133,8 @@ export default function Upload() {
             </div>
             <div className="field-row">
               <label className="field">
-                <span>Artist</span>
-                <select value={form.artist_id} onChange={(e) => setForm((f) => ({ ...f, artist_id: e.target.value }))}>
-                  <option value="">— Select artist —</option>
-                  {artists.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                <span>Artist (song owner)</span>
+                <ArtistField value={form.artist_name} onChange={(v) => setForm((f) => ({ ...f, artist_name: v }))} artists={artists} listId="upload-artist-options" />
               </label>
               <label className="field">
                 <span>Album (optional)</span>
@@ -178,3 +176,4 @@ export default function Upload() {
     </div>
   );
 }
+

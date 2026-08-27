@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Modal from './Modal.jsx';
 import { Spinner } from './ui.jsx';
+import ArtistField from './ArtistField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -73,8 +74,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
         <div className="field-row">
           <label className="field">
             <span>Artist</span>
-            <input list="artist-options" value={form.artist_name} onChange={(e) => { const a = artists.find((x) => x.name === e.target.value); setForm((f) => ({ ...f, artist_name: e.target.value, artist_id: a?.id || '' })); }} placeholder="Type an artist name" />
-            <datalist id="artist-options">{artists.map((a) => <option key={a.id} value={a.name} />)}</datalist>
+            <ArtistField value={form.artist_name} onChange={(v) => setForm((f) => ({ ...f, artist_name: v, artist_id: '' }))} artists={artists} listId="song-artist-options" />
           </label>
           <label className="field">
             <span>Album (optional)</span>
