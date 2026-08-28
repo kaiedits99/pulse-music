@@ -47,6 +47,9 @@ export function PlayerProvider({ children }) {
   const audioRef = useRef(null);
   const queueRef = useRef([]);
   const indexRef = useRef(-1);
+  const currentRef = useRef(null);
+  const durationRef = useRef(0);
+  const pendingSeekRef = useRef(null);
   const repeatRef = useRef(false);
   const shuffleRef = useRef(false);
   const volumeRef = useRef(0.9);
@@ -64,11 +67,20 @@ export function PlayerProvider({ children }) {
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
-  const updateIndex = (value) => { indexRef.current = value; setIndex(value); };
-  const updateQueue = (value) => { queueRef.current = value; setQueue(value); };
+  const updateIndex = (value) => {
+    indexRef.current = value;
+    setIndex(value);
+    const curr = value >= 0 && value < queueRef.current.length ? queueRef.current[value] : null;
+    currentRef.current = curr;
+  };
 
-  /* ---- loadSong: the critical path that was crashing ---- */
-  const loadSong = useCallback((song) => {
+  const updateQueue = (value) => {
+    queueRef.current = value;
+    setQueue(value);
+  };
+
+  /* ---- loadSong: sets up audio source and begins playback ---- */
+  const loadSong = useCallback((song, startAtTime = 0) => {
     try {
       const audio = audioRef.current;
       const source = resolveSource(song);
@@ -77,8 +89,18 @@ export function PlayerProvider({ children }) {
         return;
       }
       setError('');
-      setCurrentTime(0);
-      setDuration(0);
+
+      // Preload initial duration from song metadata if available
+      const initialDuration = Number.isFinite(song.duration_seconds) && song.duration_seconds > 0
+        ? song.duration_seconds
+        : 0;
+      durationRef.current = initialDuration;
+      setDuration(initialDuration);
+
+      const startTime = Number.isFinite(startAtTime) && startAtTime > 0 ? startAtTime : 0;
+      setCurrentTime(startTime);
+      pendingSeekRef.current = startTime > 0 ? startTime : null;
+
       audio.pause();
 
       const url = mediaUrl(source);
@@ -89,6 +111,12 @@ export function PlayerProvider({ children }) {
       audio.src = url;
       audio.volume = volumeRef.current;
       audio.load();
+
+      if (startTime > 0) {
+        try {
+          audio.currentTime = startTime;
+        } catch { /* will apply when metadata loads */ }
+      }
 
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.catch === 'function') {
@@ -112,13 +140,20 @@ export function PlayerProvider({ children }) {
     if (!items.length) return;
     if (repeatRef.current) {
       const audio = audioRef.current;
-      if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+      if (audio) {
+        audio.currentTime = 0;
+        setCurrentTime(0);
+        audio.play().catch(() => {});
+      }
       return;
     }
     const oldIndex = indexRef.current;
     let nextIndex = shuffleRef.current ? Math.floor(Math.random() * items.length) : oldIndex + 1;
     if (shuffleRef.current && items.length > 1 && nextIndex === oldIndex) nextIndex = (nextIndex + 1) % items.length;
-    if (nextIndex >= items.length) { setIsPlaying(false); return; }
+    if (nextIndex >= items.length) {
+      setIsPlaying(false);
+      return;
+    }
     updateIndex(nextIndex);
     loadSong(items[nextIndex]);
   }, [loadSong]);
@@ -131,19 +166,38 @@ export function PlayerProvider({ children }) {
       if (!mountedRef.current) return;
       setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
     };
+
     const onMetadata = () => {
       if (!mountedRef.current) return;
-      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+      const audioDur = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      const effectiveDur = audioDur > 0 ? audioDur : (currentRef.current?.duration_seconds ?? 0);
+      if (effectiveDur > 0) {
+        durationRef.current = effectiveDur;
+        setDuration(effectiveDur);
+      }
+      if (pendingSeekRef.current !== null && Number.isFinite(pendingSeekRef.current)) {
+        const target = pendingSeekRef.current;
+        pendingSeekRef.current = null;
+        try {
+          const maxDur = effectiveDur > 0 ? effectiveDur : target;
+          const safeTarget = Math.max(0, Math.min(target, maxDur));
+          audio.currentTime = safeTarget;
+          setCurrentTime(safeTarget);
+        } catch { /* ignore */ }
+      }
     };
+
     const onPlay = () => {
       if (!mountedRef.current) return;
       setIsPlaying(true);
       setError('');
     };
+
     const onPause = () => {
       if (!mountedRef.current) return;
       setIsPlaying(false);
     };
+
     const onError = () => {
       if (!mountedRef.current) return;
       setError('We could not load this audio source.');
@@ -151,6 +205,9 @@ export function PlayerProvider({ children }) {
 
     audio.addEventListener('timeupdate', onTime);
     audio.addEventListener('loadedmetadata', onMetadata);
+    audio.addEventListener('durationchange', onMetadata);
+    audio.addEventListener('canplay', onMetadata);
+    audio.addEventListener('loadeddata', onMetadata);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', advance);
@@ -164,6 +221,9 @@ export function PlayerProvider({ children }) {
       audio.load();
       audio.removeEventListener('timeupdate', onTime);
       audio.removeEventListener('loadedmetadata', onMetadata);
+      audio.removeEventListener('durationchange', onMetadata);
+      audio.removeEventListener('canplay', onMetadata);
+      audio.removeEventListener('loadeddata', onMetadata);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('ended', advance);
@@ -174,7 +234,7 @@ export function PlayerProvider({ children }) {
 
   /* ---- Public API ---- */
 
-  const play = useCallback((songs, startIndex = 0) => {
+  const play = useCallback((songs, startIndex = 0, startAtTime = 0) => {
     if (!Array.isArray(songs) || !songs.length) return;
     const safeIndex = Math.max(0, Math.min(startIndex, songs.length - 1));
     const normalised = songs.map(normaliseSong).filter(Boolean);
@@ -182,57 +242,100 @@ export function PlayerProvider({ children }) {
     const idx = Math.min(safeIndex, normalised.length - 1);
     updateQueue(normalised);
     updateIndex(idx);
-    loadSong(normalised[idx]);
+    loadSong(normalised[idx], startAtTime);
   }, [loadSong]);
 
   const togglePlay = useCallback(() => {
     try {
       const audio = audioRef.current;
       if (!audio) return;
-      if (!current && queueRef.current.length) { updateIndex(0); loadSong(queueRef.current[0]); return; }
-      if (!audio.src) { if (current) loadSong(current); return; }
-      if (audio.paused) audio.play().catch(() => setError('Playback was blocked. Try play again.'));
-      else audio.pause();
+      if (!currentRef.current && queueRef.current.length) {
+        updateIndex(0);
+        loadSong(queueRef.current[0]);
+        return;
+      }
+      if (!audio.src) {
+        if (currentRef.current) loadSong(currentRef.current);
+        return;
+      }
+      if (audio.paused) {
+        audio.play().catch(() => setError('Playback was blocked. Try play again.'));
+      } else {
+        audio.pause();
+      }
     } catch (err) {
       setError('Playback error.');
       if (import.meta.env.DEV) console.error('[PlayerContext] togglePlay error:', err);
     }
-  }, [current, loadSong]);
+  }, [loadSong]);
 
   const next = useCallback(() => advance(), [advance]);
+
+  const seek = useCallback((time) => {
+    try {
+      const audio = audioRef.current;
+      if (!audio || !Number.isFinite(time)) return;
+      const targetTime = Math.max(0, time);
+      const audioDur = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      const songDur = durationRef.current > 0 ? durationRef.current : (currentRef.current?.duration_seconds ?? 0);
+      const effectiveDur = audioDur > 0 ? audioDur : songDur;
+      const clampedTime = effectiveDur > 0 ? Math.min(targetTime, effectiveDur) : targetTime;
+
+      // Update state immediately for instant feedback
+      setCurrentTime(clampedTime);
+
+      if (audio.readyState >= 1 || (audio.seekable && audio.seekable.length > 0)) {
+        audio.currentTime = clampedTime;
+      } else {
+        pendingSeekRef.current = clampedTime;
+        try {
+          audio.currentTime = clampedTime;
+        } catch { /* will apply on loadedmetadata */ }
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('[PlayerContext] seek error:', err);
+    }
+  }, []);
+
+  const seekRelative = useCallback((delta) => {
+    const audio = audioRef.current;
+    const curr = Number.isFinite(audio?.currentTime) ? audio.currentTime : currentTime;
+    seek(curr + delta);
+  }, [currentTime, seek]);
 
   const prev = useCallback(() => {
     try {
       const items = queueRef.current;
       const audio = audioRef.current;
       if (!items.length) return;
-      if (audio && Number.isFinite(audio.currentTime) && audio.currentTime > 3) { audio.currentTime = 0; return; }
+      if (audio && Number.isFinite(audio.currentTime) && audio.currentTime > 3) {
+        seek(0);
+        return;
+      }
       const previous = shuffleRef.current ? Math.floor(Math.random() * items.length) : Math.max(0, indexRef.current - 1);
       updateIndex(previous);
       loadSong(items[previous]);
     } catch (err) {
       if (import.meta.env.DEV) console.error('[PlayerContext] prev error:', err);
     }
-  }, [loadSong]);
-
-  const seek = useCallback((time) => {
-    try {
-      const audio = audioRef.current;
-      if (!audio || !Number.isFinite(time)) return;
-      const max = Number.isFinite(audio.duration) ? audio.duration : time;
-      audio.currentTime = Math.max(0, Math.min(time, max));
-      setCurrentTime(audio.currentTime);
-    } catch { /* ignore seek errors */ }
-  }, []);
+  }, [loadSong, seek]);
 
   const setVolume = useCallback((value) => {
     const safe = Math.max(0, Math.min(1, Number(value) || 0));
-    volumeRef.current = safe; setVolumeState(safe);
+    volumeRef.current = safe;
+    setVolumeState(safe);
     if (audioRef.current) audioRef.current.volume = safe;
   }, []);
 
-  const setShuffle = useCallback((value) => { shuffleRef.current = value; setShuffleState(value); }, []);
-  const setRepeat = useCallback((value) => { repeatRef.current = value; setRepeatState(value); }, []);
+  const setShuffle = useCallback((value) => {
+    shuffleRef.current = value;
+    setShuffleState(value);
+  }, []);
+
+  const setRepeat = useCallback((value) => {
+    repeatRef.current = value;
+    setRepeatState(value);
+  }, []);
 
   const markFavorite = useCallback((songId, value) => {
     updateQueue(queueRef.current.map((song) => song.id === songId ? { ...song, is_favorite: value } : song));
@@ -242,7 +345,7 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       current, queue, index, isPlaying, currentTime, duration,
       volume, shuffle, repeat, error,
-      play, togglePlay, next, prev, seek, setVolume, setShuffle, setRepeat, markFavorite
+      play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat, markFavorite
     }}>
       {children}
     </PlayerContext.Provider>

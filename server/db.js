@@ -21,10 +21,12 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  username TEXT UNIQUE,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'artist',
   avatar_url TEXT,
+  favorite_genres TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -97,6 +99,30 @@ CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist_id);
 CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album_id);
 CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
 `);
+
+// Lightweight migration for users table (username & favorite_genres)
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name);
+if (!userColumns.includes('username')) {
+  db.exec('ALTER TABLE users ADD COLUMN username TEXT');
+  // Backfill usernames for existing users
+  const allUsers = db.prepare("SELECT id, name, email FROM users WHERE username IS NULL OR username = ''").all();
+  for (const u of allUsers) {
+    const baseUsername = u.name.toLowerCase().replace(/[^a-z0-9]/g, '') || u.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') || `user${u.id}`;
+    let candidate = baseUsername;
+    let counter = 1;
+    while (db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?').get(candidate, u.id)) {
+      candidate = `${baseUsername}${counter++}`;
+    }
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(candidate, u.id);
+  }
+}
+if (!userColumns.includes('favorite_genres')) {
+  db.exec('ALTER TABLE users ADD COLUMN favorite_genres TEXT');
+}
+
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(LOWER(username)) WHERE username IS NOT NULL;');
+} catch { /* index may exist */ }
 
 // Lightweight migration for installations created before licensed-source support.
 const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);

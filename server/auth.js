@@ -16,14 +16,29 @@ export function signToken(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 }
 
+export function parseGenres(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* ignore */ }
+  if (typeof raw === 'string') {
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export function publicUser(user) {
   if (!user) return null;
   return {
     id: user.id,
     name: user.name,
+    username: user.username || null,
     email: user.email,
     role: user.role,
     avatar_url: user.avatar_url,
+    favorite_genres: parseGenres(user.favorite_genres),
     created_at: user.created_at
   };
 }

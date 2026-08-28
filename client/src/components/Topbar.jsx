@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTheme } from '../context/ThemeContext.jsx';
 import { initials } from '../format.js';
 
 const TITLES = {
@@ -17,6 +18,7 @@ const TITLES = {
 
 export default function Topbar({ onMenu, onAccount }) {
   const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [q, setQ] = useState('');
@@ -34,6 +36,8 @@ export default function Topbar({ onMenu, onAccount }) {
     navigate(q.trim() ? `/songs?q=${encodeURIComponent(q.trim())}` : '/songs');
   };
 
+  const isDark = theme === 'dark';
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -49,7 +53,17 @@ export default function Topbar({ onMenu, onAccount }) {
           aria-label="Search"
         />
       </form>
-      <button className="topbar-avatar avatar" onClick={onAccount} aria-label="Open account menu">{initials(user?.name)}</button>
+      <div className="topbar-actions">
+        <button
+          className="icon-btn theme-toggle-btn"
+          onClick={toggleTheme}
+          title={`Switch to ${isDark ? 'light (white & purple)' : 'dark'} mode`}
+          aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+        >
+          <Icon name={isDark ? 'sun' : 'moon'} size={19} />
+        </button>
+        <button className="topbar-avatar avatar" onClick={onAccount} aria-label="Open account menu">{initials(user?.name)}</button>
+      </div>
     </header>
   );
 }

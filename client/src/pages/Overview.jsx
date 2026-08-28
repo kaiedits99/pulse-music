@@ -37,11 +37,18 @@ export default function Overview() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeGenreFilter, setActiveGenreFilter] = useState('all');
 
   useEffect(() => {
     let alive = true;
-    api.get('/api/stats').then((d) => { if (alive) { setStats(d); setLoading(false); } })
-      .catch(() => { if (alive) setLoading(false); });
+    api.get('/api/stats').then((d) => {
+      if (alive) {
+        setStats(d);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (alive) setLoading(false);
+    });
     return () => { alive = false; };
   }, []);
 
@@ -52,12 +59,24 @@ export default function Overview() {
     return 'Good evening';
   })();
 
+  const userGenres = (user && user.favorite_genres && user.favorite_genres.length)
+    ? user.favorite_genres
+    : (stats?.user_genres || []);
+
+  const recommendedTracks = (stats?.recommended || []);
+  const filteredRecs = activeGenreFilter === 'all'
+    ? recommendedTracks
+    : recommendedTracks.filter((t) => (t.genre || '').toLowerCase().includes(activeGenreFilter.toLowerCase()));
+
   return (
     <div className="page">
       <div className="welcome">
         <div>
-          <h1>{greeting}, {user ? user.name.split(' ')[0] : 'there'} 👋</h1>
-          <p>Here's what's happening across your music platform today.</p>
+          <h1>{greeting}, {user?.name ? user.name.split(' ')[0] : 'there'} 👋</h1>
+          <p>
+            {user?.username ? `@${user.username} · ` : ''}
+            Here's what's happening across your music platform today.
+          </p>
         </div>
         <Link to="/upload" className="btn btn-primary"><Icon name="upload" size={17} /> Upload music</Link>
       </div>
@@ -70,6 +89,95 @@ export default function Overview() {
         <StatCard icon="album" label="Albums" value={stats ? stats.albums : null} loading={loading} accent="c5" />
         <StatCard icon="playlist" label="Playlists" value={stats ? stats.playlists : null} loading={loading} accent="c6" />
       </div>
+
+      {/* ============ Recommended for You (Based on Selected Genres) ============ */}
+      <section className="panel rec-panel">
+        <div className="panel-head">
+          <div>
+            <div className="rec-header-row">
+              <span className="rec-badge">
+                <Icon name="sparkle" size={14} /> Recommended for you
+              </span>
+              {userGenres.length > 0 && (
+                <span className="rec-genre-summary">
+                  Based on your taste in <strong>{userGenres.join(', ')}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="rec-head-actions">
+            <Link to="/settings" className="link-btn-subtle" title="Change your favorite genres">
+              <Icon name="settings" size={14} /> Edit taste
+            </Link>
+            {filteredRecs.length > 0 && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => play(filteredRecs, 0)}
+              >
+                <Icon name="play" size={14} /> Play all
+              </button>
+            )}
+          </div>
+        </div>
+
+        {userGenres.length > 1 && (
+          <div className="rec-filter-tabs">
+            <button
+              type="button"
+              className={`rec-filter-pill ${activeGenreFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setActiveGenreFilter('all')}
+            >
+              All Genres ({recommendedTracks.length})
+            </button>
+            {userGenres.map((g) => (
+              <button
+                key={g}
+                type="button"
+                className={`rec-filter-pill ${activeGenreFilter === g ? 'active' : ''}`}
+                onClick={() => setActiveGenreFilter(g)}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="rec-grid">
+            {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} h={90} />)}
+          </div>
+        ) : filteredRecs.length > 0 ? (
+          <div className="rec-grid">
+            {filteredRecs.map((song, i) => (
+              <div
+                key={song.id}
+                className="rec-card"
+                onClick={() => play(filteredRecs, i)}
+              >
+                <div className="rec-card-cover-wrap">
+                  <Cover src={song.cover_url} alt={song.title} size={58} />
+                  <span className="rec-card-play-overlay">
+                    <Icon name="play" size={18} />
+                  </span>
+                </div>
+                <div className="rec-card-info">
+                  <span className="rec-card-title">{song.title}</span>
+                  <span className="rec-card-artist">{song.artist_name}</span>
+                  <div className="rec-card-meta">
+                    <span className="tag tag-sm">{song.genre || 'Music'}</span>
+                    <span className="rec-card-dur">{formatDuration(song.duration_seconds)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No songs found for this genre yet"
+            description="Upload a track in this category to kickstart your personalized library!"
+          />
+        )}
+      </section>
 
       <div className="overview-cols">
         <section className="panel">
