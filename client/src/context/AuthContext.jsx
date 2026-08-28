@@ -25,11 +25,10 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { loadMe(); }, [loadMe]);
 
-  const login = useCallback(async (email, password) => {
-    const data = await api.post('/api/auth/login', { email, password });
+  const login = useCallback(async (identifier, password) => {
+    const data = await api.post('/api/auth/login', { identifier, email: identifier, password });
     setToken(data.token);
     setUser(data.user);
-    // fetch artist profile too
     try {
       const me = await api.get('/api/auth/me');
       setArtist(me.artist);
@@ -48,6 +47,12 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  const updatePreferences = useCallback(async (payload) => {
+    const data = await api.put('/api/auth/preferences', payload);
+    setUser(data.user);
+    return data.user;
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -57,12 +62,13 @@ export function AuthProvider({ children }) {
   const refreshArtist = useCallback(async () => {
     try {
       const me = await api.get('/api/auth/me');
+      setUser(me.user);
       setArtist(me.artist);
     } catch { /* ignore */ }
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, artist, loading, login, register, logout, refreshArtist }}>
+    <AuthContext.Provider value={{ user, artist, loading, login, register, logout, refreshArtist, updatePreferences }}>
       {children}
     </AuthContext.Provider>
   );

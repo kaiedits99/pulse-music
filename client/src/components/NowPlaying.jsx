@@ -15,13 +15,13 @@ const EQ_BARS = 21;
 
 /**
  * Full-screen "Now Playing" view (opened by tapping the player bar).
- * Layout mirrors the reference design: teal canvas, spinning vinyl with the
- * cover art as the centre label, big title / artist / View Lyrics, action row,
- * thin seek bar with times, and large transport controls.
+ * Teal canvas, spinning vinyl with the cover art as the centre label,
+ * big title / artist / View Lyrics, action row, seek bar with times,
+ * and large transport controls with skip back/forward.
  */
 export default function NowPlaying({ open, onClose }) {
   const {
-    current, isPlaying, togglePlay, next, prev, seek, currentTime, duration,
+    current, isPlaying, togglePlay, next, prev, seek, seekRelative, currentTime, duration,
     shuffle, setShuffle, repeat, setRepeat, queue, index, play, error
   } = usePlayer();
   const { toast } = useToast();
@@ -33,9 +33,10 @@ export default function NowPlaying({ open, onClose }) {
   const [queueOpen, setQueueOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [coverBroken, setCoverBroken] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragTime, setDragTime] = useState(0);
 
   const trackRef = useRef(null);
-  const draggingRef = useRef(false);
   const touchYRef = useRef(null);
   const closeTimer = useRef(null);
 
@@ -60,7 +61,9 @@ export default function NowPlaying({ open, onClose }) {
   /* ---- Escape closes; body scroll is locked while open ---- */
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') close();
+    };
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -70,30 +73,86 @@ export default function NowPlaying({ open, onClose }) {
     };
   }, [open, close]);
 
-  /* ---- Drag / tap to seek (pointer events cover mouse + touch) ---- */
-  const seekFromPointer = useCallback((e) => {
-    const el = trackRef.current;
-    if (!el || !duration) return;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width) return;
-    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seek(p * duration);
-  }, [duration, seek]);
+  const safeDuration = (Number.isFinite(duration) && duration > 0)
+    ? duration
+    : (Number.isFinite(current?.duration_seconds) && current.duration_seconds > 0 ? current.duration_seconds : 0);
 
-  const onTrackDown = (e) => {
-    if (!duration) return;
-    draggingRef.current = true;
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
-    seekFromPointer(e);
+  /* ---- Calculate seek position from pointer event ---- */
+  const calculateTimeFromPointer = useCallback((e) => {
+    const el = trackRef.current;
+    if (!el || !safeDuration) return 0;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width) return 0;
+    const clientX = e.clientX ?? (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const p = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return p * safeDuration;
+  }, [safeDuration]);
+
+  /* ---- Drag / tap to seek with Pointer Events ---- */
+  const onTrackPointerDown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    if (!safeDuration) return;
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const target = calculateTimeFromPointer(e);
+    setIsDragging(true);
+    setDragTime(target);
+    seek(target);
   };
-  const onTrackMove = (e) => { if (draggingRef.current) seekFromPointer(e); };
-  const onTrackUp = () => { draggingRef.current = false; };
+
+  const onTrackPointerMove = (e) => {
+    if (!isDragging) return;
+    e.stopPropagation();
+    const target = calculateTimeFromPointer(e);
+    setDragTime(target);
+  };
+
+  const onTrackPointerUp = (e) => {
+    if (!isDragging) return;
+    e.stopPropagation();
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    const target = calculateTimeFromPointer(e);
+    setIsDragging(false);
+    seek(target);
+  };
+
+  const onTrackPointerCancel = (e) => {
+    if (!isDragging) return;
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const onTrackKeyDown = (e) => {
+    if (!safeDuration) return;
+    const curr = isDragging ? dragTime : (Number.isFinite(currentTime) ? currentTime : 0);
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      e.stopPropagation();
+      seek(Math.max(0, curr - 5));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+      seek(Math.min(safeDuration, curr + 5));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      e.stopPropagation();
+      seek(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      e.stopPropagation();
+      seek(safeDuration);
+    }
+  };
 
   /* ---- Swipe down anywhere (except interactive controls) to close ---- */
   const onTouchStart = (e) => {
-    if (e.target.closest('button, a, input, .np-progress, .np-queue, .np-menu')) { touchYRef.current = null; return; }
+    if (e.target.closest('button, a, input, .np-progress-block, .np-progress, .np-queue, .np-menu, .np-controls, .np-actions')) {
+      touchYRef.current = null;
+      return;
+    }
     touchYRef.current = e.touches[0].clientY;
   };
+
   const onTouchEnd = (e) => {
     if (touchYRef.current == null) return;
     const dy = e.changedTouches[0].clientY - touchYRef.current;
@@ -122,9 +181,9 @@ export default function NowPlaying({ open, onClose }) {
 
   if (!open || !current) return null;
 
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : (Number.isFinite(current.duration_seconds) ? current.duration_seconds : 0);
   const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0;
-  const pct = safeDuration ? Math.max(0, Math.min(100, (safeCurrentTime / safeDuration) * 100)) : 0;
+  const displayTime = isDragging ? dragTime : safeCurrentTime;
+  const pct = safeDuration > 0 ? Math.max(0, Math.min(100, (displayTime / safeDuration) * 100)) : 0;
 
   const title = current.title || 'Unknown Track';
   const artistName = current.artist_name || 'Unknown Artist';
@@ -253,38 +312,52 @@ export default function NowPlaying({ open, onClose }) {
         {/* ---- Seek bar + times ---- */}
         <div className="np-progress-block">
           <div
-            className="np-progress"
+            className={`np-progress ${isDragging ? 'is-dragging' : ''}`}
             ref={trackRef}
-            onPointerDown={onTrackDown}
-            onPointerMove={onTrackMove}
-            onPointerUp={onTrackUp}
-            onPointerCancel={onTrackUp}
+            onPointerDown={onTrackPointerDown}
+            onPointerMove={onTrackPointerMove}
+            onPointerUp={onTrackPointerUp}
+            onPointerCancel={onTrackPointerCancel}
+            onKeyDown={onTrackKeyDown}
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek track position"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(safeDuration)}
+            aria-valuenow={Math.round(displayTime)}
+            aria-valuetext={`${formatDuration(displayTime)} of ${formatDuration(safeDuration)}`}
           >
             <div className="np-progress-fill" style={{ width: `${pct}%` }} />
             <div className="np-progress-thumb" style={{ left: `${pct}%` }} />
           </div>
           <div className="np-times">
-            <span>{formatDuration(safeCurrentTime)}</span>
+            <span>{formatDuration(displayTime)}</span>
             <span>{formatDuration(safeDuration)}</span>
           </div>
         </div>
 
         {/* ---- Transport controls ---- */}
         <div className="np-controls">
-          <button className={`np-iconbtn ${shuffle ? 'on' : ''}`} onClick={() => setShuffle(!shuffle)} aria-label="Shuffle">
-            <Icon name="shuffle" size={24} />
+          <button className={`np-iconbtn ${shuffle ? 'on' : ''}`} onClick={() => setShuffle(!shuffle)} aria-label="Shuffle" title="Shuffle">
+            <Icon name="shuffle" size={22} />
           </button>
-          <button className="np-iconbtn" onClick={() => { try { prev(); } catch { /* ignore */ } }} aria-label="Previous">
-            <Icon name="prev" size={28} />
+          <button className="np-iconbtn" onClick={() => { try { prev(); } catch { /* ignore */ } }} aria-label="Previous" title="Previous">
+            <Icon name="prev" size={24} />
+          </button>
+          <button className="np-iconbtn" onClick={() => seekRelative(-10)} aria-label="Rewind 10 seconds" title="Rewind 10 seconds">
+            <Icon name="skipBack10" size={24} />
           </button>
           <button className="np-play" onClick={() => { try { togglePlay(); } catch { /* ignore */ } }} aria-label={isPlaying ? 'Pause' : 'Play'}>
             <Icon name={isPlaying ? 'pause' : 'play'} size={30} />
           </button>
-          <button className="np-iconbtn" onClick={() => { try { next(); } catch { /* ignore */ } }} aria-label="Next">
-            <Icon name="next" size={28} />
+          <button className="np-iconbtn" onClick={() => seekRelative(10)} aria-label="Forward 10 seconds" title="Forward 10 seconds">
+            <Icon name="skipForward10" size={24} />
           </button>
-          <button className={`np-iconbtn ${repeat ? 'on' : ''}`} onClick={() => setRepeat(!repeat)} aria-label="Repeat">
-            <Icon name="repeat" size={24} />
+          <button className="np-iconbtn" onClick={() => { try { next(); } catch { /* ignore */ } }} aria-label="Next" title="Next">
+            <Icon name="next" size={24} />
+          </button>
+          <button className={`np-iconbtn ${repeat ? 'on' : ''}`} onClick={() => setRepeat(!repeat)} aria-label="Repeat" title="Repeat">
+            <Icon name="repeat" size={22} />
           </button>
         </div>
       </div>

@@ -17,6 +17,20 @@ const paths = {
   pause: <><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" /></>,
   next: <><path d="M6 5v14l9-7z" fill="currentColor" stroke="none" /><path d="M18 5v14" /></>,
   prev: <><path d="M18 5v14l-9-7z" fill="currentColor" stroke="none" /><path d="M6 5v14" /></>,
+  skipBack10: (
+    <>
+      <path d="M3.5 13a8.5 8.5 0 1 1 2.2 5.5" />
+      <path d="M3.5 8.5v4.5H8" />
+      <text x="12" y="14.5" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">10</text>
+    </>
+  ),
+  skipForward10: (
+    <>
+      <path d="M20.5 13a8.5 8.5 0 1 0-2.2 5.5" />
+      <path d="M20.5 8.5v4.5H16" />
+      <text x="12" y="14.5" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">10</text>
+    </>
+  ),
   shuffle: <><path d="M2 7h3.5c3 0 5 10 8.5 10H18" /><path d="M18 7l3 3-3 3" /><path d="M2 17h3.5c1.5 0 2.7-2.4 3.6-5" /></>,
   repeat: <><path d="M17 2.5 21 6l-4 3.5" /><path d="M3 11.5V10a4 4 0 0 1 4-4h14" /><path d="M7 21.5 3 18l4-3.5" /><path d="M21 12.5V14a4 4 0 0 1-4 4H3" /></>,
   chevronDown: <path d="m6 9 6 6 6-6" />,
@@ -36,7 +50,14 @@ const paths = {
   arrowLeft: <><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></>,
   menu: <><path d="M3 6h18M3 12h18M3 18h18" /></>,
   sparkle: <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor" stroke="none" />,
-  trending: <><path d="M3 17l6-6 4 4 8-8" /><path d="M15 7h6v6" /></>
+  trending: <><path d="M3 17l6-6 4 4 8-8" /><path d="M15 7h6v6" /></>,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+    </>
+  ),
+  moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
 };
 
 export default function Icon({ name, size = 20, className = '', strokeWidth = 1.8 }) {

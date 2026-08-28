@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import db, { uploadsDir } from './db.js';
-import { hashPassword, verifyPassword, signToken, publicUser, authMiddleware, optionalAuth } from './auth.js';
+import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
 
 const router = express.Router();
 
@@ -130,19 +130,65 @@ function resolveUploadArtist(req, body) {
 }
 
 // ============================== AUTH ==============================
-router.post('/auth/register', (req, res) => {
-  const { name, email, password, artistName } = req.body || {};
-  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-  if (exists) return res.status(409).json({ error: 'An account with this email already exists' });
+router.get('/auth/check-username', (req, res) => {
+  const raw = String(req.query.username || '').trim();
+  if (!raw) return res.json({ available: false, reason: 'Username cannot be empty' });
+  if (raw.length < 3) return res.json({ available: false, reason: 'Username must be at least 3 characters' });
+  if (raw.length > 30) return res.json({ available: false, reason: 'Username cannot exceed 30 characters' });
+  if (!/^[a-zA-Z0-9_]+$/.test(raw)) return res.json({ available: false, reason: 'Only letters, numbers, and underscores allowed' });
 
-  const info = db.prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)')
-    .run(name, email, hashPassword(password), 'artist');
+  const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(raw);
+  if (existing) {
+    return res.json({ available: false, username: raw, reason: 'This username is already taken' });
+  }
+  res.json({ available: true, username: raw });
+});
+
+router.post('/auth/register', (req, res) => {
+  const { name, username, email, password, artistName, favoriteGenres } = req.body || {};
+  const cleanName = String(name || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanUsername = String(username || '').trim();
+
+  if (!cleanName || !cleanEmail || !password) {
+    return res.status(400).json({ error: 'Name, email and password are required' });
+  }
+  if (!cleanUsername) {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+  if (cleanUsername.length < 3 || cleanUsername.length > 30) {
+    return res.status(400).json({ error: 'Username must be between 3 and 30 characters' });
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(cleanUsername)) {
+    return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  const emailExists = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(cleanEmail);
+  if (emailExists) return res.status(400).json({ error: 'An account with this email already exists' });
+
+  const usernameExists = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(cleanUsername);
+  if (usernameExists) return res.status(400).json({ error: 'This username is already taken. Please choose another.' });
+
+  if (!Array.isArray(favoriteGenres) || favoriteGenres.length === 0) {
+    return res.status(400).json({ error: 'Please select at least 1 favorite genre' });
+  }
+  if (favoriteGenres.length > 3) {
+    return res.status(400).json({ error: 'You can select at most 3 favorite genres' });
+  }
+
+  const validGenres = favoriteGenres.map((g) => String(g).trim()).filter(Boolean);
+  const genresJson = JSON.stringify(validGenres);
+
+  const info = db.prepare(
+    'INSERT INTO users (name, username, email, password_hash, role, favorite_genres) VALUES (?,?,?,?,?,?)'
+  ).run(cleanName, cleanUsername, cleanEmail, hashPassword(password), 'artist', genresJson);
   const userId = info.lastInsertRowid;
 
   // create artist profile
-  const aName = (artistName || name).trim() || name;
+  const aName = (artistName || cleanName).trim() || cleanName;
   db.prepare('INSERT INTO artists (name, user_id) VALUES (?,?)').run(aName, userId);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
@@ -150,12 +196,56 @@ router.post('/auth/register', (req, res) => {
 });
 
 router.post('/auth/login', (req, res) => {
-  const { email, password } = req.body || {};
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email || '');
-  if (!user || !verifyPassword(password || '', user.password_hash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+  const { email, identifier, password } = req.body || {};
+  const queryId = String(identifier || email || '').trim();
+  if (!queryId || !password) {
+    return res.status(400).json({ error: 'Username/email and password are required' });
+  }
+
+  // Support login via email or username
+  let user = null;
+  if (queryId.includes('@')) {
+    user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(queryId);
+  } else {
+    user = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(queryId);
+    if (!user) {
+      user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(queryId);
+    }
+  }
+
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid username/email or password' });
   }
   res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+router.put('/auth/preferences', authMiddleware, (req, res) => {
+  const { favoriteGenres, username } = req.body || {};
+  const user = req.user;
+
+  if (username !== undefined) {
+    const cleanUsername = String(username).trim();
+    if (cleanUsername.length < 3 || cleanUsername.length > 30 || !/^[a-zA-Z0-9_]+$/.test(cleanUsername)) {
+      return res.status(400).json({ error: 'Username must be 3-30 characters with letters, numbers, and underscores only' });
+    }
+    const taken = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?').get(cleanUsername, user.id);
+    if (taken) return res.status(400).json({ error: 'This username is already taken' });
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(cleanUsername, user.id);
+  }
+
+  if (favoriteGenres !== undefined) {
+    if (!Array.isArray(favoriteGenres) || favoriteGenres.length === 0) {
+      return res.status(400).json({ error: 'Please select at least 1 favorite genre' });
+    }
+    if (favoriteGenres.length > 3) {
+      return res.status(400).json({ error: 'You can select at most 3 favorite genres' });
+    }
+    const valid = favoriteGenres.map((g) => String(g).trim()).filter(Boolean);
+    db.prepare('UPDATE users SET favorite_genres = ? WHERE id = ?').run(JSON.stringify(valid), user.id);
+  }
+
+  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  res.json({ user: publicUser(updated) });
 });
 
 router.get('/auth/me', authMiddleware, (req, res) => {
@@ -163,24 +253,144 @@ router.get('/auth/me', authMiddleware, (req, res) => {
   res.json({ user: publicUser(req.user), artist });
 });
 
-// ============================== STATS ==============================
+// ============================== STATS & RECOMMENDATIONS ==============================
 router.get('/stats', optionalAuth, (req, res) => {
   const songs = db.prepare('SELECT COUNT(*) c, COALESCE(SUM(plays),0) plays, COALESCE(SUM(downloads),0) downloads FROM songs').get();
   const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
   const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
   const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
   const top = db.prepare(
-    `SELECT s.*, a.name artist_name FROM songs s JOIN artists a ON a.id = s.artist_id ORDER BY s.plays DESC LIMIT 5`
+    `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+     FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
+     ORDER BY s.plays DESC LIMIT 5`
   ).all();
   const recent = db.prepare(
-    `SELECT s.*, a.name artist_name FROM songs s JOIN artists a ON a.id = s.artist_id ORDER BY s.created_at DESC LIMIT 6`
+    `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+     FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
+     ORDER BY s.created_at DESC LIMIT 6`
   ).all();
   const genreRows = db.prepare(
     `SELECT genre, COUNT(*) c FROM songs GROUP BY genre ORDER BY c DESC`
   ).all();
+
+  let favs = new Set();
+  if (req.user) {
+    const f = db.prepare('SELECT song_id FROM favorites WHERE user_id = ?').all(req.user.id);
+    favs = new Set(f.map(r => r.song_id));
+  }
+  const topWithFav = top.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
+  const recentWithFav = recent.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
+
+  const userGenres = req.user && req.user.favorite_genres ? parseGenres(req.user.favorite_genres) : [];
+  let recommended = [];
+
+  if (userGenres.length > 0) {
+    const conditions = [];
+    for (const g of userGenres) {
+      const gl = g.toLowerCase();
+      if (gl === 'pop') conditions.push("s.genre LIKE '%Pop%'");
+      else if (gl === 'indie') conditions.push("s.genre LIKE '%Indie%'");
+      else if (gl === 'alternative rock' || gl === 'alt rock') conditions.push("(s.genre LIKE '%Alt%' OR s.genre LIKE '%Alternative%')");
+      else if (gl === 'rock') conditions.push("(s.genre LIKE '%Rock%')");
+      else if (gl === 'kpop' || gl === 'k-pop') conditions.push("(s.genre LIKE '%K-Pop%' OR s.genre LIKE '%Kpop%')");
+      else if (gl === 'edm') conditions.push("(s.genre LIKE '%EDM%' OR s.genre LIKE '%Dance%' OR s.genre LIKE '%Synthpop%' OR s.genre LIKE '%Electronic%')");
+      else conditions.push("(s.genre NOT LIKE '%Pop%' AND s.genre NOT LIKE '%Rock%')");
+    }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' OR ') : '';
+    recommended = db.prepare(`
+      SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+      FROM songs s
+      JOIN artists a ON a.id = s.artist_id
+      LEFT JOIN albums al ON al.id = s.album_id
+      ${where}
+      ORDER BY s.plays DESC, s.created_at DESC
+      LIMIT 10
+    `).all();
+  }
+
+  // Fallback if not enough matching tracks
+  if (recommended.length < 4) {
+    const existing = new Set(recommended.map(s => s.id));
+    const popular = db.prepare(`
+      SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+      FROM songs s
+      JOIN artists a ON a.id = s.artist_id
+      LEFT JOIN albums al ON al.id = s.album_id
+      ORDER BY s.plays DESC LIMIT 8
+    `).all();
+    for (const p of popular) {
+      if (!existing.has(p.id) && recommended.length < 8) {
+        recommended.push(p);
+        existing.add(p.id);
+      }
+    }
+  }
+  const recWithFav = recommended.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
+
   res.json({
     songs: songs.c, plays: songs.plays, downloads: songs.downloads,
-    artists, albums, playlists, top, recent, genres: genreRows
+    artists, albums, playlists, top: topWithFav, recent: recentWithFav,
+    recommended: recWithFav, user_genres: userGenres, genres: genreRows
+  });
+});
+
+router.get('/songs/recommended', optionalAuth, (req, res) => {
+  const user = req.user;
+  const genres = (user && user.favorite_genres) ? parseGenres(user.favorite_genres) : [];
+
+  let favs = new Set();
+  if (user) {
+    const f = db.prepare('SELECT song_id FROM favorites WHERE user_id = ?').all(user.id);
+    favs = new Set(f.map(r => r.song_id));
+  }
+
+  let songs = [];
+  if (genres.length > 0) {
+    const conditions = [];
+    for (const g of genres) {
+      const gl = g.toLowerCase();
+      if (gl === 'pop') conditions.push("s.genre LIKE '%Pop%'");
+      else if (gl === 'indie') conditions.push("s.genre LIKE '%Indie%'");
+      else if (gl === 'alternative rock' || gl === 'alt rock') conditions.push("(s.genre LIKE '%Alt%' OR s.genre LIKE '%Alternative%')");
+      else if (gl === 'rock') conditions.push("(s.genre LIKE '%Rock%')");
+      else if (gl === 'kpop' || gl === 'k-pop') conditions.push("(s.genre LIKE '%K-Pop%' OR s.genre LIKE '%Kpop%')");
+      else if (gl === 'edm') conditions.push("(s.genre LIKE '%EDM%' OR s.genre LIKE '%Dance%' OR s.genre LIKE '%Synthpop%' OR s.genre LIKE '%Electronic%')");
+      else conditions.push("(s.genre NOT LIKE '%Pop%' AND s.genre NOT LIKE '%Rock%')");
+    }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' OR ') : '';
+    songs = db.prepare(`
+      SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+      FROM songs s
+      JOIN artists a ON a.id = s.artist_id
+      LEFT JOIN albums al ON al.id = s.album_id
+      ${where}
+      ORDER BY s.plays DESC, s.created_at DESC
+      LIMIT 20
+    `).all();
+  }
+
+  if (songs.length < 5) {
+    const existingIds = new Set(songs.map(s => s.id));
+    const fallback = db.prepare(`
+      SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+      FROM songs s
+      JOIN artists a ON a.id = s.artist_id
+      LEFT JOIN albums al ON al.id = s.album_id
+      ORDER BY s.plays DESC, s.created_at DESC
+      LIMIT 15
+    `).all();
+    for (const s of fallback) {
+      if (!existingIds.has(s.id) && songs.length < 15) {
+        songs.push(s);
+        existingIds.add(s.id);
+      }
+    }
+  }
+
+  res.json({
+    recommendations: songs.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 })),
+    count: songs.length,
+    user_genres: genres
   });
 });
 
