@@ -1,34 +1,41 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
-import { Skeleton, EmptyState } from '../components/ui.jsx';
-import { Cover } from '../components/ui.jsx';
+import { Skeleton } from '../components/ui.jsx';
+import { AlbumCard, ArtistCard } from '../components/Cards.jsx';
+import DiscoverRow from '../components/DiscoverRow.jsx';
 import { api } from '../api.js';
-import { formatNumber, formatDuration } from '../format.js';
+import { formatNumber } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
-function StatCard({ icon, label, value, accent, loading }) {
+/* Spotify-style colorful mood tiles for the "Browse all" grid */
+const MOOD_COLORS = [
+  ['#1e3a8a', '#7c3aed'], ['#064e3b', '#10b981'], ['#7f1d1d', '#f43f5e'],
+  ['#0c4a6e', '#0ea5e9'], ['#581c87', '#d946ef'], ['#78350f', '#f59e0b'],
+  ['#831843', '#ec4899'], ['#14532d', '#22c55e'], ['#1e293b', '#64748b']
+];
+
+function GenreTile({ genre, color, count }) {
   return (
-    <div className={`stat-card ${accent || ''}`}>
-      <div className="stat-icon"><Icon name={icon} size={20} /></div>
-      {loading ? <Skeleton w={70} h={26} /> : <div className="stat-value">{value}</div>}
-      <div className="stat-label">{label}</div>
-    </div>
+    <Link to={`/songs?genre=${encodeURIComponent(genre)}`} className="genre-tile" style={{ background: `linear-gradient(135deg, ${color[0]} 0%, ${color[1]} 100%)` }}>
+      <span className="genre-tile-name">{genre}</span>
+      <Icon name="music" size={40} className="genre-tile-art" />
+      {count != null && <span className="genre-tile-count">{count} tracks</span>}
+    </Link>
   );
 }
 
-function TopTrack({ song, i, onPlay }) {
+/* Compact stat pill used in the stats strip */
+function StatPill({ icon, value, label, accent }) {
   return (
-    <button className="top-track" onClick={onPlay}>
-      <span className="top-rank">{i + 1}</span>
-      <Cover src={song.cover_url} alt={song.title} size={44} />
-      <span className="top-track-info">
-        <span className="top-track-title">{song.title}</span>
-        <span className="top-track-artist">{song.artist_name}</span>
+    <div className="stat-pill">
+      <span className={`stat-pill-icon ${accent || ''}`}><Icon name={icon} size={16} /></span>
+      <span className="stat-pill-meta">
+        <strong>{value}</strong>
+        <small>{label}</small>
       </span>
-      <span className="top-track-plays"><Icon name="playCircle" size={15} /> {formatNumber(song.plays)}</span>
-    </button>
+    </div>
   );
 }
 
@@ -36,8 +43,9 @@ export default function Overview() {
   const { play } = usePlayer();
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
+  const [albums, setAlbums] = useState([]);
+  const [artists, setArtists] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeGenreFilter, setActiveGenreFilter] = useState('all');
 
   useEffect(() => {
     let alive = true;
@@ -46,9 +54,9 @@ export default function Overview() {
         setStats(d);
         setLoading(false);
       }
-    }).catch(() => {
-      if (alive) setLoading(false);
-    });
+    }).catch(() => { if (alive) setLoading(false); });
+    api.get('/api/albums').then((d) => { if (alive) setAlbums(d || []); }).catch(() => {});
+    api.get('/api/artists').then((d) => { if (alive) setArtists(d || []); }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -59,190 +67,97 @@ export default function Overview() {
     return 'Good evening';
   })();
 
-  const userGenres = (user && user.favorite_genres && user.favorite_genres.length)
-    ? user.favorite_genres
-    : (stats?.user_genres || []);
-
-  const recommendedTracks = (stats?.recommended || []);
-  const filteredRecs = activeGenreFilter === 'all'
-    ? recommendedTracks
-    : recommendedTracks.filter((t) => (t.genre || '').toLowerCase().includes(activeGenreFilter.toLowerCase()));
+  const firstName = user?.name ? user.name.split(' ')[0] : 'there';
+  const recommended = stats?.recommended || [];
+  const top = stats?.top || [];
+  const recent = stats?.recent || [];
+  const genres = stats?.genres || [];
+  const genreTiles = genres.slice(0, 9);
 
   return (
-    <div className="page">
-      <div className="welcome">
-        <div>
-          <h1>{greeting}, {user?.name ? user.name.split(' ')[0] : 'there'} 👋</h1>
-          <p>
-            {user?.username ? `@${user.username} · ` : ''}
-            Here's what's happening across your music platform today.
-          </p>
-        </div>
-        <Link to="/upload" className="btn btn-primary"><Icon name="upload" size={17} /> Upload music</Link>
-      </div>
-
-      <div className="stats-grid">
-        <StatCard icon="music" label="Tracks" value={stats ? stats.songs : null} loading={loading} accent="c1" />
-        <StatCard icon="playCircle" label="Total plays" value={stats ? formatNumber(stats.plays) : null} loading={loading} accent="c2" />
-        <StatCard icon="download" label="Downloads" value={stats ? formatNumber(stats.downloads) : null} loading={loading} accent="c3" />
-        <StatCard icon="artist" label="Artists" value={stats ? stats.artists : null} loading={loading} accent="c4" />
-        <StatCard icon="album" label="Albums" value={stats ? stats.albums : null} loading={loading} accent="c5" />
-        <StatCard icon="playlist" label="Playlists" value={stats ? stats.playlists : null} loading={loading} accent="c6" />
-      </div>
-
-      {/* ============ Recommended for You (Based on Selected Genres) ============ */}
-      <section className="panel rec-panel">
-        <div className="panel-head">
+    <div className="page home-page">
+      {/* ============ Hero greeting banner ============ */}
+      <div className="home-hero">
+        <div className="home-hero-glow" aria-hidden="true" />
+        <div className="home-hero-content">
           <div>
-            <div className="rec-header-row">
-              <span className="rec-badge">
-                <Icon name="sparkle" size={14} /> Recommended for you
-              </span>
-              {userGenres.length > 0 && (
-                <span className="rec-genre-summary">
-                  Based on your taste in <strong>{userGenres.join(', ')}</strong>
-                </span>
-              )}
-            </div>
+            <span className="hero-eyebrow"><Icon name="wave" size={14} /> Pulse · Made for you</span>
+            <h1>{greeting}, {firstName}</h1>
+            <p>{user?.username ? `@${user.username} · ` : ''}Here's your music universe for today.</p>
           </div>
-          <div className="rec-head-actions">
-            <Link to="/settings" className="link-btn-subtle" title="Change your favorite genres">
-              <Icon name="settings" size={14} /> Edit taste
-            </Link>
-            {filteredRecs.length > 0 && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => play(filteredRecs, 0)}
-              >
-                <Icon name="play" size={14} /> Play all
-              </button>
-            )}
-          </div>
-        </div>
-
-        {userGenres.length > 1 && (
-          <div className="rec-filter-tabs">
-            <button
-              type="button"
-              className={`rec-filter-pill ${activeGenreFilter === 'all' ? 'active' : ''}`}
-              onClick={() => setActiveGenreFilter('all')}
-            >
-              All Genres ({recommendedTracks.length})
+          {recommended.length > 0 && (
+            <button className="btn hero-play-btn" onClick={() => play(recommended, 0)}>
+              <Icon name="play" size={18} /> Shuffle
             </button>
-            {userGenres.map((g) => (
-              <button
-                key={g}
-                type="button"
-                className={`rec-filter-pill ${activeGenreFilter === g ? 'active' : ''}`}
-                onClick={() => setActiveGenreFilter(g)}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="rec-grid">
-            {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} h={90} />)}
-          </div>
-        ) : filteredRecs.length > 0 ? (
-          <div className="rec-grid">
-            {filteredRecs.map((song, i) => (
-              <div
-                key={song.id}
-                className="rec-card"
-                onClick={() => play(filteredRecs, i)}
-              >
-                <div className="rec-card-cover-wrap">
-                  <Cover src={song.cover_url} alt={song.title} size={58} />
-                  <span className="rec-card-play-overlay">
-                    <Icon name="play" size={18} />
-                  </span>
-                </div>
-                <div className="rec-card-info">
-                  <span className="rec-card-title">{song.title}</span>
-                  <span className="rec-card-artist">{song.artist_name}</span>
-                  <div className="rec-card-meta">
-                    <span className="tag tag-sm">{song.genre || 'Music'}</span>
-                    <span className="rec-card-dur">{formatDuration(song.duration_seconds)}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            title="No songs found for this genre yet"
-            description="Upload a track in this category to kickstart your personalized library!"
-          />
-        )}
-      </section>
-
-      <div className="overview-cols">
-        <section className="panel">
-          <div className="panel-head">
-            <h3>Top tracks</h3>
-            <Link to="/songs" className="link-more">View all</Link>
-          </div>
-          {loading ? (
-            <div className="stack">
-              {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={52} />)}
-            </div>
-          ) : (
-            <div className="top-list">
-              {(stats?.top || []).map((s, i) => (
-                <TopTrack key={s.id} song={s} i={i} onPlay={() => play(stats.top, i)} />
-              ))}
-            </div>
           )}
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <h3>Recently added</h3>
-            <Link to="/songs" className="link-more">View all</Link>
-          </div>
-          {loading ? (
-            <div className="stack">
-              {[0, 1, 2, 3].map((i) => <Skeleton key={i} h={52} />)}
-            </div>
-          ) : (
-            <div className="recent-list">
-              {(stats?.recent || []).map((s, i) => (
-                <button className="recent-row" key={s.id} onClick={() => play(stats.recent, i)}>
-                  <Cover src={s.cover_url} alt={s.title} size={44} />
-                  <span className="recent-info">
-                    <span className="top-track-title">{s.title}</span>
-                    <span className="top-track-artist">{s.artist_name} · {s.genre}</span>
-                  </span>
-                  <Icon name="play" size={16} className="recent-play" />
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
+        </div>
       </div>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h3>Genres</h3>
-        </div>
-        {loading ? (
-          <div className="genre-row"><Skeleton w="100%" h={90} /></div>
-        ) : stats && stats.genres.length ? (
-          <div className="genre-row">
-            {stats.genres.map((g, i) => (
-              <div className="genre-pill" key={g.genre} style={{ '--i': i }}>
-                <span className="genre-name">{g.genre}</span>
-                <span className="genre-count">{g.c} tracks</span>
-              </div>
+      {/* ============ Made for you ============ */}
+      <DiscoverRow title="Made for you" songs={recommended} onPlay={play} />
+
+      {/* ============ Quick picks ============ */}
+      {genreTiles.length > 0 && (
+        <section className="discover-section">
+          <div className="discover-head">
+            <h2>Browse all</h2>
+            <Link to="/songs" className="see-all">See all</Link>
+          </div>
+          <div className="genre-tile-grid">
+            {genreTiles.map((g, i) => (
+              <GenreTile key={g.genre} genre={g.genre} color={MOOD_COLORS[i % MOOD_COLORS.length]} count={g.c} />
             ))}
           </div>
-        ) : (
-          <EmptyState title="No genres yet" description="Upload tracks to see genre insights." />
-        )}
+        </section>
+      )}
+
+      {/* ============ Recently played ============ */}
+      <DiscoverRow title="Recently played" songs={recent} onPlay={play} />
+
+      {/* ============ Top tracks ============ */}
+      <DiscoverRow title="Top tracks this week" songs={top} onPlay={play} />
+
+      {/* ============ Albums & artists ============ */}
+      {albums.length > 0 && (
+        <section className="discover-section">
+          <div className="discover-head"><h2>Albums you might like</h2><Link to="/albums" className="see-all">See all</Link></div>
+          <div className="discover-row">
+            {albums.slice(0, 8).map((album) => <AlbumCard key={album.id} album={album} />)}
+          </div>
+        </section>
+      )}
+      {artists.length > 0 && (
+        <section className="discover-section">
+          <div className="discover-head"><h2>Popular artists</h2><Link to="/artists" className="see-all">See all</Link></div>
+          <div className="discover-row">
+            {artists.slice(0, 8).map((artist) => <ArtistCard key={artist.id} artist={artist} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ============ Your stats (kept — compact) ============ */}
+      <section className="panel home-stats-panel">
+        <div className="panel-head">
+          <h3><Icon name="trending" size={16} /> Your platform stats</h3>
+          <Link to="/songs" className="link-more">Manage library</Link>
+        </div>
+        <div className="stats-strip">
+          <StatPill icon="music" value={loading ? '—' : (stats?.songs ?? 0)} label="Tracks" accent="c1" />
+          <StatPill icon="playCircle" value={loading ? '—' : formatNumber(stats?.plays ?? 0)} label="Total plays" accent="c2" />
+          <StatPill icon="download" value={loading ? '—' : formatNumber(stats?.downloads ?? 0)} label="Downloads" accent="c3" />
+          <StatPill icon="artist" value={loading ? '—' : (stats?.artists ?? 0)} label="Artists" accent="c4" />
+          <StatPill icon="album" value={loading ? '—' : (stats?.albums ?? 0)} label="Albums" accent="c5" />
+          <StatPill icon="playlist" value={loading ? '—' : (stats?.playlists ?? 0)} label="Playlists" accent="c6" />
+        </div>
       </section>
+
+      {/* loading skeleton for rows */}
+      {loading && (
+        <div className="stack">
+          <Skeleton h={90} />
+          <Skeleton h={200} />
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import SongTable from '../components/SongTable.jsx';
+import DiscoverRow from '../components/DiscoverRow.jsx';
 import { AlbumCard } from '../components/Cards.jsx';
 import { Cover, Skeleton, EmptyState } from '../components/ui.jsx';
 import { api } from '../api.js';
@@ -14,12 +15,14 @@ export default function ArtistDetail() {
   const { play } = usePlayer();
   const { toast } = useToast();
   const [artist, setArtist] = useState(null);
+  const [recommended, setRecommended] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     api.get(`/api/artists/${id}`).then((d) => { if (alive) { setArtist(d); setLoading(false); } })
       .catch((e) => { if (alive) { toast(e.message, 'error'); setLoading(false); } });
+    api.get('/api/songs/recommended').then((d) => { if (alive) setRecommended(d || []); }).catch(() => {});
     return () => { alive = false; };
   }, [id, toast]);
 
@@ -54,6 +57,10 @@ export default function ArtistDetail() {
 
       <h3 className="section-title">Popular tracks</h3>
       <SongTable songs={artist.songs} showAlbum emptyFallback={<EmptyState icon="music" title="No tracks yet" />} />
+
+      {recommended.length > 0 && (
+        <DiscoverRow title="Recommended for you" songs={recommended} onPlay={play} />
+      )}
     </div>
   );
 }
