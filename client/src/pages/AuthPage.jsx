@@ -277,6 +277,9 @@ export default function AuthPage() {
 
         {mode === 'register' && (
           <>
+            <h1 className="auth-title">Sign up free to start listening</h1>
+            <p className="auth-sub">Create a Pulse account and discover music tailored to your taste.</p>
+
             {/* Step Progress Bar */}
             <div className="auth-step-header">
               <div className="auth-step-pills">
@@ -332,8 +335,9 @@ export default function AuthPage() {
                 </label>
 
                 <button type="submit" className="btn btn-primary btn-block btn-lg">
-                  Continue to Username <Icon name="chevronRight" size={17} />
+                  Next <Icon name="chevronRight" size={17} />
                 </button>
+                <p className="auth-terms">By proceeding, you agree to Pulse's <a href="#terms">Terms of Use</a> and <a href="#privacy">Privacy Policy</a>.</p>
               </form>
             )}
 
@@ -470,10 +474,13 @@ export default function AuthPage() {
                     disabled={busy || selectedGenres.length === 0}
                   >
                     {busy ? <Spinner size={18} /> : (
-                      <>Complete Sign Up & Discover Tracks <Icon name="sparkle" size={17} /></>
+                      <>Sign up <Icon name="sparkle" size={17} /></>
                     )}
                   </button>
                 </div>
+                <p className="auth-terms" style={{ textAlign: 'center' }}>
+                  By signing up, you agree to Pulse's <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.
+                </p>
               </div>
             )}
           </>

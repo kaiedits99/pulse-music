@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import SongTable from '../components/SongTable.jsx';
+import DiscoverRow from '../components/DiscoverRow.jsx';
 import { Cover, Skeleton, EmptyState } from '../components/ui.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
@@ -12,13 +13,28 @@ export default function AlbumDetail() {
   const { play } = usePlayer();
   const { toast } = useToast();
   const [album, setAlbum] = useState(null);
+  const [moreFrom, setMoreFrom] = useState([]);
+  const [recommended, setRecommended] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api.get(`/api/albums/${id}`).then((d) => { if (alive) { setAlbum(d); setLoading(false); } })
-      .catch((e) => { if (alive) { toast(e.message, 'error'); setLoading(false); } });
+    api.get(`/api/albums/${id}`).then((d) => {
+      if (alive) {
+        setAlbum(d);
+        setLoading(false);
+        // "More from artist" — their other tracks, excluding this album's tracks
+        if (d.artist_id) {
+          api.get(`/api/songs?artist_id=${d.artist_id}`).then((songs) => {
+            if (!alive) return;
+            const albumIds = new Set((d.songs || []).map((s) => s.id));
+            setMoreFrom((songs || []).filter((s) => !albumIds.has(s.id)));
+          }).catch(() => {});
+        }
+      }
+    }).catch((e) => { if (alive) { toast(e.message, 'error'); setLoading(false); } });
+    api.get('/api/songs/recommended').then((d) => { if (alive) setRecommended(d || []); }).catch(() => {});
     return () => { alive = false; };
   }, [id, toast]);
 
@@ -53,6 +69,13 @@ export default function AlbumDetail() {
         showAlbum={false}
         emptyFallback={<EmptyState icon="music" title="No tracks in this album yet" />}
       />
+
+      {moreFrom.length > 0 && (
+        <DiscoverRow title={`More from ${album.artist_name}`} songs={moreFrom} onPlay={play} />
+      )}
+      {recommended.length > 0 && (
+        <DiscoverRow title="Recommended for you" songs={recommended} onPlay={play} />
+      )}
     </div>
   );
 }

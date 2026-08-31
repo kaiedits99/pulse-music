@@ -126,7 +126,7 @@ export default function Settings() {
       {/* ============ Appearance & Theme ============ */}
       <section className="panel">
         <div className="panel-head"><h3>Appearance & Theme</h3></div>
-        <p className="panel-desc">Customize how Pulse looks. Toggle between dark midnight and the custom white & purple aesthetic.</p>
+        <p className="panel-desc">Customize how Pulse looks. Dark midnight keeps the neon purple vibe; light mode blends Spotify's clean white & green with Suno's purple gradients.</p>
         <div className="theme-grid">
           <button
             type="button"
@@ -179,7 +179,7 @@ export default function Settings() {
                 <Icon name="sun" size={17} />
                 <span>Light Mode</span>
               </div>
-              <p className="theme-card-desc">Pearlescent white and rich purple sharing the space with ambient violet glows</p>
+              <p className="theme-card-desc">Clean white canvas with purple primary actions, Spotify-green play accents and Suno-style gradients</p>
             </div>
             {theme === 'light' && <span className="theme-badge"><Icon name="check" size={14} /> Active</span>}
           </button>

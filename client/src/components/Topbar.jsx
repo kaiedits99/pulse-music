@@ -6,8 +6,8 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { initials } from '../format.js';
 
 const TITLES = {
-  '/': 'Overview',
-  '/songs': 'Songs',
+  '/': 'Home',
+  '/songs': 'Search',
   '/albums': 'Albums',
   '/artists': 'Artists',
   '/playlists': 'Playlists',
@@ -40,7 +40,14 @@ export default function Topbar({ onMenu, onAccount }) {
 
   return (
     <header className="topbar">
-      <div className="topbar-left">
+      {/* Spotify-style history nav */}
+      <div className="topbar-nav">
+        <button className="round-nav-btn" onClick={() => navigate(-1)} aria-label="Go back" disabled={!window.history?.length}>
+          <Icon name="arrowLeft" size={18} />
+        </button>
+        <button className="round-nav-btn" onClick={() => navigate(1)} aria-label="Go forward">
+          <Icon name="chevronRight" size={18} />
+        </button>
         <button className="icon-btn menu-btn" onClick={onMenu} aria-label="Menu"><Icon name="menu" size={20} /></button>
         <h2 className="topbar-title">{baseTitle}</h2>
       </div>
@@ -49,7 +56,7 @@ export default function Topbar({ onMenu, onAccount }) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search songs, artists…"
+          placeholder="What do you want to listen to?"
           aria-label="Search"
         />
       </form>
