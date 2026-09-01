@@ -29,8 +29,8 @@ realistic demo data so it feels alive on first load.
 `server/catalog.js` auto-seeds featured artist catalogs (metadata only — titles,
 durations, genre, generated covers) on **every server start**; it is idempotent and
 backfills only what is missing. Featured artists: **Thalia Falcon** (R&B / Soul,
-23 tracks) and **ŻYŃY** (Electronic, 20 tracks — "Zyny"; ⚠ identity not yet
-confirmed, see note in `server/catalog.js`). No playable audio is attached —
+23 tracks) and **ŻYŃY** (Electronic, 20 tracks — the Polish artist behind
+"Zyny"). No playable audio is attached —
 artists upload real WAV/MP3 files separately through the normal upload flow.
 
 ## Features

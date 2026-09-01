@@ -64,11 +64,9 @@ export const FEATURED_ARTISTS = [
     ]
   },
   {
-    // NOTE: "Zyny" is ambiguous — this currently models the POLISH electronic /
-    // ambient artist ŻYŃY. There is also an Egyptian house/techno DJ billed as
-    // ZYNY (soundcloud.com/zyny-world) and other similar names. Confirm the
-    // intended artist before the catalog goes live; if wrong, swap this entry
-    // (name, bio, country and track list) — the seeder needs no changes.
+    // CONFIRMED 2026-09-01: the user wants the POLISH electronic / ambient
+    // artist ŻYŃY here (not the Egyptian house/techno DJ billed as ZYNY or
+    // other similarly named acts).
     key: 'zyny',
     name: 'ŻYŃY', // user refers to this artist as "Zyny"
     bio: 'Polish electronic / ambient artist crafting atmospheric, introspective soundscapes.',
