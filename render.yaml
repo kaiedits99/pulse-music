@@ -10,3 +10,5 @@ services:
         value: 20
       - key: JWT_SECRET
         generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false   # optional: public Google OAuth client ID; set in Render dashboard to enable "Sign in with Google"

@@ -250,6 +250,75 @@ router.post('/auth/login', (req, res) => {
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
+// ---------- Google sign-in (ID token / "credential" flow) ----------
+// The browser obtains a Google-signed ID token via Google Identity Services and
+// POSTs it here. We verify it with Google's tokeninfo endpoint, check the
+// audience matches our client ID, then find-or-create the user and return the
+// SAME { token, user } shape as POST /auth/login. No OAuth client secret is
+// involved. Configure with the PUBLIC client ID env var:
+//   GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+
+// Lets the client decide whether to show the "Continue with Google" button
+// (also covers the Android app, which can't read a build-time VITE_ var).
+router.get('/auth/google/status', (req, res) => {
+  res.json({ enabled: Boolean(GOOGLE_CLIENT_ID), clientId: GOOGLE_CLIENT_ID || null });
+});
+
+router.post('/auth/google', async (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google sign-in is not configured on this server' });
+  }
+  const credential = String((req.body || {}).credential || '');
+  if (!credential) return res.status(400).json({ error: 'Google credential is required' });
+
+  // Verify the ID token with Google itself (no client secret needed).
+  // https://developers.google.com/identity/sign-in/web/backend-auth
+  let payload;
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${encodeURIComponent(credential)}`
+    );
+    if (!r.ok) return res.status(401).json({ error: 'Invalid or expired Google credential' });
+    payload = await r.json();
+  } catch {
+    return res.status(502).json({ error: 'Could not verify Google credential right now' });
+  }
+  const issuerOk = payload.iss === 'accounts.google.com' || payload.iss === 'https://accounts.google.com';
+  if (!issuerOk || payload.aud !== GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: 'Google credential was not issued for this app' });
+  }
+  if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
+    return res.status(401).json({ error: 'Google credential has expired' });
+  }
+  const verified = payload.email_verified === true || payload.email_verified === 'true';
+  const email = String(payload.email || '').trim().toLowerCase();
+  if (!verified || !email || email.includes('@placeholder')) {
+    return res.status(401).json({ error: 'Google account email is not verified' });
+  }
+
+  // Sign in existing users by email; otherwise create the account on the fly
+  // (same shape as /auth/register: artist role + auto-created artist profile).
+  // Passwordless Google-only accounts get a random hash so they can never be
+  // signed into via the password form.
+  let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+  if (!user) {
+    const now = new Date().toISOString();
+    const cleanName = String(payload.name || email.split('@')[0]).trim().slice(0, 60) || 'New Artist';
+    const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '').slice(0, 16) || 'artist';
+    let username = base;
+    const taken = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)');
+    for (let i = 2; taken.get(username); i++) username = `${base.slice(0, 24)}_${i}`;
+    const info = db.prepare(
+      'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(cleanName, username, email, hashPassword(crypto.randomBytes(32).toString('hex')), 'artist', String(payload.picture || '') || null, '[]', now);
+    const userId = info.lastInsertRowid;
+    db.prepare('INSERT INTO artists (name, user_id, created_at) VALUES (?,?,?)').run(cleanName, userId, now);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  }
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
 router.put('/auth/preferences', authMiddleware, (req, res) => {
   const { favoriteGenres, username } = req.body || {};
   const user = req.user;

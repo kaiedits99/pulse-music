@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
+import GoogleAuthButton from '../components/GoogleAuthButton.jsx';
 import { Spinner } from '../components/ui.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -475,6 +476,8 @@ export default function AuthPage() {
 
         {mode === 'login' && (
           <>
+            <GoogleAuthButton />
+
             <div className="server-box">
               <button className="server-toggle" onClick={() => setShowServer(!showServer)}>
                 <Icon name="settings" size={15} /> Backend server URL {showServer ? '▾' : '▸'}

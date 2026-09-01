@@ -24,6 +24,36 @@ realistic demo data so it feels alive on first load.
 > login screen (credentials intentionally not documented here — see `server/routes.js`).
 > There is no one-click demo login button.
 
+## Google sign-in (optional)
+
+Pulse supports "Continue with Google" using the Google Identity Services
+**credential (ID token) flow**: the browser gets a Google-signed ID token and
+the server verifies it at `POST /api/auth/google`, returning the same
+`{ token, user }` shape as password login. There is **no OAuth client secret**
+anywhere — only the public client ID is configured. Login and signup are the
+same call: an existing email signs in, an unknown email gets an account (artist
+role + auto-created artist profile, no usable password — they keep signing in
+via Google). The private admin passphrase login is untouched by all this.
+
+Setup:
+
+1. In [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials),
+   create an **OAuth client ID** of type **Web application**.
+2. Configure the OAuth consent screen (External is fine) and add every origin
+   that will serve the client to **Authorized JavaScript origins**, e.g.
+   `http://localhost:5173`, `http://localhost:8080`, your production URL
+   (`https://pulse-music.onrender.com`), and any preview URL you test from.
+   (No redirect URIs are needed for this flow.)
+3. Copy the client ID and start the server with it — the login screen shows the
+   Google button automatically once the backend advertises it:
+
+```bash
+GOOGLE_CLIENT_ID=xxxxxxxxxxxx.apps.googleusercontent.com npm start
+```
+
+Without the env var the endpoint returns `503` and the button hides itself —
+the app behaves exactly as before.
+
 ## Featured artist catalogs
 
 `server/catalog.js` auto-seeds featured artist catalogs (metadata only — titles,

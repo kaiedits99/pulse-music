@@ -2850,3 +2850,13 @@ body[data-theme="light"] {
 
 /* Song table hover in light */
 [data-theme="light"] .song-table tbody tr:hover { background: #f6f3fc; }
+
+/* Google sign-in (GIS renders the button itself; we just center it) */
+.google-auth-block { margin-top: 10px; }
+.google-auth-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 14px;
+}

@@ -18,6 +18,8 @@ code changes.
    - Build: `npm install && cd client && npm install && npm run build && cd ..`
    - Start: `npm start`
 3. Open the `.onrender.com` URL and sign up (or use a demo artist account from the README).
+4. *(Optional)* To enable "Continue with Google", set the `GOOGLE_CLIENT_ID`
+   env var in the Render dashboard (public OAuth client ID — see README).
 
 Or manually: **New → Web Service** with the commands above (Runtime: Node, Build Command and
 Start Command as listed).
