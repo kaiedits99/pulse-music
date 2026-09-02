@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 
 // Color palettes (pairs of gradients) for generated album/track covers
 const PALETTES = [
@@ -47,7 +48,10 @@ export function svgCover(title, subtitle, seedStr, { size = 640 } = {}) {
 </svg>`;
 }
 
-export function writeCover(path, title, subtitle, seedStr) {
-  fs.writeFileSync(path, svgCover(title, subtitle, seedStr));
-  return path;
+export function writeCover(target, title, subtitle, seedStr) {
+  // Hosts such as Render can restart with a wiped filesystem, so the target
+  // directory may no longer exist by the time we regenerate artwork.
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, svgCover(title, subtitle, seedStr));
+  return target;
 }

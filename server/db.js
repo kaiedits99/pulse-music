@@ -4,7 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, '..', 'data');
+export const dataDir = path.join(__dirname, '..', 'data');
 export const audioDir = path.join(dataDir, 'audio');
 export const coverDir = path.join(dataDir, 'covers');
 export const uploadsDir = path.join(dataDir, 'uploads');

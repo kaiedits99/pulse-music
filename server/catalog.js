@@ -24,6 +24,10 @@ function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+// Re-exported so the media self-heal in server/seed.js can rebuild featured-catalog
+// cover paths with exactly the same slugging (and therefore the same artwork).
+export { slug as featuredSlug };
+
 // Each artist: coverPrefix namespaces that artist's generated covers so two
 // artists with a same-titled song never overwrite each other's artwork.
 export const FEATURED_ARTISTS = [

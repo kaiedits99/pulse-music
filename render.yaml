@@ -3,8 +3,15 @@ services:
     name: pulse-music
     runtime: node
     plan: free
+    # The client build needs the root lockfile *and* client/'s, so `npm ci` runs in
+    # both. The server itself starts from the repo root (see package.json > start).
     buildCommand: "npm ci && cd client && npm ci && npm run build"
     startCommand: "npm start"
+    # Render pings this before routing traffic, so a deploy only goes live once the
+    # process is actually serving. It intentionally does no DB work, so slow
+    # boot-time seeding/self-healing can never make a healthy instance look dead.
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: 20
@@ -12,3 +19,19 @@ services:
         generateValue: true
       - key: GOOGLE_CLIENT_ID
         sync: false   # optional: public Google OAuth client ID; set in Render dashboard to enable "Sign in with Google"
+      - key: SEED_DEMO_DATA
+        sync: false   # optional: set to "false" in the dashboard to boot without demo users/tracks (featured catalogs still seed)
+    # NOTE — free-tier storage: Render's free instances have an **ephemeral
+    # filesystem**, so data/pulse.db and the generated audio/covers are wiped on
+    # every restart or redeploy. server/index.js detects this on boot and
+    # self-heals: the demo catalog and its media are regenerated deterministically
+    # from data/seed-manifest.json. That keeps a demo deployment working, but
+    # anything a real user uploads is still lost.
+    #
+    # To persist uploads, attach a Render Disk (paid plans only) and uncomment the
+    # block below — it mounts over the app's own data/ directory:
+    #
+    # disk:
+    #   name: pulse-data
+    #   mountPath: /opt/render/project/src/data
+    #   sizeGB: 1
