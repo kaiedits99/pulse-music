@@ -1,5 +1,6 @@
 // Generates pleasant lo-fi synth loops as WAV files so seeded tracks are actually playable.
 import fs from 'fs';
+import path from 'path';
 
 function mulberry32(a) {
   return function () {
@@ -53,6 +54,8 @@ function writeWav(filePath, samples) {
     let v = Math.max(-1, Math.min(1, samples[i]));
     buf.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
   }
+  // Regenerated media can land in a data/ tree that a host restart wiped.
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, buf);
 }
 

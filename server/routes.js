@@ -129,6 +129,16 @@ function resolveUploadArtist(req, body) {
   return artistId;
 }
 
+// ============================== HEALTH ==============================
+// Unauthenticated liveness probe used as the Render health check path
+// (see render.yaml). It deliberately does no database work: on a host that
+// restarts with a wiped filesystem we want "process is up and serving" to be
+// distinguishable from "data is ready", and boot-time seeding/self-healing
+// should never be able to make the instance look dead to the platform.
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+});
+
 // ============================== AUTH ==============================
 router.get('/auth/check-username', (req, res) => {
   const raw = String(req.query.username || '').trim();
