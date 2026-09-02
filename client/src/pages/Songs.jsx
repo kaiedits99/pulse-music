@@ -5,7 +5,7 @@ import SongTable from '../components/SongTable.jsx';
 import { Skeleton, EmptyState, PageHeader } from '../components/ui.jsx';
 import { ConfirmDialog } from '../components/Modal.jsx';
 import SongFormModal from '../components/SongFormModal.jsx';
-import { AddToPlaylistModal } from '../components/Forms.jsx';
+import { useAddToPlaylistDialog } from '../components/Forms.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -19,7 +19,6 @@ export default function Songs() {
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [albums, setAlbums] = useState([]);
-  const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [genre, setGenre] = useState('');
   const [sort, setSort] = useState('recent');
@@ -28,7 +27,7 @@ export default function Songs() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [addTarget, setAddTarget] = useState(null);
+  const { open: openAdd, dialog: addDialog } = useAddToPlaylistDialog();
 
   const loadSongs = useCallback(async () => {
     setLoading(true);
@@ -49,7 +48,6 @@ export default function Songs() {
   useEffect(() => {
     api.get('/api/artists').then(setArtists).catch(() => {});
     api.get('/api/albums').then(setAlbums).catch(() => {});
-    api.get('/api/playlists').then(setPlaylists).catch(() => {});
   }, []);
 
   const canEdit = (song) => user && (user.role === 'admin' || (artist && artist.id === song.artist_id));
@@ -109,7 +107,7 @@ export default function Songs() {
           songs={songs}
           onEdit={(s) => { setEditing(s); setFormOpen(true); }}
           onDelete={(s) => setDeleting(s)}
-          onAddToPlaylist={(s) => setAddTarget(s)}
+          onAddToPlaylist={openAdd}
           canManage={canEdit}
           emptyFallback={
             <EmptyState
@@ -140,12 +138,7 @@ export default function Songs() {
         message={deleting ? `Are you sure you want to delete "${deleting.title}"? This cannot be undone.` : ''}
       />
 
-      <AddToPlaylistModal
-        open={!!addTarget}
-        onClose={() => setAddTarget(null)}
-        song={addTarget}
-        playlists={playlists}
-      />
+      {addDialog}
     </div>
   );
 }

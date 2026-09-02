@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import Icon from './Icon.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration, formatNumber } from '../format.js';
@@ -7,6 +7,18 @@ import { apiUrl } from '../config.js';
 import { openExternal } from '../native.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { downloadSong as saveOffline, removeSong as removeOffline, isSongDownloaded, hasPlayableAudio, OFFLINE_EVENT } from '../offline.js';
+
+/* Re-render whenever the offline store changes (download/remove). */
+function useOfflineTick() {
+  return useSyncExternalStore(
+    (cb) => { window.addEventListener(OFFLINE_EVENT, cb); return () => window.removeEventListener(OFFLINE_EVENT, cb); },
+    () => offlineVersion,
+    () => offlineVersion
+  );
+}
+let offlineVersion = 0;
+window.addEventListener(OFFLINE_EVENT, () => { offlineVersion += 1; });
 
 function Dropdown({ open, onClose, items }) {
   const ref = useRef(null);
@@ -20,7 +32,7 @@ function Dropdown({ open, onClose, items }) {
   return (
     <div className="dropdown" ref={ref}>
       {items.map((it, i) => (
-        <button key={i} className="dropdown-item" onClick={() => { it.onClick(); onClose(); }}>
+        <button key={i} className="dropdown-item" disabled={it.disabled} onClick={() => { if (it.disabled) return; it.onClick(); onClose(); }}>
           <Icon name={it.icon} size={16} /> {it.label}
         </button>
       ))}
@@ -50,18 +62,33 @@ export function useFavoriteToggle() {
   return toggleFavorite;
 }
 
-export function downloadSong(song, toast) {
+export function downloadFile(song, toast) {
   if (!song.file_path) { toast('No audio file for this track', 'error'); return; }
   openExternal(apiUrl(`/api/songs/${song.id}/download`));
   song.downloads = (song.downloads || 0) + 1;
   toast(`Downloading "${song.title}"`);
 }
+// legacy name kept for existing callers (PlayerBar / NowPlaying)
+export const downloadSong = downloadFile;
 
-export default function SongTable({ songs, showAlbum = true, showIndex = true, showPlays = true, onEdit, onDelete, onAddToPlaylist, canManage, emptyFallback }) {
+export default function SongTable({ songs, showAlbum = true, showIndex = true, showPlays = true, onEdit, onDelete, onAddToPlaylist, canManage, emptyFallback, showOfflineActions = true }) {
   const { play, current, isPlaying, togglePlay } = usePlayer();
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
+  useOfflineTick();
   const [menuFor, setMenuFor] = useState(null);
+
+  const saveToOffline = async (song) => {
+    const res = await saveOffline(song);
+    if (res === 'no-audio') toast('This track has no playable audio to download yet', 'error');
+    else if (res === 'failed') toast('Download failed — check your connection', 'error');
+    else toast(`Saved "${song.title}" for offline`);
+  };
+
+  const dropOffline = async (song) => {
+    await removeOffline(song.id);
+    toast('Removed from Downloads');
+  };
 
   if (!songs || !songs.length) {
     return emptyFallback || null;
@@ -107,7 +134,12 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                   <div className="cell-title">
                     <Cover src={song.cover_url || song.album_cover} alt={song.title} size={42} />
                     <div className="cell-title-text">
-                      <span className={`t-title ${isCurrent ? 'accent' : ''}`}>{song.title}</span>
+                      <span className={`t-title ${isCurrent ? 'accent' : ''}`}>
+                        {song.title}
+                        {showOfflineActions && isSongDownloaded(song.id) && (
+                          <span className="offline-badge" title="Available offline"><Icon name="download" size={12} /></span>
+                        )}
+                      </span>
                       <span className="t-artist">{song.artist_name}</span>
                     </div>
                   </div>
@@ -126,7 +158,7 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                     >
                       <Icon name={song.is_favorite ? 'heartFill' : 'heart'} size={17} />
                     </button>
-                    <button className="icon-btn icon-btn-sm" onClick={() => downloadSong(song, toast)} aria-label="Download">
+                    <button className="icon-btn icon-btn-sm" onClick={() => downloadFile(song, toast)} aria-label="Download">
                       <Icon name="download" size={17} />
                     </button>
                     {(onAddToPlaylist || showEdit || showDelete) && (
@@ -139,6 +171,11 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                           onClose={() => setMenuFor(null)}
                           items={[
                             ...(onAddToPlaylist ? [{ icon: 'playlist', label: 'Add to playlist', onClick: () => onAddToPlaylist(song) }] : []),
+                            ...(showOfflineActions
+                              ? isSongDownloaded(song.id)
+                                ? [{ icon: 'close', label: 'Remove download', onClick: () => dropOffline(song) }]
+                                : [{ icon: 'download', label: 'Save to offline', disabled: !hasPlayableAudio(song), onClick: () => saveToOffline(song) }]
+                              : []),
                             ...(showEdit ? [{ icon: 'edit', label: 'Edit', onClick: () => onEdit(song) }] : []),
                             ...(showDelete ? [{ icon: 'trash', label: 'Delete', onClick: () => onDelete(song) }] : [])
                           ]}

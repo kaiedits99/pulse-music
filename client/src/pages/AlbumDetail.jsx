@@ -7,11 +7,13 @@ import { Cover, Skeleton, EmptyState } from '../components/ui.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { useAddToPlaylistDialog } from '../components/Forms.jsx';
 
 export default function AlbumDetail() {
   const { id } = useParams();
   const { play } = usePlayer();
   const { toast } = useToast();
+  const { open: openAdd, dialog: addDialog } = useAddToPlaylistDialog();
   const [album, setAlbum] = useState(null);
   const [moreFrom, setMoreFrom] = useState([]);
   const [recommended, setRecommended] = useState([]);
@@ -67,8 +69,11 @@ export default function AlbumDetail() {
       <SongTable
         songs={album.songs}
         showAlbum={false}
+        onAddToPlaylist={openAdd}
         emptyFallback={<EmptyState icon="music" title="No tracks in this album yet" />}
       />
+
+      {addDialog}
 
       {moreFrom.length > 0 && (
         <DiscoverRow title={`More from ${album.artist_name}`} songs={moreFrom} onPlay={play} />

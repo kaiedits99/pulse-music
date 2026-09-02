@@ -71,7 +71,16 @@ artists upload real WAV/MP3 files separately through the normal upload flow.
   - **Songs** — upload (drag & drop), edit, delete, stream, download, favorite
   - **Albums** — create, edit, delete, album detail with tracklist
   - **Artists** — profiles with bio, genre, followers, popular tracks
-  - **Playlists** — create, rename, delete, add/remove tracks
+  - **Playlists** — every signed-in user can create/edit/delete their own lists (creator- or
+    admin-only mutations, viewing is shared), with a Spotify-style "Add to this playlist?"
+    dialog that shows check states and creates new playlists inline
+- **Offline downloads** — "Download" toggle on any playlist and "Save to offline" on any track
+  (⋮ menu, Now Playing sheet): audio + covers are cached (Cache Storage) and the playlist's
+  track list is snapshotted, so the **Downloads** page (`/downloads`) opens, lists, and plays
+  everything with no network — like Spotify/YouTube offline. Downloaded tracks prefer the local
+  copy even online (instant, zero-bandwidth playback). A service worker also caches the app
+  shell. "Download" (file) on a row still saves the actual file to the device — in the Android
+  app that lands in the phone's downloads via the system browser.
 - **Music player** — play/pause, next/prev, seek, volume, shuffle, repeat (spacebar shortcut)
 - **Downloads** — per-track download counter + attachment download
 - **Stats overview** — total plays, downloads, top tracks, recent releases, genre breakdown

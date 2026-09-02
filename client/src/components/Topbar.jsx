@@ -17,6 +17,15 @@ const TITLES = {
 };
 
 export default function Topbar({ onMenu, onAccount }) {
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -61,6 +70,11 @@ export default function Topbar({ onMenu, onAccount }) {
         />
       </form>
       <div className="topbar-actions">
+        {!online && (
+          <span className="offline-pill" title="No network — your downloads still play">
+            <Icon name="download" size={13} /> Offline
+          </span>
+        )}
         <button
           className="icon-btn theme-toggle-btn"
           onClick={toggleTheme}

@@ -820,14 +820,28 @@ router.delete('/artists/:id', authMiddleware, (req, res) => {
 
 // ============================== PLAYLISTS ==============================
 router.get('/playlists', authMiddleware, (req, res) => {
+  const mine = req.query.mine === '1';
   const rows = db.prepare(`
     SELECT p.*, u.name creator_name,
       (SELECT COUNT(*) FROM playlist_songs ps WHERE ps.playlist_id = p.id) track_count
     FROM playlists p LEFT JOIN users u ON u.id = p.user_id
+    ${mine ? 'WHERE p.user_id = ?' : ''}
     ORDER BY p.created_at DESC
-  `).all();
+  `).all(...(mine ? [req.user.id] : []));
+  if (req.query.with_songs === '1') {
+    const ids = db.prepare('SELECT playlist_id, song_id FROM playlist_songs');
+    const map = new Map(rows.map((r) => [r.id, []]));
+    for (const r of ids.all()) if (map.has(r.playlist_id)) map.get(r.playlist_id).push(r.song_id);
+    return res.json(rows.map((r) => ({ ...r, song_ids: map.get(r.id) || [] })));
+  }
   res.json(rows);
 });
+
+// Playlists are personal spaces (like Spotify): only the creator or an admin
+// may edit, delete, or change their contents. Viewing stays open to all users.
+function canManagePlaylist(req, playlist) {
+  return req.user.role === 'admin' || playlist.user_id === req.user.id;
+}
 
 router.get('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT p.*, u.name creator_name FROM playlists p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?').get(req.params.id);
@@ -852,6 +866,7 @@ router.post('/playlists', authMiddleware, (req, res) => {
 router.put('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can edit this playlist' });
   const b = req.body || {};
   db.prepare('UPDATE playlists SET name=?, description=? WHERE id=?')
     .run(b.name || p.name, b.description != null ? b.description : p.description, p.id);
@@ -861,6 +876,7 @@ router.put('/playlists/:id', authMiddleware, (req, res) => {
 router.delete('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can delete this playlist' });
   db.prepare('DELETE FROM playlists WHERE id = ?').run(p.id);
   res.json({ ok: true });
 });
@@ -868,6 +884,9 @@ router.delete('/playlists/:id', authMiddleware, (req, res) => {
 router.post('/playlists/:id/songs', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can add songs to this playlist' });
+  const song = db.prepare('SELECT id FROM songs WHERE id = ?').get(req.body?.song_id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
   const { song_id } = req.body || {};
   if (!song_id) return res.status(400).json({ error: 'song_id required' });
   const max = db.prepare('SELECT COALESCE(MAX(position), -1) m FROM playlist_songs WHERE playlist_id = ?').get(p.id).m;
@@ -876,6 +895,9 @@ router.post('/playlists/:id/songs', authMiddleware, (req, res) => {
 });
 
 router.delete('/playlists/:id/songs/:songId', authMiddleware, (req, res) => {
+  const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can remove songs from this playlist' });
   db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND song_id = ?').run(req.params.id, req.params.songId);
   res.json({ ok: true });
 });

@@ -6,9 +6,11 @@ import { ConfirmDialog } from '../components/Modal.jsx';
 import { PlaylistFormModal } from '../components/Forms.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Playlists() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -46,7 +48,7 @@ export default function Playlists() {
       ) : (
         <div className="media-grid">
           {playlists.map((pl) => (
-            <PlaylistCard key={pl.id} playlist={pl} onDelete={(p) => setDeleting(p)} />
+            <PlaylistCard key={pl.id} playlist={pl} onDelete={(user && (user.role === 'admin' || pl.user_id === user.id)) ? (p) => setDeleting(p) : null} />
           ))}
         </div>
       )}
