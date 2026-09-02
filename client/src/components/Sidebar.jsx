@@ -4,6 +4,8 @@ import Icon from './Icon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api.js';
 import { initials } from '../format.js';
+import { PlaylistFormModal } from './Forms.jsx';
+import { isPlaylistDownloaded, OFFLINE_EVENT } from '../offline.js';
 
 /* Spotify-style primary navigation */
 const PRIMARY_NAV = [
@@ -15,6 +17,7 @@ const LIBRARY_NAV = [
   { to: '/albums', icon: 'album', label: 'Albums' },
   { to: '/artists', icon: 'artist', label: 'Artists' },
   { to: '/playlists', icon: 'playlist', label: 'Playlists' },
+  { to: '/downloads', icon: 'download', label: 'Downloads' },
   { to: '/favorites', icon: 'heart', label: 'Favorites' }
 ];
 
@@ -30,13 +33,23 @@ const GENRE_COLORS = [
 export default function Sidebar({ open, onClose }) {
   const { user, logout } = useAuth();
   const [playlists, setPlaylists] = useState([]);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [newPlOpen, setNewPlOpen] = useState(false);
+  const [, setOfflineTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
     if (!user) return;
     api.get('/api/playlists').then((d) => { if (alive) setPlaylists(d || []); }).catch(() => {});
     return () => { alive = false; };
-  }, [user]);
+  }, [user, refreshTick]);
+
+  // keep the green "downloaded" chip badges in sync
+  useEffect(() => {
+    const cb = () => setOfflineTick((t) => t + 1);
+    window.addEventListener(OFFLINE_EVENT, cb);
+    return () => window.removeEventListener(OFFLINE_EVENT, cb);
+  }, []);
 
   return (
     <>
@@ -77,6 +90,9 @@ export default function Sidebar({ open, onClose }) {
         <div className="sidebar-library-head">
           <Icon name="playlist" size={16} />
           <span>Your Library</span>
+          <button className="sidebar-new-pl" onClick={() => setNewPlOpen(true)} title="New playlist" aria-label="New playlist">
+            <Icon name="plus" size={15} />
+          </button>
         </div>
         <nav className="sidebar-nav" aria-label="Library">
           {LIBRARY_NAV.map((item) => (
@@ -117,12 +133,15 @@ export default function Sidebar({ open, onClose }) {
                   style={{ '--pc': GENRE_COLORS[i % GENRE_COLORS.length] }}
                 >
                   <span className="pc-dot" />
-                  {p.name}
+                  <span className="pc-name">{p.name}</span>
+                  {isPlaylistDownloaded(p.id) && <Icon name="download" size={12} className="pc-dl" title="Downloaded for offline" />}
                 </Link>
               ))}
             </div>
           </div>
         )}
+
+        <PlaylistFormModal open={newPlOpen} onClose={() => setNewPlOpen(false)} onSaved={() => setRefreshTick((t) => t + 1)} playlist={null} />
 
         {/* User footer */}
         <div className="sidebar-bottom">

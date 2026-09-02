@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { mediaUrl } from '../config.js';
+import { resolvePlayableUrl } from '../offline.js';
 
 const PlayerContext = createContext(null);
 
@@ -54,6 +55,7 @@ export function PlayerProvider({ children }) {
   const shuffleRef = useRef(false);
   const volumeRef = useRef(0.9);
   const mountedRef = useRef(true);
+  const loadSeqRef = useRef(0); // guards async loads against fast track switching
 
   const [queue, setQueue] = useState([]);
   const [index, setIndex] = useState(-1);
@@ -103,29 +105,39 @@ export function PlayerProvider({ children }) {
 
       audio.pause();
 
-      const url = mediaUrl(source);
-      if (!url) {
+      const streamUrl = mediaUrl(source);
+      if (!streamUrl) {
         setError('This track does not have a valid playback URL.');
         return;
       }
-      audio.src = url;
-      audio.volume = volumeRef.current;
-      audio.load();
 
-      if (startTime > 0) {
-        try {
-          audio.currentTime = startTime;
-        } catch { /* will apply when metadata loads */ }
-      }
+      // Offline-first like Spotify: downloaded tracks (and everything while
+      // offline) resolve to the locally cached copy; otherwise stream.
+      const seq = ++loadSeqRef.current;
+      resolvePlayableUrl(song)
+        .then((playUrl) => {
+          if (seq !== loadSeqRef.current || !mountedRef.current) return; // superseded
+          const url = playUrl || streamUrl;
+          audio.src = url;
+          audio.volume = volumeRef.current;
+          audio.load();
 
-      const playPromise = audio.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {
-          if (mountedRef.current) {
-            setError('Playback was blocked or this audio source is unavailable. Try play again.');
+          if (startTime > 0) {
+            try {
+              audio.currentTime = startTime;
+            } catch { /* will apply when metadata loads */ }
           }
-        });
-      }
+
+          const playPromise = audio.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {
+              if (mountedRef.current) {
+                setError('Playback was blocked or this audio source is unavailable. Try play again.');
+              }
+            });
+          }
+        })
+        .catch(() => { if (seq === loadSeqRef.current) setError('Could not prepare this track for playback.'); });
 
       // Record play count (fire-and-forget)
       if (song.id) api.post(`/api/songs/${song.id}/play`).catch(() => {});

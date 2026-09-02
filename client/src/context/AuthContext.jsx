@@ -47,6 +47,17 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential) => {
+    const data = await api.post('/api/auth/google', { credential });
+    setToken(data.token);
+    setUser(data.user);
+    try {
+      const me = await api.get('/api/auth/me');
+      setArtist(me.artist);
+    } catch { /* ignore */ }
+    return data.user;
+  }, []);
+
   const updatePreferences = useCallback(async (payload) => {
     const data = await api.put('/api/auth/preferences', payload);
     setUser(data.user);
@@ -68,7 +79,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, artist, loading, login, register, logout, refreshArtist, updatePreferences }}>
+    <AuthContext.Provider value={{ user, artist, loading, login, loginWithGoogle, register, logout, refreshArtist, updatePreferences }}>
       {children}
     </AuthContext.Provider>
   );

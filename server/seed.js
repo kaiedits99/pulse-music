@@ -19,7 +19,12 @@ function seed() {
   const now = new Date().toISOString();
 
   // ---- Users ----
-  const adminHash = hashPassword('demo123');
+  // The admin account's password is the private passkey (paired with the
+  // passphrase login handled in server/routes.js). SECRET — server-side only:
+  // never document it in the README or client code. Other demo accounts keep
+  // the shared demo password.
+  const adminHash = hashPassword("that's one thing that I hate");
+  const demoHash = hashPassword('demo123');
   const insertUser = db.prepare(
     'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
   );
@@ -38,7 +43,7 @@ function seed() {
     'Amara Okafor',
     'amara',
     'amara@pulse.app',
-    adminHash,
+    demoHash,
     'artist',
     null,
     JSON.stringify(['Other', 'Pop']),
@@ -49,7 +54,7 @@ function seed() {
     'Kofi Mensah',
     'kofi',
     'kofi@pulse.app',
-    adminHash,
+    demoHash,
     'artist',
     null,
     JSON.stringify(['Other', 'EDM']),
@@ -60,7 +65,7 @@ function seed() {
     'Zara Bello',
     'zara',
     'zara@pulse.app',
-    adminHash,
+    demoHash,
     'artist',
     null,
     JSON.stringify(['Other', 'K-Pop']),
@@ -215,7 +220,8 @@ function seed() {
     .forEach((t) => addFav.run(adminId, songIds[byTitle(t)]));
 
   console.log('[seed] Seeded database successfully with 7-genre catalog!');
-  console.log('[seed] Demo accounts -> admin@pulse.app (adebayo) / demo123  ·  amara@pulse.app (amara) / demo123');
+  console.log('[seed] Demo artist accounts -> amara@pulse.app / demo123 (kofi, zara share the same password).');
+  console.log('[seed] Admin account uses the private passkey (see server/routes.js) — credentials intentionally not printed.');
 }
 
 function hashCode(str) {

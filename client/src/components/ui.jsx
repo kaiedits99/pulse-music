@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Icon from './Icon.jsx';
 import { mediaUrl } from '../config.js';
+import { cachedCoverBlobUrl } from '../offline.js';
 
 export function Skeleton({ w = '100%', h = 16, r = 8, style }) {
   return <div className="skeleton" style={{ width: w, height: h, borderRadius: r, ...style }} />;
@@ -12,7 +13,15 @@ export function Spinner({ size = 22 }) {
 
 export function Cover({ src, alt, size = 48, round = false }) {
   const [err, setErr] = useState(false);
+  const [localUrl, setLocalUrl] = useState(null);
   const cls = round ? 'cover cover-round' : 'cover';
+  // When the network is gone but artwork was downloaded, fall back to the
+  // copy in the offline cache (Spotify keeps showing covers offline too).
+  const onErr = async () => {
+    if (localUrl) { setErr(true); return; }
+    const u = await cachedCoverBlobUrl(src);
+    if (u) setLocalUrl(u); else setErr(true);
+  };
   if (!src || err) {
     return (
       <div className={cls} style={{ width: size, height: size, fontSize: size * 0.34 }}>
@@ -21,7 +30,7 @@ export function Cover({ src, alt, size = 48, round = false }) {
     );
   }
   return (
-    <img className={cls} src={mediaUrl(src)} alt={alt} style={{ width: size, height: size }} onError={() => setErr(true)} loading="lazy" />
+    <img className={cls} src={localUrl || mediaUrl(src)} alt={alt} style={{ width: size, height: size }} onError={onErr} loading="lazy" />
   );
 }
 

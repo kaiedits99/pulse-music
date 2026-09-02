@@ -8,12 +8,14 @@ import { Cover, Skeleton, EmptyState } from '../components/ui.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { useAddToPlaylistDialog } from '../components/Forms.jsx';
 import { formatNumber } from '../format.js';
 
 export default function ArtistDetail() {
   const { id } = useParams();
   const { play } = usePlayer();
   const { toast } = useToast();
+  const { open: openAdd, dialog: addDialog } = useAddToPlaylistDialog();
   const [artist, setArtist] = useState(null);
   const [recommended, setRecommended] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,9 @@ export default function ArtistDetail() {
       ) : <EmptyState icon="album" title="No albums yet" />}
 
       <h3 className="section-title">Popular tracks</h3>
-      <SongTable songs={artist.songs} showAlbum emptyFallback={<EmptyState icon="music" title="No tracks yet" />} />
+      <SongTable songs={artist.songs} showAlbum onAddToPlaylist={openAdd} emptyFallback={<EmptyState icon="music" title="No tracks yet" />} />
+
+      {addDialog}
 
       {recommended.length > 0 && (
         <DiscoverRow title="Recommended for you" songs={recommended} onPlay={play} />

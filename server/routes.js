@@ -195,8 +195,39 @@ router.post('/auth/register', (req, res) => {
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
+// ---------- Private admin passphrase login ----------
+// Admin access is handled here, server-side only. The exact passphrase (typed
+// in the email/username field) and passkey (typed in the password field) must
+// match letter-for-letter, space-for-space, case-sensitively. These values are
+// SECRET — never copy them into client code or docs. Normal signup/login for
+// everyone else is completely unaffected: this check only recognizes the
+// sentinel passphrase and nothing else can trigger it.
+const ADMIN_PASSPHRASE = 'You bill me, I block you';
+const ADMIN_PASSKEY = "that's one thing that I hate";
+
 router.post('/auth/login', (req, res) => {
   const { email, identifier, password } = req.body || {};
+
+  // Private admin access — raw, exact comparison BEFORE any trimming or
+  // case-folding, so a stray space or different capitalization just fails and
+  // falls through to the normal (failing) login path.
+  const rawId = String(identifier != null && identifier !== '' ? identifier : (email != null ? email : ''));
+  const rawPw = String(password != null ? password : '');
+  if (rawId === ADMIN_PASSPHRASE && rawPw === ADMIN_PASSKEY) {
+    let admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+    if (!admin) {
+      // Admin row missing (e.g. wiped users table) — recreate it so the
+      // private login keeps working. Password stays the passkey, never stored
+      // in plaintext beyond the bcrypt hash.
+      const now = new Date().toISOString();
+      const info = db.prepare(
+        'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
+      ).run('Adebayo Cole', 'adebayo', 'admin@pulse.app', hashPassword(ADMIN_PASSKEY), 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
+      admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+    }
+    return res.json({ token: signToken(admin), user: publicUser(admin) });
+  }
+
   const queryId = String(identifier || email || '').trim();
   if (!queryId || !password) {
     return res.status(400).json({ error: 'Username/email and password are required' });
@@ -215,6 +246,75 @@ router.post('/auth/login', (req, res) => {
 
   if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username/email or password' });
+  }
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+// ---------- Google sign-in (ID token / "credential" flow) ----------
+// The browser obtains a Google-signed ID token via Google Identity Services and
+// POSTs it here. We verify it with Google's tokeninfo endpoint, check the
+// audience matches our client ID, then find-or-create the user and return the
+// SAME { token, user } shape as POST /auth/login. No OAuth client secret is
+// involved. Configure with the PUBLIC client ID env var:
+//   GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+
+// Lets the client decide whether to show the "Continue with Google" button
+// (also covers the Android app, which can't read a build-time VITE_ var).
+router.get('/auth/google/status', (req, res) => {
+  res.json({ enabled: Boolean(GOOGLE_CLIENT_ID), clientId: GOOGLE_CLIENT_ID || null });
+});
+
+router.post('/auth/google', async (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google sign-in is not configured on this server' });
+  }
+  const credential = String((req.body || {}).credential || '');
+  if (!credential) return res.status(400).json({ error: 'Google credential is required' });
+
+  // Verify the ID token with Google itself (no client secret needed).
+  // https://developers.google.com/identity/sign-in/web/backend-auth
+  let payload;
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${encodeURIComponent(credential)}`
+    );
+    if (!r.ok) return res.status(401).json({ error: 'Invalid or expired Google credential' });
+    payload = await r.json();
+  } catch {
+    return res.status(502).json({ error: 'Could not verify Google credential right now' });
+  }
+  const issuerOk = payload.iss === 'accounts.google.com' || payload.iss === 'https://accounts.google.com';
+  if (!issuerOk || payload.aud !== GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: 'Google credential was not issued for this app' });
+  }
+  if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
+    return res.status(401).json({ error: 'Google credential has expired' });
+  }
+  const verified = payload.email_verified === true || payload.email_verified === 'true';
+  const email = String(payload.email || '').trim().toLowerCase();
+  if (!verified || !email || email.includes('@placeholder')) {
+    return res.status(401).json({ error: 'Google account email is not verified' });
+  }
+
+  // Sign in existing users by email; otherwise create the account on the fly
+  // (same shape as /auth/register: artist role + auto-created artist profile).
+  // Passwordless Google-only accounts get a random hash so they can never be
+  // signed into via the password form.
+  let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+  if (!user) {
+    const now = new Date().toISOString();
+    const cleanName = String(payload.name || email.split('@')[0]).trim().slice(0, 60) || 'New Artist';
+    const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '').slice(0, 16) || 'artist';
+    let username = base;
+    const taken = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)');
+    for (let i = 2; taken.get(username); i++) username = `${base.slice(0, 24)}_${i}`;
+    const info = db.prepare(
+      'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(cleanName, username, email, hashPassword(crypto.randomBytes(32).toString('hex')), 'artist', String(payload.picture || '') || null, '[]', now);
+    const userId = info.lastInsertRowid;
+    db.prepare('INSERT INTO artists (name, user_id, created_at) VALUES (?,?,?)').run(cleanName, userId, now);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   }
   res.json({ token: signToken(user), user: publicUser(user) });
 });
@@ -720,14 +820,28 @@ router.delete('/artists/:id', authMiddleware, (req, res) => {
 
 // ============================== PLAYLISTS ==============================
 router.get('/playlists', authMiddleware, (req, res) => {
+  const mine = req.query.mine === '1';
   const rows = db.prepare(`
     SELECT p.*, u.name creator_name,
       (SELECT COUNT(*) FROM playlist_songs ps WHERE ps.playlist_id = p.id) track_count
     FROM playlists p LEFT JOIN users u ON u.id = p.user_id
+    ${mine ? 'WHERE p.user_id = ?' : ''}
     ORDER BY p.created_at DESC
-  `).all();
+  `).all(...(mine ? [req.user.id] : []));
+  if (req.query.with_songs === '1') {
+    const ids = db.prepare('SELECT playlist_id, song_id FROM playlist_songs');
+    const map = new Map(rows.map((r) => [r.id, []]));
+    for (const r of ids.all()) if (map.has(r.playlist_id)) map.get(r.playlist_id).push(r.song_id);
+    return res.json(rows.map((r) => ({ ...r, song_ids: map.get(r.id) || [] })));
+  }
   res.json(rows);
 });
+
+// Playlists are personal spaces (like Spotify): only the creator or an admin
+// may edit, delete, or change their contents. Viewing stays open to all users.
+function canManagePlaylist(req, playlist) {
+  return req.user.role === 'admin' || playlist.user_id === req.user.id;
+}
 
 router.get('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT p.*, u.name creator_name FROM playlists p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?').get(req.params.id);
@@ -752,6 +866,7 @@ router.post('/playlists', authMiddleware, (req, res) => {
 router.put('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can edit this playlist' });
   const b = req.body || {};
   db.prepare('UPDATE playlists SET name=?, description=? WHERE id=?')
     .run(b.name || p.name, b.description != null ? b.description : p.description, p.id);
@@ -761,6 +876,7 @@ router.put('/playlists/:id', authMiddleware, (req, res) => {
 router.delete('/playlists/:id', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can delete this playlist' });
   db.prepare('DELETE FROM playlists WHERE id = ?').run(p.id);
   res.json({ ok: true });
 });
@@ -768,6 +884,9 @@ router.delete('/playlists/:id', authMiddleware, (req, res) => {
 router.post('/playlists/:id/songs', authMiddleware, (req, res) => {
   const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can add songs to this playlist' });
+  const song = db.prepare('SELECT id FROM songs WHERE id = ?').get(req.body?.song_id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
   const { song_id } = req.body || {};
   if (!song_id) return res.status(400).json({ error: 'song_id required' });
   const max = db.prepare('SELECT COALESCE(MAX(position), -1) m FROM playlist_songs WHERE playlist_id = ?').get(p.id).m;
@@ -776,6 +895,9 @@ router.post('/playlists/:id/songs', authMiddleware, (req, res) => {
 });
 
 router.delete('/playlists/:id/songs/:songId', authMiddleware, (req, res) => {
+  const p = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Playlist not found' });
+  if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can remove songs from this playlist' });
   db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND song_id = ?').run(req.params.id, req.params.songId);
   res.json({ ok: true });
 });

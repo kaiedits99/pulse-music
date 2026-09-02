@@ -8,6 +8,7 @@ import { mediaUrl } from '../config.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useFavoriteToggle, downloadSong } from './SongTable.jsx';
+import { downloadSong as saveToOffline, isSongDownloaded } from '../offline.js';
 
 /* Equalizer bar heights are driven purely by CSS animation; these tweaks give
    each bar a slightly different rhythm so the pattern never looks uniform. */
@@ -301,6 +302,7 @@ export default function NowPlaying({ open, onClose }) {
                   <div className="np-menu">
                     <button onClick={() => { setMenuOpen(false); share(); }}><Icon name="share" size={17} /> Share</button>
                     <button onClick={() => { setMenuOpen(false); try { downloadSong(current, toast); } catch { /* ignore */ } }}><Icon name="download" size={17} /> Download</button>
+            <button onClick={() => { setMenuOpen(false); saveToOffline(current).then((r) => toast(r === 'no-audio' ? 'No playable audio to download yet' : r === 'failed' ? 'Download failed' : 'Saved for offline', r === 'added' || r === 'cached' ? 'success' : 'error')); }}><Icon name="download" size={17} /> Save to offline</button>
                     <button onClick={() => { setMenuOpen(false); gotoArtist(); }}><Icon name="artist" size={17} /> Go to artist</button>
                   </div>
                 </>

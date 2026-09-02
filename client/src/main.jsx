@@ -8,3 +8,11 @@ createRoot(document.getElementById('root')).render(
     <App />
   </StrictMode>
 );
+
+// Register the offline-capable service worker (downloads + app shell).
+// Same-origin only; silently skipped in unsupported/embedded contexts.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* offline stays best-effort */ });
+  });
+}

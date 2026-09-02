@@ -2850,3 +2850,63 @@ body[data-theme="light"] {
 
 /* Song table hover in light */
 [data-theme="light"] .song-table tbody tr:hover { background: #f6f3fc; }
+
+/* Google sign-in (GIS renders the button itself; we just center it) */
+.google-auth-block { margin-top: 10px; }
+.google-auth-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 14px;
+}
+
+/* ============ Playlists, offline downloads, add-to-playlist ============ */
+
+/* Add-to-playlist dialog (Spotify-style) */
+.atp-song { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.atp-song-text { display: flex; flex-direction: column; min-width: 0; }
+.atp-song-text strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atp-song-text span { color: var(--text-dim); font-size: 12px; }
+.atp-search { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text-dim); }
+.atp-search input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 13px; }
+.atp-create { display: flex; gap: 8px; margin: 10px 0 4px; }
+.atp-create input { flex: 1; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 12px; color: var(--text); outline: none; }
+.atp-new { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 4px; background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 14px; cursor: pointer; }
+.atp-new:hover { color: var(--accent); }
+.atp-new-icon { width: 30px; height: 30px; border-radius: 8px; background: var(--surface-2); display: grid; place-items: center; }
+.atp-list { margin-top: 6px; max-height: 280px; overflow-y: auto; }
+.atp-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 6px; background: none; border: none; border-radius: 8px; color: var(--text); cursor: pointer; text-align: left; }
+.atp-row:hover { background: var(--surface-2); }
+.atp-row:disabled { opacity: .6; cursor: default; }
+.atp-check { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--text-faint); display: grid; place-items: center; flex: none; transition: all .15s ease; }
+.atp-row.on .atp-check { background: var(--success); border-color: var(--success); color: #04140c; }
+.atp-name { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atp-count { color: var(--text-faint); font-size: 12px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; border-radius: 999px; }
+
+/* Offline / download badges */
+.offline-badge { display: inline-grid; place-items: center; margin-left: 7px; vertical-align: middle; color: var(--success); background: rgba(52, 211, 153, .14); border-radius: 50%; width: 17px; height: 17px; }
+.downloaded-chip { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--success); background: rgba(52, 211, 153, .12); border: 1px solid rgba(52, 211, 153, .35); vertical-align: middle; }
+.btn-downloaded { color: var(--success) !important; border-color: rgba(52, 211, 153, .5) !important; background: rgba(52, 211, 153, .08) !important; }
+.download-toggle { display: inline-flex; align-items: center; gap: 8px; }
+.offline-banner { display: flex; align-items: center; gap: 8px; margin: 6px 0 14px; padding: 8px 14px; border-radius: 10px; background: rgba(52, 211, 153, .1); border: 1px solid rgba(52, 211, 153, .3); color: var(--success); font-size: 13px; }
+.offline-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #ffd9a8; background: rgba(245, 158, 11, .16); border: 1px solid rgba(245, 158, 11, .4); }
+.offline-card .cover-play { background: rgba(4, 20, 12, .55); }
+
+/* Sidebar additions */
+.sidebar-new-pl { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; }
+.sidebar-new-pl:hover { color: var(--text); background: var(--surface-2); }
+.playlist-chip { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.playlist-chip .pc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.pc-dl { color: var(--success); flex: none; }
+
+/* Downloads page + disabled menu rows */
+.downloads-tabs { display: inline-flex; gap: 4px; margin-bottom: 16px; }
+.dropdown-item:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Light theme adjustments */
+[data-theme='light'] .atp-search input { color: #16181d; }
+[data-theme='light'] .atp-create input { background: #fff; color: #16181d; }
+[data-theme='light'] .atp-row:hover { background: #f2f3f7; }
+[data-theme='light'] .atp-new-icon { background: #eceef4; }

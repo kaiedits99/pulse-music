@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
+import { seedFeaturedCatalog } from './catalog.js';
 import db from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,11 @@ if (userCount === 0) {
   console.log('[pulse] Empty database detected — seeding demo data…');
   await import('./seed.js');
 }
+
+// Auto-seed the featured artist catalogs on every start (idempotent — existing
+// artists are left untouched, only missing tracks are backfilled). Metadata
+// only; audio must be uploaded separately.
+seedFeaturedCatalog();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {

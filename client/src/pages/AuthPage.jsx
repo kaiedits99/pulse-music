@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
+import GoogleAuthButton from '../components/GoogleAuthButton.jsx';
 import { Spinner } from '../components/ui.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -195,19 +196,6 @@ export default function AuthPage() {
     setRuntimeUrl(serverUrl);
     toast('Backend URL saved');
     setTimeout(() => window.location.reload(), 600);
-  };
-
-  const demoLogin = async () => {
-    setBusy(true);
-    try {
-      await login('admin@pulse.app', 'demo123');
-      toast('Signed in with demo account');
-      navigate('/');
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setBusy(false);
-    }
   };
 
   const switchMode = (m) => {
@@ -488,11 +476,7 @@ export default function AuthPage() {
 
         {mode === 'login' && (
           <>
-            <div className="auth-divider"><span>or</span></div>
-            <button className="btn btn-ghost btn-block" onClick={demoLogin} disabled={busy}>
-              <Icon name="sparkle" size={16} /> Try the demo account
-            </button>
-            <p className="auth-hint">Demo: <code>admin</code> / <code>demo123</code></p>
+            <GoogleAuthButton />
 
             <div className="server-box">
               <button className="server-toggle" onClick={() => setShowServer(!showServer)}>
