@@ -16,6 +16,13 @@ import {
   OFFLINE_EVENT
 } from '../offline.js';
 
+/* `e.target` can be the document (keyboard events with nothing focused), which
+   has no `closest` — guard so global shortcuts never throw. */
+function matches(target, selector) {
+  return !!(target && typeof target.closest === 'function' && target.closest(selector));
+}
+const inField = (target) => matches(target, 'input, textarea, select, [contenteditable="true"]');
+
 export default function PlayerBar() {
   const {
     current, queue, isPlaying, togglePlay, next, prev, seek, seekRelative,
@@ -47,7 +54,7 @@ export default function PlayerBar() {
 
   /* ------------------------------------------------ keyboard shortcuts -- */
   const onKey = useCallback((e) => {
-    if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (inField(e.target)) return;
     switch (e.code) {
       case 'Space': e.preventDefault(); togglePlay(); break;
       case 'ArrowLeft': e.preventDefault(); seekRelative(-5); break;
@@ -66,12 +73,12 @@ export default function PlayerBar() {
 
   /* ------------------------------------------------------- interactions -- */
   const onBarClick = useCallback((e) => {
-    if (e.target.closest('button, a, input, .progress-row, .progress-bar, .volume-wrap, .player-error')) return;
+    if (matches(e.target, 'button, a, input, .progress-row, .progress-bar, .volume-wrap, .player-error')) return;
     openExpanded();
   }, [openExpanded]);
 
   const onBarTouchStart = useCallback((e) => {
-    if (e.target.closest('button, a, input, .progress-row, .progress-bar')) { swipeStartY.current = null; return; }
+    if (matches(e.target, 'button, a, input, .progress-row, .progress-bar')) { swipeStartY.current = null; return; }
     swipeStartY.current = e.touches[0].clientY;
   }, []);
 

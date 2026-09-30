@@ -98,9 +98,10 @@ make a healthy instance look dead to the platform.
 ## Features
 
 - **Authentication** — register (creates an artist profile), login, JWT sessions, sign out
-- **Dashboard layout** — fixed sidebar navigation, topbar with search, bottom "now playing" bar
+- **Dashboard layout** — floating two-panel sidebar (nav + playlists + Install App), pill topbar
+  with live search, notifications, theme switch and account drawer, and a 92px "now playing" bar
 - **Full CRUD** for the core resources:
-  - **Songs** — upload (drag & drop), edit, delete, stream, download, favorite
+  - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
   - **Albums** — create, edit, delete, album detail with tracklist
   - **Artists** — profiles with bio, genre, followers, popular tracks
   - **Playlists** — every signed-in user can create/edit/delete their own lists (creator- or
@@ -116,7 +117,10 @@ make a healthy instance look dead to the platform.
 - **Music player** — play/pause, next/prev, seek, volume, shuffle, repeat (spacebar shortcut)
 - **Downloads** — per-track download counter + attachment download
 - **Stats overview** — total plays, downloads, top tracks, recent releases, genre breakdown
-- **Search & filters** — search across songs/artists, filter by genre, sort, "My music" toggle
+- **Search page** (`/search`) — one place for query, genre chips, artist filter, sort and
+  grid/list views, with matching artists and albums surfaced above the tracks
+- **Your Library** (`/library`) — pinned hubs (Liked Songs, Your Uploads, Offline Library),
+  content-type filter chips, sort menu, grid/list toggle and a live offline-storage summary
 - **Polish** — loading skeletons, empty states, toasts, optimistic favorite toggle,
   confirm dialogs, responsive layout (mobile sidebar drawer)
 
@@ -155,9 +159,11 @@ music-app/
 │   └── cover.js      # SVG cover-art generator
 ├── client/           # React + Vite SPA
 │   └── src/
-│       ├── pages/        # Overview, Songs, Albums, Artists, Playlists, Upload, Settings…
-│       ├── components/   # Sidebar, Topbar, PlayerBar, SongTable, Modals, Forms…
-│       └── context/      # Auth, Player, Toast state
+│       ├── pages/        # Overview, Search, Library, Albums, Artists, Playlists, Upload, Settings…
+│       ├── components/   # Sidebar, Topbar, PlayerBar, NowPlaying, Cards, SongTable, Modals, Forms…
+│       ├── styles/       # design system: base.css, shell.css, components.css, pages.css
+│       ├── hooks/        # useInstallPrompt (PWA install)
+│       └── context/      # Auth, Player, Theme, Toast state
 └── data/             # SQLite DB + generated audio/covers/uploads (persisted)
     └── seed-manifest.json  # how each seeded WAV was synthesized, for media self-heal
 ```

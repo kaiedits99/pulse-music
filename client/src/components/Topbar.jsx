@@ -104,7 +104,9 @@ export default function Topbar({ onMenu, onAccount }) {
   /* "/" focuses search, Spotify-style */
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key !== '/' || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const t = e.target;
+      const inField = !!(t && typeof t.closest === 'function' && t.closest('input, textarea, select, [contenteditable="true"]'));
+      if (e.key !== '/' || inField) return;
       e.preventDefault();
       inputRef.current?.focus();
     };
