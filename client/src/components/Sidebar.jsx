@@ -1,159 +1,148 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
 import { api } from '../api.js';
-import { initials } from '../format.js';
 import { PlaylistFormModal } from './Forms.jsx';
 import { isPlaylistDownloaded, OFFLINE_EVENT } from '../offline.js';
+import { useInstallPrompt } from '../hooks/useInstallPrompt.js';
 
-/* Spotify-style primary navigation */
 const PRIMARY_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
-  { to: '/songs', icon: 'search', label: 'Search' }
-];
-
-const LIBRARY_NAV = [
-  { to: '/albums', icon: 'album', label: 'Albums' },
-  { to: '/artists', icon: 'artist', label: 'Artists' },
-  { to: '/playlists', icon: 'playlist', label: 'Playlists' },
-  { to: '/downloads', icon: 'download', label: 'Downloads' },
-  { to: '/favorites', icon: 'heart', label: 'Favorites' }
-];
-
-const GENRE_COLORS = [
-  'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
-  'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)',
-  'linear-gradient(135deg, #10b981 0%, #34d399 100%)',
-  'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)',
-  'linear-gradient(135deg, #ec4899 0%, #f472b6 100%)',
-  'linear-gradient(135deg, #f43f5e 0%, #fb7185 100%)'
+  { to: '/search', icon: 'search', label: 'Search' },
+  { to: '/library', icon: 'library', label: 'Your Library' },
+  { to: '/podcasts', icon: 'podcast', label: 'Podcasts' }
 ];
 
 export default function Sidebar({ open, onClose }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const location = useLocation();
+  const { canInstall, installed, promptInstall } = useInstallPrompt();
+
   const [playlists, setPlaylists] = useState([]);
-  const [refreshTick, setRefreshTick] = useState(0);
-  const [newPlOpen, setNewPlOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [, setOfflineTick] = useState(0);
 
-  useEffect(() => {
-    let alive = true;
+  const loadPlaylists = useCallback(() => {
     if (!user) return;
-    api.get('/api/playlists').then((d) => { if (alive) setPlaylists(d || []); }).catch(() => {});
-    return () => { alive = false; };
-  }, [user, refreshTick]);
+    api.get('/api/playlists').then((d) => setPlaylists(d || [])).catch(() => {});
+  }, [user]);
 
-  // keep the green "downloaded" chip badges in sync
+  useEffect(() => { loadPlaylists(); }, [loadPlaylists]);
+
+  // Keep the sidebar in sync when a playlist is created/deleted elsewhere.
+  useEffect(() => {
+    const refresh = () => loadPlaylists();
+    window.addEventListener('pulse-playlists-changed', refresh);
+    return () => window.removeEventListener('pulse-playlists-changed', refresh);
+  }, [loadPlaylists]);
+
+  // Re-render the green "downloaded" badges when the offline store changes.
   useEffect(() => {
     const cb = () => setOfflineTick((t) => t + 1);
     window.addEventListener(OFFLINE_EVENT, cb);
     return () => window.removeEventListener(OFFLINE_EVENT, cb);
   }, []);
 
+  const handleInstall = async () => {
+    const result = await promptInstall();
+    if (result === 'accepted') toast('Installing Pulse…');
+    else if (result === 'dismissed') toast('Install cancelled', 'info');
+    else {
+      toast(
+        installed
+          ? 'Pulse is already installed on this device'
+          : 'Use your browser menu → “Install app” / “Add to Home Screen”',
+        'info'
+      );
+    }
+  };
+
   return (
     <>
       {open && <div className="sidebar-backdrop" onClick={onClose} />}
       <aside className={`sidebar ${open ? 'open' : ''}`}>
-        {/* Brand / logo */}
-        <div className="sidebar-brand">
-          <div className="brand-logo"><Icon name="wave" size={22} /></div>
-          <span className="brand-name">Pulse</span>
+        {/* ---------- Primary navigation panel ---------- */}
+        <div className="side-panel side-panel--nav">
+          <Link to="/" className="brand" onClick={onClose}>
+            <span className="brand-logo"><Icon name="wave" size={19} /></span>
+            <span className="brand-name">Pulse</span>
+          </Link>
+
+          <nav className="side-nav" aria-label="Primary">
+            {PRIMARY_NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={onClose}
+                className={({ isActive }) => `side-nav-item ${isActive ? 'active' : ''}`}
+              >
+                <Icon name={item.icon} size={20} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
         </div>
 
-        {/* Primary nav (Home, Search) */}
-        <nav className="sidebar-nav sidebar-nav-primary" aria-label="Primary">
-          {PRIMARY_NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              onClick={onClose}
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+        {/* ---------- Playlists panel ---------- */}
+        <div className="side-panel side-panel--library">
+          <div className="lib-head">
+            <span className="lib-head-title">Playlists</span>
+            <button
+              className="lib-add-btn"
+              onClick={() => setNewOpen(true)}
+              title="Create playlist"
+              aria-label="Create playlist"
             >
-              <Icon name={item.icon} size={20} />
-              <span>{item.label}</span>
+              <Icon name="plus" size={16} />
+            </button>
+          </div>
+
+          <div className="lib-list scroll-thin">
+            <NavLink
+              to="/favorites"
+              onClick={onClose}
+              className={({ isActive }) => `lib-item ${isActive ? 'active' : ''}`}
+            >
+              <span className="lib-item-name">Liked Songs</span>
             </NavLink>
-          ))}
-        </nav>
 
-        {/* Suno-inspired "Create / Upload" action */}
-        <Link to="/upload" onClick={onClose} className="sidebar-create-btn">
-          <span className="scb-icon"><Icon name="plus" size={18} /></span>
-          <span className="scb-text">
-            <strong>Upload music</strong>
-            <small>Add your latest track</small>
-          </span>
-        </Link>
+            {playlists.map((p) => (
+              <Link
+                key={p.id}
+                to={`/playlists/${p.id}`}
+                onClick={onClose}
+                className={`lib-item ${location.pathname === `/playlists/${p.id}` ? 'active' : ''}`}
+              >
+                <span className="lib-item-name">{p.name}</span>
+                {isPlaylistDownloaded(p.id) && (
+                  <Icon name="download" size={13} className="lib-item-badge" title="Downloaded" />
+                )}
+              </Link>
+            ))}
 
-        {/* Your Library */}
-        <div className="sidebar-library-head">
-          <Icon name="playlist" size={16} />
-          <span>Your Library</span>
-          <button className="sidebar-new-pl" onClick={() => setNewPlOpen(true)} title="New playlist" aria-label="New playlist">
-            <Icon name="plus" size={15} />
+            {playlists.length === 0 && (
+              <p className="lib-empty">
+                No playlists yet — hit <strong>+</strong> to make your first one.
+              </p>
+            )}
+          </div>
+
+          <button className="install-app-btn" onClick={handleInstall}>
+            <Icon name="downloadCircle" size={18} />
+            <span>{installed ? 'App installed' : 'Install App'}</span>
           </button>
         </div>
-        <nav className="sidebar-nav" aria-label="Library">
-          {LIBRARY_NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onClose}
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <Icon name={item.icon} size={19} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-          <NavLink
-            to="/settings"
-            onClick={onClose}
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-          >
-            <Icon name="settings" size={19} />
-            <span>Settings</span>
-          </NavLink>
-        </nav>
 
-        {/* Playlist list (Spotify "Your Playlists") */}
-        {playlists.length > 0 && (
-          <div className="sidebar-playlists">
-            <div className="sidebar-library-head">
-              <Icon name="heart" size={15} />
-              <span>Playlists</span>
-            </div>
-            <div className="playlist-chips">
-              {playlists.slice(0, 12).map((p, i) => (
-                <Link
-                  key={p.id}
-                  to={`/playlists/${p.id}`}
-                  onClick={onClose}
-                  className="playlist-chip"
-                  style={{ '--pc': GENRE_COLORS[i % GENRE_COLORS.length] }}
-                >
-                  <span className="pc-dot" />
-                  <span className="pc-name">{p.name}</span>
-                  {isPlaylistDownloaded(p.id) && <Icon name="download" size={12} className="pc-dl" title="Downloaded for offline" />}
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <PlaylistFormModal open={newPlOpen} onClose={() => setNewPlOpen(false)} onSaved={() => setRefreshTick((t) => t + 1)} playlist={null} />
-
-        {/* User footer */}
-        <div className="sidebar-bottom">
-          <div className="sidebar-user">
-            <div className="avatar">{user ? initials(user.name) : '?'}</div>
-            <div className="sidebar-user-info">
-              <span className="su-name">{user?.name || 'Guest'}</span>
-              <span className="su-role">{user?.role === 'admin' ? 'Admin' : 'Artist'}</span>
-            </div>
-            <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out"><Icon name="logout" size={18} /></button>
-          </div>
-        </div>
+        <PlaylistFormModal
+          open={newOpen}
+          onClose={() => setNewOpen(false)}
+          onSaved={() => { loadPlaylists(); window.dispatchEvent(new CustomEvent('pulse-playlists-changed')); }}
+          playlist={null}
+        />
       </aside>
     </>
   );

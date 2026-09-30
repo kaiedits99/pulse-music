@@ -369,6 +369,8 @@ router.get('/stats', optionalAuth, (req, res) => {
   const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
   const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
   const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
+  const podcasts = db.prepare('SELECT COUNT(*) c FROM podcasts').get().c;
+  const episodes = db.prepare('SELECT COUNT(*) c FROM episodes').get().c;
   const top = db.prepare(
     `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
      FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
@@ -439,7 +441,8 @@ router.get('/stats', optionalAuth, (req, res) => {
 
   res.json({
     songs: songs.c, plays: songs.plays, downloads: songs.downloads,
-    artists, albums, playlists, top: topWithFav, recent: recentWithFav,
+    artists, albums, playlists, podcasts, episodes,
+    top: topWithFav, recent: recentWithFav,
     recommended: recWithFav, user_genres: userGenres, genres: genreRows
   });
 });
@@ -910,6 +913,283 @@ router.delete('/playlists/:id/songs/:songId', authMiddleware, (req, res) => {
   if (!canManagePlaylist(req, p)) return res.status(403).json({ error: 'Only the owner can remove songs from this playlist' });
   db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND song_id = ?').run(req.params.id, req.params.songId);
   res.json({ ok: true });
+});
+
+// ============================== PODCASTS ==============================
+// Shows and episodes are a separate section of the app, not songs: they have a
+// publisher, seasons, episode numbers, subscriptions, a save-for-later list and
+// per-user resume positions. Everything below is scoped to those tables.
+
+const SHOW_COLUMNS = `
+  p.*,
+  (SELECT COUNT(*) FROM episodes e WHERE e.podcast_id = p.id) AS episode_count,
+  (SELECT MAX(e.published_at) FROM episodes e WHERE e.podcast_id = p.id) AS latest_published_at,
+  (SELECT COALESCE(SUM(e.duration_seconds), 0) FROM episodes e WHERE e.podcast_id = p.id) AS total_duration,
+  (SELECT COALESCE(SUM(e.plays), 0) FROM episodes e WHERE e.podcast_id = p.id) AS plays,
+  (SELECT COUNT(*) FROM podcast_subscriptions s WHERE s.podcast_id = p.id) AS subscribers,
+  EXISTS(SELECT 1 FROM podcast_subscriptions s WHERE s.podcast_id = p.id AND s.user_id = @uid) AS subscribed
+`;
+
+function shapeShow(row) {
+  if (!row) return row;
+  return { ...row, subscribed: !!row.subscribed, episode_count: row.episode_count || 0 };
+}
+
+function shapeEpisode(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    saved: !!row.saved,
+    completed: !!row.completed,
+    position_seconds: row.position_seconds || 0
+  };
+}
+
+function canManagePodcast(req, show) {
+  if (!req.user) return false;
+  if (req.user.role === 'admin') return true;
+  return show.user_id === req.user.id;
+}
+
+const EPISODE_COLUMNS = `
+  e.*,
+  p.title AS podcast_title,
+  p.publisher AS publisher,
+  p.category AS category,
+  COALESCE(e.cover_url, p.cover_url) AS cover_url,
+  EXISTS(SELECT 1 FROM saved_episodes se WHERE se.episode_id = e.id AND se.user_id = @uid) AS saved,
+  COALESCE((SELECT ep.position_seconds FROM episode_progress ep WHERE ep.episode_id = e.id AND ep.user_id = @uid), 0) AS position_seconds,
+  COALESCE((SELECT ep.completed FROM episode_progress ep WHERE ep.episode_id = e.id AND ep.user_id = @uid), 0) AS completed
+`;
+
+// ---------- shows ----------
+router.get('/podcasts', optionalAuth, (req, res) => {
+  const uid = req.user ? req.user.id : -1;
+  const q = (req.query.q || '').trim();
+  const category = (req.query.category || '').trim();
+  const where = [];
+  const params = { uid };
+  if (q) {
+    where.push('(p.title LIKE @q OR p.publisher LIKE @q OR p.description LIKE @q OR p.category LIKE @q)');
+    params.q = `%${q}%`;
+  }
+  if (category && category.toLowerCase() !== 'all') {
+    where.push('LOWER(p.category) = LOWER(@category)');
+    params.category = category;
+  }
+  if (req.query.subscribed === '1' || req.query.subscribed === 'true') {
+    where.push('EXISTS(SELECT 1 FROM podcast_subscriptions s WHERE s.podcast_id = p.id AND s.user_id = @uid)');
+  }
+  if (req.query.mine === '1' && req.user) {
+    where.push('p.user_id = @uid');
+  }
+  const order = {
+    title: 'p.title COLLATE NOCASE ASC',
+    episodes: 'episode_count DESC, p.title COLLATE NOCASE ASC',
+    popular: 'subscribers DESC, plays DESC',
+    newest: 'latest_published_at DESC'
+  }[req.query.sort] || 'latest_published_at DESC, p.title COLLATE NOCASE ASC';
+
+  const rows = db.prepare(`
+    SELECT ${SHOW_COLUMNS} FROM podcasts p
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY ${order}
+  `).all(params);
+
+  const categories = db.prepare(
+    "SELECT category, COUNT(*) AS count FROM podcasts WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY count DESC, category ASC"
+  ).all();
+
+  res.json({ podcasts: rows.map(shapeShow), categories });
+});
+
+router.get('/podcasts/:id', optionalAuth, (req, res) => {
+  const uid = req.user ? req.user.id : -1;
+  const show = db.prepare(`SELECT ${SHOW_COLUMNS} FROM podcasts p WHERE p.id = @id`).get({ uid, id: req.params.id });
+  if (!show) return res.status(404).json({ error: 'Podcast not found' });
+  const order = req.query.order === 'oldest'
+    ? 'e.published_at ASC, e.episode_number ASC'
+    : 'e.published_at DESC, e.episode_number DESC';
+  const episodes = db.prepare(`
+    SELECT ${EPISODE_COLUMNS} FROM episodes e JOIN podcasts p ON p.id = e.podcast_id
+    WHERE e.podcast_id = @id ORDER BY ${order}
+  `).all({ uid, id: show.id });
+  res.json({ ...shapeShow(show), can_manage: canManagePodcast(req, show), episodes: episodes.map(shapeEpisode) });
+});
+
+router.post('/podcasts', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), (req, res) => {
+  const title = (req.body.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'Show title is required' });
+  const coverFile = req.files && req.files.cover && req.files.cover[0];
+  const info = db.prepare(
+    'INSERT INTO podcasts (title, publisher, description, category, cover_url, user_id) VALUES (?,?,?,?,?,?)'
+  ).run(
+    title.slice(0, 250),
+    (req.body.publisher || req.user.username || req.user.name || '').trim().slice(0, 150) || null,
+    (req.body.description || '').trim() || null,
+    (req.body.category || '').trim() || null,
+    coverFile ? '/media/uploads/' + coverFile.filename : null,
+    req.user.id
+  );
+  const show = db.prepare(`SELECT ${SHOW_COLUMNS} FROM podcasts p WHERE p.id = @id`)
+    .get({ uid: req.user.id, id: info.lastInsertRowid });
+  res.status(201).json(shapeShow(show));
+});
+
+router.put('/podcasts/:id', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), (req, res) => {
+  const existing = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Podcast not found' });
+  if (!canManagePodcast(req, existing)) return res.status(403).json({ error: 'Not allowed' });
+  const coverFile = req.files && req.files.cover && req.files.cover[0];
+  const pick = (key, fallback) => (req.body[key] !== undefined ? (req.body[key] || '').trim() || null : fallback);
+  db.prepare('UPDATE podcasts SET title=?, publisher=?, description=?, category=?, cover_url=? WHERE id=?').run(
+    pick('title', existing.title) || existing.title,
+    pick('publisher', existing.publisher),
+    pick('description', existing.description),
+    pick('category', existing.category),
+    coverFile ? '/media/uploads/' + coverFile.filename : existing.cover_url,
+    existing.id
+  );
+  const show = db.prepare(`SELECT ${SHOW_COLUMNS} FROM podcasts p WHERE p.id = @id`).get({ uid: req.user.id, id: existing.id });
+  res.json(shapeShow(show));
+});
+
+router.delete('/podcasts/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Podcast not found' });
+  if (!canManagePodcast(req, existing)) return res.status(403).json({ error: 'Not allowed' });
+  db.prepare('DELETE FROM podcasts WHERE id = ?').run(existing.id);
+  res.json({ ok: true });
+});
+
+// ---------- subscriptions ----------
+router.post('/podcasts/:id/subscribe', authMiddleware, (req, res) => {
+  const show = db.prepare('SELECT id FROM podcasts WHERE id = ?').get(req.params.id);
+  if (!show) return res.status(404).json({ error: 'Podcast not found' });
+  db.prepare('INSERT OR IGNORE INTO podcast_subscriptions (user_id, podcast_id) VALUES (?,?)').run(req.user.id, show.id);
+  res.json({ ok: true, subscribed: true });
+});
+
+router.delete('/podcasts/:id/subscribe', authMiddleware, (req, res) => {
+  db.prepare('DELETE FROM podcast_subscriptions WHERE user_id = ? AND podcast_id = ?').run(req.user.id, req.params.id);
+  res.json({ ok: true, subscribed: false });
+});
+
+// ---------- episodes ----------
+router.post('/podcasts/:id/episodes', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
+  const show = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
+  if (!show) return res.status(404).json({ error: 'Podcast not found' });
+  if (!canManagePodcast(req, show)) return res.status(403).json({ error: 'Not allowed' });
+  const title = (req.body.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'Episode title is required' });
+  const audioFile = req.files && req.files.audio && req.files.audio[0];
+  if (!audioFile) return res.status(400).json({ error: 'Choose an audio file for this episode' });
+  const coverFile = req.files && req.files.cover && req.files.cover[0];
+  const nextNumber = db.prepare('SELECT COALESCE(MAX(episode_number), 0) + 1 AS n FROM episodes WHERE podcast_id = ?').get(show.id).n;
+  const duration = wavDuration(audioFile.path) || parseFloat(req.body.duration) || 0;
+  const info = db.prepare(`INSERT INTO episodes
+      (podcast_id, title, description, episode_number, season, duration_seconds, file_path, cover_url)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+    show.id,
+    title.slice(0, 250),
+    (req.body.description || '').trim() || null,
+    parseInt(req.body.episode_number, 10) || nextNumber,
+    parseInt(req.body.season, 10) || 1,
+    duration,
+    '/media/uploads/' + audioFile.filename,
+    coverFile ? '/media/uploads/' + coverFile.filename : show.cover_url
+  );
+  const episode = db.prepare(`SELECT ${EPISODE_COLUMNS} FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE e.id = @id`)
+    .get({ uid: req.user.id, id: info.lastInsertRowid });
+  res.status(201).json(shapeEpisode(episode));
+});
+
+router.get('/episodes', optionalAuth, (req, res) => {
+  const uid = req.user ? req.user.id : -1;
+  const where = [];
+  const params = { uid };
+  if (req.query.podcast_id) {
+    where.push('e.podcast_id = @podcastId');
+    params.podcastId = parseInt(req.query.podcast_id, 10) || 0;
+  }
+  if (req.query.q) {
+    where.push('(e.title LIKE @q OR e.description LIKE @q OR p.title LIKE @q)');
+    params.q = `%${String(req.query.q).trim()}%`;
+  }
+  if (req.query.saved === '1') where.push('EXISTS(SELECT 1 FROM saved_episodes se WHERE se.episode_id = e.id AND se.user_id = @uid)');
+  if (req.query.subscribed === '1') where.push('EXISTS(SELECT 1 FROM podcast_subscriptions s WHERE s.podcast_id = e.podcast_id AND s.user_id = @uid)');
+  if (req.query.continue === '1') {
+    where.push('EXISTS(SELECT 1 FROM episode_progress ep WHERE ep.episode_id = e.id AND ep.user_id = @uid AND ep.completed = 0 AND ep.position_seconds > 2)');
+  }
+  const order = req.query.sort === 'oldest' ? 'e.published_at ASC' : 'e.published_at DESC';
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
+  const rows = db.prepare(`
+    SELECT ${EPISODE_COLUMNS} FROM episodes e JOIN podcasts p ON p.id = e.podcast_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY ${order} LIMIT ${limit}
+  `).all(params);
+  res.json(rows.map(shapeEpisode));
+});
+
+router.get('/episodes/:id', optionalAuth, (req, res) => {
+  const uid = req.user ? req.user.id : -1;
+  const row = db.prepare(`SELECT ${EPISODE_COLUMNS} FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE e.id = @id`)
+    .get({ uid, id: req.params.id });
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  res.json(shapeEpisode(row));
+});
+
+router.delete('/episodes/:id', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT e.*, p.user_id AS show_owner FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE e.id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  if (!canManagePodcast(req, { user_id: row.show_owner })) return res.status(403).json({ error: 'Not allowed' });
+  db.prepare('DELETE FROM episodes WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+router.post('/episodes/:id/play', (req, res) => {
+  const info = db.prepare('UPDATE episodes SET plays = plays + 1 WHERE id = ?').run(req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Episode not found' });
+  res.json({ ok: true });
+});
+
+router.post('/episodes/:id/save', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT id FROM episodes WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  db.prepare('INSERT OR IGNORE INTO saved_episodes (user_id, episode_id) VALUES (?,?)').run(req.user.id, row.id);
+  res.json({ ok: true, saved: true });
+});
+
+router.delete('/episodes/:id/save', authMiddleware, (req, res) => {
+  db.prepare('DELETE FROM saved_episodes WHERE user_id = ? AND episode_id = ?').run(req.user.id, req.params.id);
+  res.json({ ok: true, saved: false });
+});
+
+// Resume positions: the player pushes these while an episode is playing.
+router.put('/episodes/:id/progress', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  const position = Math.max(0, parseFloat(req.body?.position_seconds) || 0);
+  const duration = row.duration_seconds || 0;
+  const completed = req.body?.completed != null
+    ? (req.body.completed ? 1 : 0)
+    : (duration > 0 && position >= duration - 3 ? 1 : 0);
+  db.prepare(`INSERT INTO episode_progress (user_id, episode_id, position_seconds, completed, updated_at)
+    VALUES (?,?,?,?, datetime('now'))
+    ON CONFLICT(user_id, episode_id) DO UPDATE SET
+      position_seconds = excluded.position_seconds,
+      completed = excluded.completed,
+      updated_at = excluded.updated_at`).run(req.user.id, row.id, completed ? 0 : position, completed);
+  res.json({ ok: true, position_seconds: completed ? 0 : position, completed: !!completed });
+});
+
+router.get('/episodes/:id/download', (req, res) => {
+  const row = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
+  if (!row || !row.file_path) return res.status(404).json({ error: 'No audio available' });
+  db.prepare('UPDATE episodes SET downloads = downloads + 1 WHERE id = ?').run(row.id);
+  const rel = row.file_path.replace('/media/', '');
+  const abs = path.join(uploadsDir, '..', rel);
+  res.download(abs, path.basename(row.file_path));
 });
 
 export default router;

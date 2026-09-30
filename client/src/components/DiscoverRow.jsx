@@ -1,46 +1,56 @@
 import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
-import { Cover, EmptyState } from './ui.jsx';
+import { Cover, SectionHead } from './ui.jsx';
+import { CollectionCard } from './Cards.jsx';
+import { formatNumber } from '../format.js';
 
-/* Horizontal, Spotify-style scrolling row of track cards. Reused on the Home
-   page and on detail pages for "Recommended / More from artist" sections. */
-export default function DiscoverRow({ title, songs, onPlay, seeAll }) {
+/** Horizontal, snap-scrolling row of track cards. */
+export default function DiscoverRow({ title, icon, songs, onPlay, seeAll, note }) {
   if (!songs || !songs.length) return null;
+
   return (
-    <section className="discover-section">
-      <div className="discover-head">
-        <h2>{title}</h2>
-        {seeAll && <Link to={seeAll} className="see-all">See all</Link>}
-      </div>
-      <div className="discover-row">
-        {songs.slice(0, 10).map((song, i) => (
-          <button key={song.id} className="discover-card" onClick={() => onPlay(songs, i)}>
-            <div className="disc-card-cover">
-              <Cover src={song.cover_url || song.album_cover} alt={song.title} size="100%" />
-              <span className="disc-card-play"><Icon name="play" size={18} /></span>
-            </div>
-            <span className="disc-card-title">{song.title}</span>
-            <span className="disc-card-artist">{song.artist_name}</span>
-          </button>
+    <section className="section">
+      <SectionHead
+        icon={icon}
+        title={title}
+        note={note}
+        action={seeAll && <Link to={seeAll} className="see-all">Show all</Link>}
+      />
+      <div className="discover-row scroll-thin">
+        {songs.slice(0, 12).map((song, i) => (
+          <CollectionCard
+            key={song.id ?? i}
+            type="Track"
+            cover={song.cover_url || song.album_cover}
+            title={song.title}
+            subtitle={song.artist_name}
+            meta={{ icon: 'playCircle', text: `${formatNumber(song.plays)} plays` }}
+            onPlay={() => onPlay(songs, i)}
+            playLabel={`Play ${song.title}`}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-/* Compact horizontal row used when a page already has its own grid */
+/** Compact vertical list used where a full grid would be too heavy. */
 export function MiniTrackList({ songs, onPlay }) {
   if (!songs || !songs.length) return null;
   return (
-    <div className="mini-track-list">
+    <div className="library-list">
       {songs.map((song, i) => (
-        <button key={song.id} className="mini-track" onClick={() => onPlay(songs, i)}>
-          <Cover src={song.cover_url || song.album_cover} alt={song.title} size={40} />
-          <span className="mini-track-info">
-            <span className="mini-track-title">{song.title}</span>
-            <span className="mini-track-artist">{song.artist_name}</span>
+        <button key={song.id} className="library-row" onClick={() => onPlay(songs, i)}>
+          <div className="library-row-art">
+            <Cover src={song.cover_url || song.album_cover} alt={song.title} size="100%" />
+          </div>
+          <div className="library-row-body">
+            <strong>{song.title}</strong>
+            <small>{song.artist_name}</small>
+          </div>
+          <span className="library-row-actions">
+            <Icon name="play" size={16} />
           </span>
-          <Icon name="play" size={15} className="mini-track-play" />
         </button>
       ))}
     </div>

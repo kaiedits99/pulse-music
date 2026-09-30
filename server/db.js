@@ -95,9 +95,64 @@ CREATE TABLE IF NOT EXISTS favorites (
   PRIMARY KEY (user_id, song_id)
 );
 
+-- ---------------------------------------------------------------- podcasts --
+-- Shows and their episodes live beside music but never mix with it: episodes are
+-- not songs (no artist/album/genre, they carry publishers, seasons and resume
+-- positions instead), so they get their own tables and their own routes.
+CREATE TABLE IF NOT EXISTS podcasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  publisher TEXT,
+  description TEXT,
+  category TEXT,
+  cover_url TEXT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS episodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  podcast_id INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  episode_number INTEGER,
+  season INTEGER NOT NULL DEFAULT 1,
+  duration_seconds REAL,
+  file_path TEXT,
+  cover_url TEXT,
+  published_at TEXT NOT NULL DEFAULT (datetime('now')),
+  plays INTEGER NOT NULL DEFAULT 0,
+  downloads INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  podcast_id INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, podcast_id)
+);
+
+CREATE TABLE IF NOT EXISTS saved_episodes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, episode_id)
+);
+
+CREATE TABLE IF NOT EXISTS episode_progress (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  position_seconds REAL NOT NULL DEFAULT 0,
+  completed INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, episode_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist_id);
 CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album_id);
 CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_podcast ON episodes(podcast_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_published ON episodes(published_at);
 `);
 
 // Lightweight migration for users table (username & favorite_genres)

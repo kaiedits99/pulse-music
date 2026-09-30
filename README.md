@@ -98,9 +98,10 @@ make a healthy instance look dead to the platform.
 ## Features
 
 - **Authentication** — register (creates an artist profile), login, JWT sessions, sign out
-- **Dashboard layout** — fixed sidebar navigation, topbar with search, bottom "now playing" bar
+- **Dashboard layout** — floating two-panel sidebar (nav + playlists + Install App), pill topbar
+  with live search, notifications, theme switch and account drawer, and a 92px "now playing" bar
 - **Full CRUD** for the core resources:
-  - **Songs** — upload (drag & drop), edit, delete, stream, download, favorite
+  - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
   - **Albums** — create, edit, delete, album detail with tracklist
   - **Artists** — profiles with bio, genre, followers, popular tracks
   - **Playlists** — every signed-in user can create/edit/delete their own lists (creator- or
@@ -113,10 +114,22 @@ make a healthy instance look dead to the platform.
   copy even online (instant, zero-bandwidth playback). A service worker also caches the app
   shell. "Download" (file) on a row still saves the actual file to the device — in the Android
   app that lands in the phone's downloads via the system browser.
+- **Podcasts & Shows** (`/podcasts`, `/podcasts/:id`) — a section of its own, not a re-skin of
+  uploads. Shows and episodes live in their own tables (`podcasts`, `episodes`,
+  `podcast_subscriptions`, `saved_episodes`, `episode_progress`) with their own routes, so an
+  episode is never mistaken for a song. Browse or search shows, filter by category, follow a
+  show, save episodes to **Your Episodes**, publish your own show and upload episodes to it,
+  and pick up any episode where you stopped — resume positions are written back to the server
+  while you listen, and **Continue listening** shows how much is left. Episodes play in the
+  same player (with an "Episode" badge, 15s/30s skips and show links) and can be cached for
+  offline exactly like tracks.
 - **Music player** — play/pause, next/prev, seek, volume, shuffle, repeat (spacebar shortcut)
 - **Downloads** — per-track download counter + attachment download
 - **Stats overview** — total plays, downloads, top tracks, recent releases, genre breakdown
-- **Search & filters** — search across songs/artists, filter by genre, sort, "My music" toggle
+- **Search page** (`/search`) — one place for query, genre chips, artist filter, sort and
+  grid/list views, with matching artists and albums surfaced above the tracks
+- **Your Library** (`/library`) — pinned hubs (Liked Songs, Your Uploads, Your Episodes, Offline Library),
+  content-type filter chips, sort menu, grid/list toggle and a live offline-storage summary
 - **Polish** — loading skeletons, empty states, toasts, optimistic favorite toggle,
   confirm dialogs, responsive layout (mobile sidebar drawer)
 
@@ -149,15 +162,18 @@ music-app/
 │   ├── db.js         # SQLite schema + connection (exports dataDir/audioDir/coverDir/uploadsDir)
 │   ├── auth.js       # JWT + bcrypt helpers, auth middleware
 │   ├── seed.js       # demo data (users, artists, albums, songs, playlists) + media self-heal
+│   ├── podcasts.js   # demo shows/episodes + their synthesized audio & covers (idempotent)
 │   ├── catalog.js    # featured-artist catalogs, auto-seeded every start (metadata only)
 │   ├── import-thalia.js / import-zyny.js  # one-off wrappers around catalog.js
 │   ├── synth.js      # procedural WAV audio generator for seed tracks
 │   └── cover.js      # SVG cover-art generator
 ├── client/           # React + Vite SPA
 │   └── src/
-│       ├── pages/        # Overview, Songs, Albums, Artists, Playlists, Upload, Settings…
-│       ├── components/   # Sidebar, Topbar, PlayerBar, SongTable, Modals, Forms…
-│       └── context/      # Auth, Player, Toast state
+│       ├── pages/        # Overview, Search, Library, Albums, Artists, Playlists, Upload, Settings…
+│       ├── components/   # Sidebar, Topbar, PlayerBar, NowPlaying, Cards, SongTable, Modals, Forms…
+│       ├── styles/       # design system: base.css, shell.css, components.css, pages.css
+│       ├── hooks/        # useInstallPrompt (PWA install)
+│       └── context/      # Auth, Player, Theme, Toast state
 └── data/             # SQLite DB + generated audio/covers/uploads (persisted)
     └── seed-manifest.json  # how each seeded WAV was synthesized, for media self-heal
 ```
@@ -175,4 +191,13 @@ GET|POST /api/albums · GET|PUT|DELETE /api/albums/:id
 GET|POST /api/artists · GET|PUT|DELETE /api/artists/:id
 GET|POST /api/playlists · GET|PUT|DELETE /api/playlists/:id
 POST /api/playlists/:id/songs · DELETE /api/playlists/:id/songs/:songId
+
+# podcasts & shows
+GET /api/podcasts?q=&category=&subscribed=1&mine=1&sort=   # + category counts
+GET|POST /api/podcasts · GET|PUT|DELETE /api/podcasts/:id  # detail includes episodes + can_manage
+POST|DELETE /api/podcasts/:id/subscribe
+POST /api/podcasts/:id/episodes                            # multipart audio (+ cover)
+GET /api/episodes?podcast_id=&saved=1&continue=1&q=&limit= · GET|DELETE /api/episodes/:id
+POST /api/episodes/:id/play · POST|DELETE /api/episodes/:id/save
+PUT /api/episodes/:id/progress · GET /api/episodes/:id/download
 ```
