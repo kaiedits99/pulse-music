@@ -24,7 +24,7 @@ export default function Upload() {
   const [cover, setCover] = useState(null);
   const [coverUrl, setCoverUrl] = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '' });
+  const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '', is_public: 1 });
   const [previewUrl, setPreviewUrl] = useState(null);
 
   const audio = audioFiles[0] || null;
@@ -91,10 +91,14 @@ export default function Upload() {
     if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
+    fd.append('is_public', form.is_public ? '1' : '0');
 
     if (isBulk) {
       audioFiles.forEach((file) => fd.append('audio', file));
-      fd.append('metadata', JSON.stringify(trackMetadata));
+      fd.append('metadata', JSON.stringify(trackMetadata.map((meta) => ({
+        ...meta,
+        is_public: meta.is_public !== undefined ? meta.is_public : form.is_public
+      }))));
     } else {
       fd.append('title', form.title.trim());
       fd.append('audio', audioFiles[0]);
@@ -104,8 +108,14 @@ export default function Upload() {
     setSaving(true);
     try {
       await api.upload(isBulk ? '/api/songs/import' : '/api/songs', fd);
-      toast(isBulk ? `${audioFiles.length} tracks imported successfully 🎉` : 'Track uploaded successfully 🎉');
-      navigate('/search?mine=1');
+      toast(
+        isBulk
+          ? `${audioFiles.length} tracks imported successfully 🎉`
+          : form.is_public
+            ? 'Track published publicly for everyone! 🎉'
+            : 'Track saved privately to your library 🔒'
+      );
+      navigate('/library?filter=uploads');
     } catch (err) { toast(err.message || 'Upload failed', 'error'); }
     finally { setSaving(false); }
   };
@@ -171,12 +181,12 @@ export default function Upload() {
           {isBulk && (
             <section className="panel upload-fields bulk-metadata">
               <div className="panel-head">
-                <h3><Icon name="list" size={17} /> Track metadata</h3>
+                <h3><Icon name="list" size={17} /> Track metadata &amp; visibility</h3>
                 <span className="section-note">{audioFiles.length} tracks</span>
               </div>
-              <p className="panel-desc">Review the titles and set a genre for each track before importing.</p>
+              <p className="panel-desc">Review the titles, genres, and individual privacy settings for each track before importing.</p>
               {trackMetadata.map((meta, index) => (
-                <div className="field-row" key={`${audioFiles[index].name}-${index}`}>
+                <div className="field-row field-row-3" key={`${audioFiles[index].name}-${index}`}>
                   <label className="field">
                     <span>Title</span>
                     <input
@@ -194,10 +204,81 @@ export default function Upload() {
                       {GENRES.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
                     </select>
                   </label>
+                  <label className="field">
+                    <span>Visibility</span>
+                    <select
+                      value={meta.is_public !== undefined ? meta.is_public : form.is_public}
+                      onChange={(e) => setTrackMetadata((items) => items.map((item, i) => (i === index ? { ...item, is_public: Number(e.target.value) } : item)))}
+                    >
+                      <option value={1}>🌐 Public</option>
+                      <option value={0}>🔒 Private</option>
+                    </select>
+                  </label>
                 </div>
               ))}
             </section>
           )}
+
+          <section className="panel upload-fields">
+            <div className="panel-head">
+              <h3><Icon name={form.is_public ? 'globe' : 'lock'} size={17} /> Privacy &amp; Visibility</h3>
+              <span className={`tag ${form.is_public ? 'tag-green' : 'tag-accent'}`}>
+                {form.is_public ? 'Public' : 'Private'}
+              </span>
+            </div>
+            <p className="panel-desc">
+              Choose whether your music is published for everyone or kept private to your account.
+            </p>
+            <div className="visibility-grid">
+              <div
+                className={`visibility-option ${form.is_public ? 'active' : ''}`}
+                onClick={() => setForm((f) => ({ ...f, is_public: 1 }))}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setForm((f) => ({ ...f, is_public: 1 })); } }}
+              >
+                <div className="vis-radio">
+                  <span className={`vis-dot ${form.is_public ? 'checked' : ''}`} />
+                </div>
+                <div className="vis-icon-wrap vis-icon-public">
+                  <Icon name="globe" size={24} />
+                </div>
+                <div className="vis-content">
+                  <div className="vis-header">
+                    <strong>Public Upload</strong>
+                    <span className="vis-badge public">Published to everyone</span>
+                  </div>
+                  <p>
+                    Published for everyone on Pulse. Appears in search, home discover rows, community uploads, artist profiles, and public recommendations.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                className={`visibility-option ${!form.is_public ? 'active' : ''}`}
+                onClick={() => setForm((f) => ({ ...f, is_public: 0 }))}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setForm((f) => ({ ...f, is_public: 0 })); } }}
+              >
+                <div className="vis-radio">
+                  <span className={`vis-dot ${!form.is_public ? 'checked' : ''}`} />
+                </div>
+                <div className="vis-icon-wrap vis-icon-private">
+                  <Icon name="lock" size={24} />
+                </div>
+                <div className="vis-content">
+                  <div className="vis-header">
+                    <strong>Private Upload</strong>
+                    <span className="vis-badge private">Only for you</span>
+                  </div>
+                  <p>
+                    Kept completely private in your personal library. Only you can access, stream, and download it whenever you log in.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
 
           <section className="panel upload-fields">
             <div className="panel-head">
@@ -276,11 +357,27 @@ export default function Upload() {
               <div className="spread"><span className="muted">Files</span><strong>{audioFiles.length || '—'}</strong></div>
               <div className="spread"><span className="muted">Total size</span><strong>{totalSize ? formatBytes(totalSize) : '—'}</strong></div>
               <div className="spread"><span className="muted">Mode</span><strong>{isBulk ? 'Bulk import' : 'Single track'}</strong></div>
+              <div className="spread">
+                <span className="muted">Visibility</span>
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <Icon name={form.is_public ? 'globe' : 'lock'} size={14} />
+                  {form.is_public ? 'Public' : 'Private'}
+                </strong>
+              </div>
             </div>
           </div>
 
           <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={saving || !audio}>
-            {saving ? <><Spinner size={18} /> Publishing…</> : <><Icon name="upload" size={17} /> {isBulk ? `Import ${audioFiles.length} tracks` : 'Publish track'}</>}
+            {saving ? (
+              <><Spinner size={18} /> {form.is_public ? 'Publishing…' : 'Saving…'}</>
+            ) : (
+              <>
+                <Icon name={form.is_public ? 'globe' : 'lock'} size={17} />
+                {isBulk
+                  ? `Import ${audioFiles.length} tracks (${form.is_public ? 'Public' : 'Private'})`
+                  : form.is_public ? 'Publish public track' : 'Save private track'}
+              </>
+            )}
           </button>
           {audio && (
             <button type="button" className="btn btn-ghost btn-block" onClick={clearAudio} disabled={saving}>

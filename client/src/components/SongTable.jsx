@@ -71,7 +71,20 @@ export function downloadFile(song, toast) {
 // legacy name kept for existing callers (PlayerBar / NowPlaying)
 export const downloadSong = downloadFile;
 
-export default function SongTable({ songs, showAlbum = true, showIndex = true, showPlays = true, onEdit, onDelete, onAddToPlaylist, canManage, emptyFallback, showOfflineActions = true }) {
+export default function SongTable({
+  songs,
+  showAlbum = true,
+  showIndex = true,
+  showPlays = true,
+  showVisibility = false,
+  onEdit,
+  onDelete,
+  onAddToPlaylist,
+  onVisibilityChanged,
+  canManage,
+  emptyFallback,
+  showOfflineActions = true
+}) {
   const { play, current, isPlaying, togglePlay } = usePlayer();
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
@@ -88,6 +101,18 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
   const dropOffline = async (song) => {
     await removeOffline(song.id);
     toast('Removed from Downloads');
+  };
+
+  const toggleVisibility = async (song) => {
+    const nextVal = song.is_public === 0 ? 1 : 0;
+    try {
+      const updated = await api.patch(`/api/songs/${song.id}/visibility`, { is_public: nextVal });
+      song.is_public = nextVal;
+      if (onVisibilityChanged) onVisibilityChanged(updated || song);
+      toast(nextVal ? `“${song.title}” is now Public (published to everyone) 🌐` : `“${song.title}” is now Private 🔒`);
+    } catch (err) {
+      toast(err.message || 'Could not update visibility', 'error');
+    }
   };
 
   if (!songs || !songs.length) {
@@ -118,8 +143,11 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
           {songs.map((song, i) => {
             const isCurrent = current && current.id === song.id;
             const playing = isCurrent && isPlaying;
-            const showEdit = onEdit && (!canManage || canManage(song));
-            const showDelete = onDelete && (!canManage || canManage(song));
+            const userCanManage = !canManage || canManage(song);
+            const showEdit = onEdit && userCanManage;
+            const showDelete = onDelete && userCanManage;
+            const isPrivate = song.is_public === 0;
+
             return (
               <tr key={song.id} className={isCurrent ? 'row-current' : ''} onDoubleClick={() => handleRowPlay(song, i)}>
                 {showIndex && (
@@ -136,6 +164,16 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                     <div className="cell-title-text">
                       <span className={`t-title ${isCurrent ? 'accent' : ''}`}>
                         {song.title}
+                        {isPrivate && (
+                          <span className="tag-visibility tag-private" title="Private track (only you can see and play it)">
+                            <Icon name="lock" size={11} /> Private
+                          </span>
+                        )}
+                        {showVisibility && !isPrivate && (
+                          <span className="tag-visibility tag-public" title="Public track (published for everyone)">
+                            <Icon name="globe" size={11} /> Public
+                          </span>
+                        )}
                         {showOfflineActions && isSongDownloaded(song.id) && (
                           <span className="offline-badge" title="Available offline"><Icon name="download" size={12} /></span>
                         )}
@@ -161,7 +199,7 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                     <button className="icon-btn icon-btn-sm" onClick={() => downloadFile(song, toast)} aria-label="Download">
                       <Icon name="download" size={17} />
                     </button>
-                    {(onAddToPlaylist || showEdit || showDelete) && (
+                    {(onAddToPlaylist || showEdit || showDelete || userCanManage) && (
                       <div className="menu-wrap">
                         <button className="icon-btn icon-btn-sm" onClick={() => setMenuFor(menuFor === song.id ? null : song.id)} aria-label="More">
                           <Icon name="more" size={18} />
@@ -171,13 +209,20 @@ export default function SongTable({ songs, showAlbum = true, showIndex = true, s
                           onClose={() => setMenuFor(null)}
                           items={[
                             ...(onAddToPlaylist ? [{ icon: 'playlist', label: 'Add to playlist', onClick: () => onAddToPlaylist(song) }] : []),
+                            ...(userCanManage
+                              ? [{
+                                  icon: isPrivate ? 'globe' : 'lock',
+                                  label: isPrivate ? 'Make Public (Publish)' : 'Make Private',
+                                  onClick: () => toggleVisibility(song)
+                                }]
+                              : []),
                             ...(showOfflineActions
                               ? isSongDownloaded(song.id)
                                 ? [{ icon: 'close', label: 'Remove download', onClick: () => dropOffline(song) }]
                                 : [{ icon: 'download', label: 'Save to offline', disabled: !hasPlayableAudio(song), onClick: () => saveToOffline(song) }]
                               : []),
-                            ...(showEdit ? [{ icon: 'edit', label: 'Edit', onClick: () => onEdit(song) }] : []),
-                            ...(showDelete ? [{ icon: 'trash', label: 'Delete', onClick: () => onDelete(song) }] : [])
+                            ...(showEdit ? [{ icon: 'edit', label: 'Edit track', onClick: () => onEdit(song) }] : []),
+                            ...(showDelete ? [{ icon: 'trash', label: 'Delete track', onClick: () => onDelete(song) }] : [])
                           ]}
                         />
                       </div>

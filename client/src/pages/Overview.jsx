@@ -61,6 +61,8 @@ export default function Overview() {
   const top = stats?.top || [];
   const recent = stats?.recent || [];
   const genres = stats?.genres || [];
+  const myUploads = stats?.my_uploads || [];
+  const communityUploads = stats?.community_uploads || [];
 
   const shuffleAll = () => {
     const pool = recommended.length ? recommended : top;
@@ -131,6 +133,18 @@ export default function Overview() {
         note={stats?.user_genres?.length ? stats.user_genres.join(' · ') : undefined}
       />
 
+      {/* ========================== YOUR UPLOADS ======================== */}
+      {myUploads.length > 0 && (
+        <DiscoverRow
+          title="Your Uploads"
+          icon="upload"
+          songs={myUploads}
+          onPlay={play}
+          seeAll="/library?filter=uploads"
+          note={`${myUploads.length} uploaded track${myUploads.length === 1 ? '' : 's'} · private & public`}
+        />
+      )}
+
       {/* =========================== PLAYLISTS ========================== */}
       {playlists.length > 0 && (
         <section className="section">
@@ -182,6 +196,16 @@ export default function Overview() {
       )}
 
       <DiscoverRow title="Recently added" icon="clock" songs={recent} onPlay={play} seeAll="/search" />
+      {communityUploads.length > 0 && (
+        <DiscoverRow
+          title="Community &amp; Public Uploads"
+          icon="globe"
+          songs={communityUploads}
+          onPlay={play}
+          seeAll="/search?visibility=public"
+          note="Published for everyone on Pulse"
+        />
+      )}
       <DiscoverRow title="Top tracks this week" icon="trending" songs={top} onPlay={play} seeAll="/search?sort=plays" />
 
       {/* ============================ ALBUMS ============================ */}

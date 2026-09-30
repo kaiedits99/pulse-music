@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS songs (
   -- User who uploaded the track. Uploads live in the shared catalog, so this is
   -- only used for provenance and the "My music" view, never for access control.
   uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  is_public INTEGER NOT NULL DEFAULT 1,
   plays INTEGER NOT NULL DEFAULT 0,
   downloads INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -195,5 +196,16 @@ if (!albumColumns.includes('uploaded_by')) {
   db.exec(`UPDATE albums SET uploaded_by = (SELECT a.user_id FROM artists a WHERE a.id = albums.artist_id)
            WHERE uploaded_by IS NULL`);
 }
+
+// Migration for is_public visibility column on songs
+if (!songColumns.includes('is_public')) {
+  db.exec('ALTER TABLE songs ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1');
+  db.exec('UPDATE songs SET is_public = 1 WHERE is_public IS NULL');
+}
+
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_songs_is_public ON songs(is_public);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_songs_uploaded_by ON songs(uploaded_by);');
+} catch { /* index may exist */ }
 
 export default db;

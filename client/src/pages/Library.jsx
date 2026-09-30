@@ -7,6 +7,7 @@ import {
 } from '../components/ui.jsx';
 import { CollectionCard, LibraryRow } from '../components/Cards.jsx';
 import { PlaylistFormModal, AlbumFormModal } from '../components/Forms.jsx';
+import SongFormModal from '../components/SongFormModal.jsx';
 import { ConfirmDialog } from '../components/Modal.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
@@ -26,13 +27,13 @@ import {
 
 const FILTERS = [
   { id: 'all', label: 'All Content' },
+  { id: 'uploads', label: 'My Uploads', icon: 'upload' },
   { id: 'playlists', label: 'Playlists' },
   { id: 'artists', label: 'Artists' },
   { id: 'albums', label: 'Albums' },
   { id: 'podcasts', label: 'Podcasts & Shows' },
   { id: 'tracks', label: 'Tracks' },
-  { id: 'downloaded', label: 'Downloaded', icon: 'check', iconGreen: true },
-  { id: 'local', label: 'Local Files' }
+  { id: 'downloaded', label: 'Downloaded', icon: 'check', iconGreen: true }
 ];
 
 const SORTS = [
@@ -67,9 +68,13 @@ export default function Library() {
   const [savedEpisodes, setSavedEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [uploadTab, setUploadTab] = useState('all'); // 'all' | 'public' | 'private'
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
+  const [songFormOpen, setSongFormOpen] = useState(false);
+  const [editingTrack, setEditingTrack] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [deletingTrack, setDeletingTrack] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [storage, setStorage] = useState({ usage: 0, quota: 0 });
   const [, setOfflineTick] = useState(0);
@@ -168,6 +173,28 @@ export default function Library() {
     } catch (err) { toast(err.message || 'Could not delete playlist', 'error'); }
   };
 
+  const deleteSong = async (song) => {
+    try {
+      await api.del(`/api/songs/${song.id}`);
+      setSongs((prev) => prev.filter((s) => s.id !== song.id));
+      setMyTracks((prev) => prev.filter((s) => s.id !== song.id));
+      setDeletingTrack(null);
+      toast('Track deleted');
+    } catch (err) { toast(err.message || 'Could not delete track', 'error'); }
+  };
+
+  const toggleTrackVisibility = async (song) => {
+    const nextVal = song.is_public === 0 ? 1 : 0;
+    try {
+      const updated = await api.patch(`/api/songs/${song.id}/visibility`, { is_public: nextVal });
+      setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, is_public: nextVal } : s)));
+      setMyTracks((prev) => prev.map((s) => (s.id === song.id ? { ...s, is_public: nextVal } : s)));
+      toast(nextVal ? `“${song.title}” is now Public (published to everyone) 🌐` : `“${song.title}” is now Private 🔒`);
+    } catch (err) {
+      toast(err.message || 'Could not update visibility', 'error');
+    }
+  };
+
   const downloadAllLiked = async () => {
     const playable = favorites.filter(hasPlayableAudio);
     if (!playable.length) {
@@ -193,6 +220,9 @@ export default function Library() {
     () => favorites.reduce((t, s) => t + (s.duration_seconds || 0), 0),
     [favorites]
   );
+
+  const publicUploadsCount = useMemo(() => myTracks.filter((s) => s.is_public !== 0).length, [myTracks]);
+  const privateUploadsCount = useMemo(() => myTracks.filter((s) => s.is_public === 0).length, [myTracks]);
 
   /** Normalise every entity into one shape the grid/list can render. */
   const items = useMemo(() => {
@@ -268,36 +298,64 @@ export default function Library() {
       raw: p
     }));
 
-    songs.forEach((s) => {
+    // Ensure all songs (including user's own uploads) are processed
+    const renderedSongIds = new Set();
+    const allSongList = [...myTracks, ...songs];
+
+    allSongList.forEach((s) => {
+      if (renderedSongIds.has(s.id)) return;
+      renderedSongIds.add(s.id);
+
       const downloaded = isSongDownloaded(s.id);
-      const mine = myTracks.some((m) => m.id === s.id);
+      const isMine = myTracks.some((m) => m.id === s.id) || (user && s.uploaded_by === user.id) || (artist && s.artist_id === artist.id);
+      const isPrivate = s.is_public === 0;
+
       out.push({
         key: `sg-${s.id}`,
-        kind: 'tracks',
-        type: 'Track',
+        kind: isMine ? 'uploads' : 'tracks',
+        type: isMine ? (isPrivate ? 'Private Track' : 'Public Track') : 'Track',
+        typeTone: isMine ? (isPrivate ? 'accent' : 'green') : '',
         cover: s.cover_url || s.album_cover,
         title: s.title,
         subtitle: `${s.artist_name}${s.album_title ? ` • ${s.album_title}` : ''}`,
-        meta: downloaded
-          ? { icon: 'checkCircle', text: 'Downloaded', tone: 'green' }
-          : { icon: 'playCircle', text: `${formatNumber(s.plays)} plays` },
+        meta: isMine
+          ? {
+              icon: isPrivate ? 'lock' : 'globe',
+              text: isPrivate ? 'Private' : 'Public',
+              tone: isPrivate ? '' : 'green'
+            }
+          : downloaded
+            ? { icon: 'checkCircle', text: 'Downloaded', tone: 'green' }
+            : { icon: 'playCircle', text: `${formatNumber(s.plays)} plays` },
+        chip: isMine ? (isPrivate ? 'PRIVATE' : 'PUBLIC') : undefined,
         sortDate: s.created_at ? new Date(`${s.created_at}Z`).getTime() : 0,
         size: s.plays || 0,
         downloaded,
-        local: mine,
+        isUpload: isMine,
+        isPrivate,
+        canEdit: isMine,
+        canDelete: isMine || (user && user.role === 'admin'),
         onPlay: () => { play([s], 0); toast(`Playing “${s.title}”`); },
         raw: s
       });
     });
 
     return out;
-  }, [playlists, albums, artists, songs, myTracks, podcasts, user, play, toast]);
+  }, [playlists, albums, artists, songs, myTracks, podcasts, user, artist, play, toast]);
 
   const filtered = useMemo(() => {
     let list = items;
-    if (filter === 'downloaded') list = items.filter((i) => i.downloaded);
-    else if (filter === 'local') list = items.filter((i) => i.local);
-    else if (filter !== 'all') list = items.filter((i) => i.kind === filter);
+    if (filter === 'downloaded') {
+      list = items.filter((i) => i.downloaded);
+    } else if (filter === 'uploads' || filter === 'local') {
+      list = items.filter((i) => i.isUpload);
+      if (uploadTab === 'public') list = list.filter((i) => !i.isPrivate);
+      else if (uploadTab === 'private') list = list.filter((i) => i.isPrivate);
+    } else if (filter === 'tracks') {
+      list = items.filter((i) => i.kind === 'tracks' || i.isUpload);
+    } else if (filter !== 'all') {
+      list = items.filter((i) => i.kind === filter);
+    }
 
     const sorted = [...list];
     if (sort === 'alpha') sorted.sort((a, b) => a.title.localeCompare(b.title));
@@ -305,7 +363,7 @@ export default function Library() {
     else if (sort === 'size') sorted.sort((a, b) => b.size - a.size);
     else sorted.sort((a, b) => b.sortDate - a.sortDate);
     return sorted;
-  }, [items, filter, sort]);
+  }, [items, filter, sort, uploadTab]);
 
   const totalCollections = playlists.length + albums.length + artists.length;
   const offlineCount = dlSongs.length;
@@ -351,6 +409,34 @@ export default function Library() {
         </div>
       </div>
 
+      {(filter === 'uploads' || filter === 'local') && (
+        <div className="uploads-sub-bar">
+          <div className="chip-row">
+            <button
+              className={`chip ${uploadTab === 'all' ? 'active' : ''}`}
+              onClick={() => setUploadTab('all')}
+            >
+              All Uploads ({myTracks.length})
+            </button>
+            <button
+              className={`chip ${uploadTab === 'public' ? 'active' : ''}`}
+              onClick={() => setUploadTab('public')}
+            >
+              <Icon name="globe" size={13} /> Public ({publicUploadsCount})
+            </button>
+            <button
+              className={`chip ${uploadTab === 'private' ? 'active' : ''}`}
+              onClick={() => setUploadTab('private')}
+            >
+              <Icon name="lock" size={13} /> Private ({privateUploadsCount})
+            </button>
+          </div>
+          <Link to="/upload" className="btn btn-primary btn-sm btn-pill">
+            <Icon name="upload" size={15} /> Upload music
+          </Link>
+        </div>
+      )}
+
       {/* ======================== PINNED HUBS ========================= */}
       <section className="section">
         <SectionHead icon="pin" title="Pinned Hubs" note="Fast access" />
@@ -367,7 +453,12 @@ export default function Library() {
             </div>
           </Link>
 
-          <Link to="/search?mine=1" className="hub-card">
+          <button
+            type="button"
+            className="hub-card text-left"
+            onClick={() => setFilter('uploads')}
+            style={{ textAlign: 'left', background: 'var(--card-2)', cursor: 'pointer' }}
+          >
             <div className="hub-top">
               <span className="hub-icon"><Icon name="broadcast" size={24} /></span>
               <span className="hub-chip">{artist ? 'Artist' : 'Catalog'}</span>
@@ -375,9 +466,9 @@ export default function Library() {
             <div className="hub-bottom">
               <span className="hub-eyebrow">Your own releases</span>
               <h3>Your Uploads</h3>
-              <p>{myTracks.length} track{myTracks.length === 1 ? '' : 's'} published • {artist?.name || user?.name || 'Your catalog'}</p>
+              <p>{myTracks.length} track{myTracks.length === 1 ? '' : 's'} • {publicUploadsCount} public, {privateUploadsCount} private</p>
             </div>
-          </Link>
+          </button>
 
           <Link to="/podcasts?filter=saved" className="hub-card">
             <div className="hub-top">
@@ -416,19 +507,27 @@ export default function Library() {
           <GridSkeleton count={12} />
         ) : filtered.length === 0 ? (
           <EmptyState
-            icon="library"
-            title="Nothing here yet"
+            icon={filter === 'uploads' || filter === 'local' ? 'upload' : 'library'}
+            title={filter === 'uploads' || filter === 'local' ? 'No uploads found' : 'Nothing here yet'}
             description={
-              filter === 'downloaded' ? 'Download a playlist or track and it will appear here, ready to play offline.'
-                : filter === 'local' ? 'Tracks you upload yourself show up here. Publish your first one to get started.'
+              filter === 'downloaded'
+                ? 'Download a playlist or track and it will appear here, ready to play offline.'
+                : filter === 'uploads' || filter === 'local'
+                  ? uploadTab === 'private'
+                    ? 'You have no private uploads yet. Upload music privately or switch any existing track to private.'
+                    : uploadTab === 'public'
+                      ? 'You have no public uploads yet. Publish your music publicly for everyone on Pulse to discover!'
+                      : 'You haven’t uploaded any music yet. Drop tracks to publish publicly or save privately to your library.'
                   : 'Create a playlist, add an album, or upload a track to start building your library.'
             }
             action={(
               <div className="row">
-                <button className="btn btn-primary" onClick={() => setNewPlaylistOpen(true)}>
-                  <Icon name="plus" size={16} /> New Playlist
-                </button>
-                <Link className="btn btn-ghost" to="/upload"><Icon name="upload" size={16} /> Upload music</Link>
+                <Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload music</Link>
+                {filter !== 'uploads' && (
+                  <button className="btn btn-ghost" onClick={() => setNewPlaylistOpen(true)}>
+                    <Icon name="plus" size={16} /> New Playlist
+                  </button>
+                )}
               </div>
             )}
           />
@@ -448,14 +547,44 @@ export default function Library() {
                 chip={item.chip}
                 onPlay={item.onPlay}
                 playLabel={`Play ${item.title}`}
-                actions={item.canDelete && (
-                  <button
-                    className="icon-btn icon-btn-sm danger"
-                    onClick={(e) => { e.preventDefault(); setDeleting(item.raw); }}
-                    aria-label={`Delete ${item.title}`}
-                  >
-                    <Icon name="trash" size={15} />
-                  </button>
+                actions={(
+                  <div className="row-actions-group">
+                    {item.isUpload && (
+                      <>
+                        <button
+                          className="icon-btn icon-btn-sm"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleTrackVisibility(item.raw); }}
+                          title={item.isPrivate ? 'Make Public (Publish)' : 'Make Private'}
+                          aria-label={item.isPrivate ? 'Make Public' : 'Make Private'}
+                        >
+                          <Icon name={item.isPrivate ? 'globe' : 'lock'} size={14} />
+                        </button>
+                        <button
+                          className="icon-btn icon-btn-sm"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingTrack(item.raw); setSongFormOpen(true); }}
+                          title="Edit track"
+                          aria-label="Edit track"
+                        >
+                          <Icon name="edit" size={14} />
+                        </button>
+                      </>
+                    )}
+                    {item.canDelete && (
+                      <button
+                        className="icon-btn icon-btn-sm danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (item.isUpload) setDeletingTrack(item.raw);
+                          else setDeleting(item.raw);
+                        }}
+                        aria-label={`Delete ${item.title}`}
+                        title="Delete"
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    )}
+                  </div>
                 )}
               />
             ))}
@@ -473,14 +602,41 @@ export default function Library() {
                 meta={item.meta?.text}
                 metaTone={item.meta?.tone}
                 onPlay={item.onPlay}
-                actions={item.canDelete && (
-                  <button
-                    className="icon-btn icon-btn-sm danger"
-                    onClick={(e) => { e.preventDefault(); setDeleting(item.raw); }}
-                    aria-label={`Delete ${item.title}`}
-                  >
-                    <Icon name="trash" size={15} />
-                  </button>
+                actions={(
+                  <div className="row-actions-group">
+                    {item.isUpload && (
+                      <>
+                        <button
+                          className="icon-btn icon-btn-sm"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleTrackVisibility(item.raw); }}
+                          title={item.isPrivate ? 'Make Public (Publish)' : 'Make Private'}
+                        >
+                          <Icon name={item.isPrivate ? 'globe' : 'lock'} size={14} />
+                        </button>
+                        <button
+                          className="icon-btn icon-btn-sm"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingTrack(item.raw); setSongFormOpen(true); }}
+                          title="Edit track"
+                        >
+                          <Icon name="edit" size={14} />
+                        </button>
+                      </>
+                    )}
+                    {item.canDelete && (
+                      <button
+                        className="icon-btn icon-btn-sm danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (item.isUpload) setDeletingTrack(item.raw);
+                          else setDeleting(item.raw);
+                        }}
+                        aria-label={`Delete ${item.title}`}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    )}
+                  </div>
                 )}
               />
             ))}
@@ -530,12 +686,28 @@ export default function Library() {
         artists={artists}
         defaultArtistId={artist?.id}
       />
+      <SongFormModal
+        open={songFormOpen}
+        onClose={() => { setSongFormOpen(false); setEditingTrack(null); }}
+        onSaved={() => { load(); }}
+        song={editingTrack}
+        artists={artists}
+        albums={albums}
+        defaultArtistId={artist?.id}
+      />
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
         onConfirm={() => deleting && deletePlaylist(deleting)}
         title="Delete playlist"
         message={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''}
+      />
+      <ConfirmDialog
+        open={!!deletingTrack}
+        onClose={() => setDeletingTrack(null)}
+        onConfirm={() => deletingTrack && deleteSong(deletingTrack)}
+        title="Delete track"
+        message={deletingTrack ? `Delete “${deletingTrack.title}”? This cannot be undone.` : ''}
       />
     </div>
   );
