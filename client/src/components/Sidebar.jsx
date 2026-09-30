@@ -12,6 +12,7 @@ const PRIMARY_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
   { to: '/search', icon: 'search', label: 'Search' },
   { to: '/library', icon: 'library', label: 'Your Library' },
+  { to: '/library?filter=uploads', icon: 'upload', label: 'Your Uploads', isUploads: true },
   { to: '/podcasts', icon: 'podcast', label: 'Podcasts' }
 ];
 
@@ -72,18 +73,29 @@ export default function Sidebar({ open, onClose }) {
           </Link>
 
           <nav className="side-nav" aria-label="Primary">
-            {PRIMARY_NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={onClose}
-                className={({ isActive }) => `side-nav-item ${isActive ? 'active' : ''}`}
-              >
-                <Icon name={item.icon} size={20} />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
+            {PRIMARY_NAV.map((item) => {
+              const isUploadsLink = item.isUploads;
+              const isCurrentUploads = location.pathname === '/library' && location.search.includes('filter=uploads');
+              const isPlainLibrary = location.pathname === '/library' && !location.search.includes('filter=uploads');
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={onClose}
+                  className={({ isActive }) => {
+                    let active = isActive;
+                    if (isUploadsLink) active = isCurrentUploads;
+                    else if (item.to === '/library') active = isPlainLibrary;
+                    return `side-nav-item ${active ? 'active' : ''}`;
+                  }}
+                >
+                  <Icon name={item.icon} size={20} />
+                  <span>{item.label}</span>
+                </NavLink>
+              );
+            })}
           </nav>
         </div>
 

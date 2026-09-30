@@ -39,6 +39,7 @@ export default function Search() {
   const genre = params.get('genre') || '';
   const artistId = params.get('artist') || '';
   const mineOnly = params.get('mine') === '1';
+  const visibility = params.get('visibility') || '';
   const sort = params.get('sort') || 'recent';
 
   const { user, artist } = useAuth();
@@ -73,13 +74,14 @@ export default function Search() {
       if (artistId) sp.set('artist_id', artistId);
       if (sort !== 'recent') sp.set('sort', sort);
       if (mineOnly) sp.set('mine', '1');
+      if (visibility) sp.set('visibility', visibility);
       setSongs(await api.get(`/api/songs?${sp.toString()}`));
     } catch (err) {
       toast(err.message || 'Search failed', 'error');
     } finally {
       setLoading(false);
     }
-  }, [q, genre, artistId, sort, mineOnly, toast]);
+  }, [q, genre, artistId, sort, mineOnly, visibility, toast]);
 
   useEffect(() => { loadSongs(); }, [loadSongs]);
 
@@ -109,7 +111,7 @@ export default function Search() {
     setParams(next, { replace: true });
   };
 
-  const canEdit = (song) => user && (user.role === 'admin' || (artist && artist.id === song.artist_id));
+  const canEdit = (song) => user && (user.role === 'admin' || song.uploaded_by === user.id || (artist && artist.id === song.artist_id));
 
   const handleDelete = async (song) => {
     try {
@@ -117,6 +119,10 @@ export default function Search() {
       setSongs((s) => s.filter((x) => x.id !== song.id));
       toast('Track deleted');
     } catch (err) { toast(err.message || 'Could not delete track', 'error'); }
+  };
+
+  const handleVisibilityChanged = (updated) => {
+    setSongs((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
   };
 
   /* Matching artists / albums shown above the tracks when searching. */
@@ -143,18 +149,25 @@ export default function Search() {
     [artists, artistId]
   );
 
-  const hasQuery = Boolean(q || genre || mineOnly || artistId);
+  const publicCount = useMemo(() => songs.filter((s) => s.is_public !== 0).length, [songs]);
+  const privateCount = useMemo(() => songs.filter((s) => s.is_public === 0).length, [songs]);
+
+  const hasQuery = Boolean(q || genre || mineOnly || artistId || visibility);
   const heroTitle = mineOnly
     ? 'Your Uploads'
-    : q
-      ? `Results for “${q}”`
-      : activeArtist
-        ? `${activeArtist.name} — catalog`
-        : genre || 'Search';
+    : visibility === 'public'
+      ? 'Community & Public Tracks'
+      : visibility === 'private'
+        ? 'Your Private Tracks'
+        : q
+          ? `Results for “${q}”`
+          : activeArtist
+            ? `${activeArtist.name} — catalog`
+            : genre || 'Search';
   const heroSub = loading
     ? 'Searching the catalog…'
     : mineOnly
-      ? `${songs.length} track${songs.length === 1 ? '' : 's'} published by you`
+      ? `${songs.length} track${songs.length === 1 ? '' : 's'} (${publicCount} public, ${privateCount} private)`
       : hasQuery
         ? `${songs.length} track${songs.length === 1 ? '' : 's'}${matchedArtists.length ? ` • ${matchedArtists.length} artist${matchedArtists.length === 1 ? '' : 's'}` : ''}${matchedAlbums.length ? ` • ${matchedAlbums.length} album${matchedAlbums.length === 1 ? '' : 's'}` : ''}`
         : `Browse ${formatNumber(songs.length)} tracks across ${genres.length} genres — or type in the search bar above.`;
@@ -202,8 +215,38 @@ export default function Search() {
             </button>
           )}
           {user && (
-            <button className={`chip ${mineOnly ? 'active' : ''}`} onClick={() => patch({ mine: mineOnly ? null : '1' })}>
-              <Icon name="artist" size={14} /> My music
+            <button className={`chip ${mineOnly ? 'active' : ''}`} onClick={() => patch({ mine: mineOnly ? null : '1', visibility: null })}>
+              <Icon name="upload" size={14} /> My uploads
+            </button>
+          )}
+          {mineOnly && (
+            <>
+              <button
+                className={`chip ${!visibility ? 'active' : ''}`}
+                onClick={() => patch({ visibility: null })}
+              >
+                All Mine ({songs.length})
+              </button>
+              <button
+                className={`chip ${visibility === 'public' ? 'active' : ''}`}
+                onClick={() => patch({ visibility: visibility === 'public' ? null : 'public' })}
+              >
+                <Icon name="globe" size={13} /> Public ({publicCount})
+              </button>
+              <button
+                className={`chip ${visibility === 'private' ? 'active' : ''}`}
+                onClick={() => patch({ visibility: visibility === 'private' ? null : 'private' })}
+              >
+                <Icon name="lock" size={13} /> Private ({privateCount})
+              </button>
+            </>
+          )}
+          {!mineOnly && (
+            <button
+              className={`chip ${visibility === 'public' ? 'active' : ''}`}
+              onClick={() => patch({ visibility: visibility === 'public' ? null : 'public' })}
+            >
+              <Icon name="globe" size={13} /> Community uploads
             </button>
           )}
           {genreOptions.slice(0, 9).map((opt) => (
@@ -346,26 +389,36 @@ export default function Search() {
             />
           ) : (
             <div className="collection-grid">
-              {songs.map((s, i) => (
-                <CollectionCard
-                  key={s.id}
-                  type="Track"
-                  cover={s.cover_url || s.album_cover}
-                  title={s.title}
-                  subtitle={s.artist_name}
-                  meta={{ icon: 'playCircle', text: `${formatNumber(s.plays)} plays` }}
-                  onPlay={() => play(songs, i)}
-                  playLabel={`Play ${s.title}`}
-                />
-              ))}
+              {songs.map((s, i) => {
+                const isMine = (user && s.uploaded_by === user.id) || (artist && s.artist_id === artist.id);
+                const isPrivate = s.is_public === 0;
+                return (
+                  <CollectionCard
+                    key={s.id}
+                    type={isMine ? (isPrivate ? 'Private Upload' : 'Public Upload') : 'Track'}
+                    typeTone={isMine ? (isPrivate ? 'accent' : 'green') : ''}
+                    cover={s.cover_url || s.album_cover}
+                    title={s.title}
+                    subtitle={s.artist_name}
+                    meta={isMine
+                      ? { icon: isPrivate ? 'lock' : 'globe', text: isPrivate ? 'Private' : 'Public', tone: isPrivate ? '' : 'green' }
+                      : { icon: 'playCircle', text: `${formatNumber(s.plays)} plays` }}
+                    chip={isMine ? (isPrivate ? 'PRIVATE' : 'PUBLIC') : undefined}
+                    onPlay={() => play(songs, i)}
+                    playLabel={`Play ${s.title}`}
+                  />
+                );
+              })}
             </div>
           )
         ) : (
           <SongTable
             songs={songs}
+            showVisibility={true}
             onEdit={(s) => { setEditing(s); setFormOpen(true); }}
             onDelete={(s) => setDeleting(s)}
             onAddToPlaylist={openAdd}
+            onVisibilityChanged={handleVisibilityChanged}
             canManage={canEdit}
             emptyFallback={(
               <EmptyState

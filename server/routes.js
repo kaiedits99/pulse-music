@@ -76,6 +76,12 @@ function songOwnerIs(req, song) {
   return artist && artist.id === song.artist_id;
 }
 
+function canAccessSong(req, song) {
+  if (!song) return false;
+  if (song.is_public === 1 || song.is_public === '1' || song.is_public === true) return true;
+  return songOwnerIs(req, song);
+}
+
 function albumOwnerIs(req, album) {
   if (!req.user) return false;
   if (req.user.role === 'admin') return true;
@@ -365,25 +371,74 @@ router.get('/auth/me', authMiddleware, (req, res) => {
 
 // ============================== STATS & RECOMMENDATIONS ==============================
 router.get('/stats', optionalAuth, (req, res) => {
-  const songs = db.prepare('SELECT COUNT(*) c, COALESCE(SUM(plays),0) plays, COALESCE(SUM(downloads),0) downloads FROM songs').get();
+  const own = req.user ? artistForUser(req.user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
+  let songVisibilityWhere = 'WHERE s.is_public = 1';
+  let songCountWhere = 'WHERE is_public = 1';
+  const songParams = [];
+  const countParams = [];
+
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      songVisibilityWhere = '';
+      songCountWhere = '';
+    } else {
+      songVisibilityWhere = 'WHERE (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ?)';
+      songParams.push(req.user.id, ownArtistId);
+      songCountWhere = 'WHERE (is_public = 1 OR uploaded_by = ? OR artist_id = ?)';
+      countParams.push(req.user.id, ownArtistId);
+    }
+  }
+
+  const songs = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(plays),0) plays, COALESCE(SUM(downloads),0) downloads FROM songs ${songCountWhere}`).get(...countParams);
   const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
   const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
   const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
   const podcasts = db.prepare('SELECT COUNT(*) c FROM podcasts').get().c;
   const episodes = db.prepare('SELECT COUNT(*) c FROM episodes').get().c;
+
   const top = db.prepare(
     `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
      FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
-     ORDER BY s.plays DESC LIMIT 5`
-  ).all();
+     ${songVisibilityWhere}
+     ORDER BY s.plays DESC LIMIT 6`
+  ).all(...songParams);
+
   const recent = db.prepare(
     `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
      FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
-     ORDER BY s.created_at DESC LIMIT 6`
+     ${songVisibilityWhere}
+     ORDER BY s.created_at DESC LIMIT 8`
+  ).all(...songParams);
+
+  // Recent public uploads (published for everyone)
+  const communityUploads = db.prepare(
+    `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover, u.name uploader_name, u.username uploader_username
+     FROM songs s
+     JOIN artists a ON a.id = s.artist_id
+     LEFT JOIN albums al ON al.id = s.album_id
+     LEFT JOIN users u ON u.id = s.uploaded_by
+     WHERE s.is_public = 1 AND (s.uploaded_by IS NOT NULL OR s.file_path LIKE '/media/uploads/%')
+     ORDER BY s.created_at DESC LIMIT 10`
   ).all();
+
+  // Current user's own uploads (both public and private)
+  let myUploads = [];
+  if (req.user) {
+    myUploads = db.prepare(
+      `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
+       FROM songs s
+       JOIN artists a ON a.id = s.artist_id
+       LEFT JOIN albums al ON al.id = s.album_id
+       WHERE (s.uploaded_by = ? OR s.artist_id = ?)
+       ORDER BY s.created_at DESC LIMIT 10`
+    ).all(req.user.id, ownArtistId);
+  }
+
   const genreRows = db.prepare(
-    `SELECT genre, COUNT(*) c FROM songs GROUP BY genre ORDER BY c DESC`
-  ).all();
+    `SELECT genre, COUNT(*) c FROM songs ${songCountWhere ? songCountWhere + ' AND genre IS NOT NULL' : 'WHERE genre IS NOT NULL'} GROUP BY genre ORDER BY c DESC`
+  ).all(...countParams);
 
   let favs = new Set();
   if (req.user) {
@@ -392,6 +447,8 @@ router.get('/stats', optionalAuth, (req, res) => {
   }
   const topWithFav = top.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
   const recentWithFav = recent.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
+  const communityWithFav = communityUploads.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
+  const myWithFav = myUploads.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 }));
 
   const userGenres = req.user && req.user.favorite_genres ? parseGenres(req.user.favorite_genres) : [];
   let recommended = [];
@@ -408,16 +465,17 @@ router.get('/stats', optionalAuth, (req, res) => {
       else if (gl === 'edm') conditions.push("(s.genre LIKE '%EDM%' OR s.genre LIKE '%Dance%' OR s.genre LIKE '%Synthpop%' OR s.genre LIKE '%Electronic%')");
       else conditions.push("(s.genre NOT LIKE '%Pop%' AND s.genre NOT LIKE '%Rock%')");
     }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' OR ') : '';
+    const genreFilter = conditions.length ? '(' + conditions.join(' OR ') + ')' : '1=1';
+    const recWhere = songVisibilityWhere ? `${songVisibilityWhere} AND ${genreFilter}` : `WHERE ${genreFilter}`;
     recommended = db.prepare(`
       SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
       FROM songs s
       JOIN artists a ON a.id = s.artist_id
       LEFT JOIN albums al ON al.id = s.album_id
-      ${where}
+      ${recWhere}
       ORDER BY s.plays DESC, s.created_at DESC
       LIMIT 10
-    `).all();
+    `).all(...songParams);
   }
 
   // Fallback if not enough matching tracks
@@ -428,8 +486,9 @@ router.get('/stats', optionalAuth, (req, res) => {
       FROM songs s
       JOIN artists a ON a.id = s.artist_id
       LEFT JOIN albums al ON al.id = s.album_id
+      ${songVisibilityWhere}
       ORDER BY s.plays DESC LIMIT 8
-    `).all();
+    `).all(...songParams);
     for (const p of popular) {
       if (!existing.has(p.id) && recommended.length < 8) {
         recommended.push(p);
@@ -443,6 +502,7 @@ router.get('/stats', optionalAuth, (req, res) => {
     songs: songs.c, plays: songs.plays, downloads: songs.downloads,
     artists, albums, playlists, podcasts, episodes,
     top: topWithFav, recent: recentWithFav,
+    community_uploads: communityWithFav, my_uploads: myWithFav,
     recommended: recWithFav, user_genres: userGenres, genres: genreRows
   });
 });
@@ -450,6 +510,19 @@ router.get('/stats', optionalAuth, (req, res) => {
 router.get('/songs/recommended', optionalAuth, (req, res) => {
   const user = req.user;
   const genres = (user && user.favorite_genres) ? parseGenres(user.favorite_genres) : [];
+  const own = user ? artistForUser(user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
+  let songVisibilityWhere = 'WHERE s.is_public = 1';
+  const songParams = [];
+  if (user) {
+    if (user.role === 'admin') {
+      songVisibilityWhere = '';
+    } else {
+      songVisibilityWhere = 'WHERE (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ?)';
+      songParams.push(user.id, ownArtistId);
+    }
+  }
 
   let favs = new Set();
   if (user) {
@@ -470,7 +543,8 @@ router.get('/songs/recommended', optionalAuth, (req, res) => {
       else if (gl === 'edm') conditions.push("(s.genre LIKE '%EDM%' OR s.genre LIKE '%Dance%' OR s.genre LIKE '%Synthpop%' OR s.genre LIKE '%Electronic%')");
       else conditions.push("(s.genre NOT LIKE '%Pop%' AND s.genre NOT LIKE '%Rock%')");
     }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' OR ') : '';
+    const genreFilter = conditions.length ? '(' + conditions.join(' OR ') + ')' : '1=1';
+    const where = songVisibilityWhere ? `${songVisibilityWhere} AND ${genreFilter}` : `WHERE ${genreFilter}`;
     songs = db.prepare(`
       SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
       FROM songs s
@@ -479,7 +553,7 @@ router.get('/songs/recommended', optionalAuth, (req, res) => {
       ${where}
       ORDER BY s.plays DESC, s.created_at DESC
       LIMIT 20
-    `).all();
+    `).all(...songParams);
   }
 
   if (songs.length < 5) {
@@ -489,9 +563,10 @@ router.get('/songs/recommended', optionalAuth, (req, res) => {
       FROM songs s
       JOIN artists a ON a.id = s.artist_id
       LEFT JOIN albums al ON al.id = s.album_id
+      ${songVisibilityWhere}
       ORDER BY s.plays DESC, s.created_at DESC
       LIMIT 15
-    `).all();
+    `).all(...songParams);
     for (const s of fallback) {
       if (!existingIds.has(s.id) && songs.length < 15) {
         songs.push(s);
@@ -509,20 +584,55 @@ router.get('/songs/recommended', optionalAuth, (req, res) => {
 
 // ============================== SONGS ==============================
 router.get('/songs', optionalAuth, (req, res) => {
-  const { q, artist_id, album_id, genre, sort } = req.query;
+  const { q, artist_id, album_id, genre, sort, visibility } = req.query;
   const where = [];
   const params = [];
+
+  const own = req.user ? artistForUser(req.user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
+  if (req.query.mine === '1') {
+    if (!req.user) {
+      return res.json([]);
+    }
+    where.push('(s.uploaded_by = ? OR s.artist_id = ?)');
+    params.push(req.user.id, ownArtistId);
+    if (visibility === 'public' || req.query.public === '1') {
+      where.push('s.is_public = 1');
+    } else if (visibility === 'private' || req.query.private === '1') {
+      where.push('s.is_public = 0');
+    }
+  } else {
+    if (visibility === 'public' || req.query.public === '1') {
+      where.push('s.is_public = 1');
+    } else if (visibility === 'private' || req.query.private === '1') {
+      if (!req.user) {
+        return res.json([]);
+      }
+      where.push('s.is_public = 0');
+      if (req.user.role !== 'admin') {
+        where.push('(s.uploaded_by = ? OR s.artist_id = ?)');
+        params.push(req.user.id, ownArtistId);
+      }
+    } else {
+      if (!req.user) {
+        where.push('s.is_public = 1');
+      } else if (req.user.role !== 'admin') {
+        where.push('(s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ?)');
+        params.push(req.user.id, ownArtistId);
+      }
+    }
+  }
+
+  if (req.query.uploaded === '1') {
+    where.push('(s.uploaded_by IS NOT NULL OR s.file_path LIKE \'/media/uploads/%\')');
+  }
+
   if (q) { where.push('(s.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
   if (artist_id) { where.push('s.artist_id = ?'); params.push(artist_id); }
   if (album_id) { where.push('s.album_id = ?'); params.push(album_id); }
   if (genre) { where.push('s.genre = ?'); params.push(genre); }
-  // "My music": everything uploaded by this user plus everything attributed to
-  // their own artist profile. Purely a filter — the catalog itself is shared.
-  if (req.query.mine === '1' && req.user) {
-    const own = artistForUser(req.user.id);
-    where.push('(s.uploaded_by = ? OR s.artist_id = ?)');
-    params.push(req.user.id, own ? own.id : -1);
-  }
+
   let order = 's.created_at DESC';
   if (sort === 'plays') order = 's.plays DESC';
   if (sort === 'downloads') order = 's.downloads DESC';
@@ -552,8 +662,13 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
     FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
     WHERE s.id = ?
   `).get(req.params.id);
-  if (!s) return res.status(404).json({ error: 'Song not found' });
-  res.json(s);
+  if (!s || !canAccessSong(req, s)) return res.status(404).json({ error: 'Song not found' });
+  let isFavorite = 0;
+  if (req.user) {
+    const fav = db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND song_id = ?').get(req.user.id, s.id);
+    isFavorite = fav ? 1 : 0;
+  }
+  res.json({ ...s, is_favorite: isFavorite });
 });
 
 // Bulk import is intentionally limited to ten files per request. Audio stays in Pulse storage;
@@ -564,6 +679,13 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
   const artistId = resolveUploadArtist(req, req.body);
   const albumId = req.body.album_id ? parseInt(req.body.album_id, 10) : null;
   const genre = (req.body.genre || '').trim() || null;
+
+  let defaultIsPublic = 1;
+  if (req.body.is_public !== undefined) {
+    const val = String(req.body.is_public).toLowerCase();
+    defaultIsPublic = (val === '0' || val === 'false' || val === 'private') ? 0 : 1;
+  }
+
   let metadata = [];
   try {
     metadata = req.body.metadata ? JSON.parse(req.body.metadata) : [];
@@ -571,8 +693,8 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
   } catch {
     return res.status(400).json({ error: 'Track metadata is invalid' });
   }
-  const insert = db.prepare(`INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, uploaded_by)
-    VALUES (?,?,?,?,?,?,?)`);
+  const insert = db.prepare(`INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, uploaded_by, is_public)
+    VALUES (?,?,?,?,?,?,?,?)`);
   const getSong = db.prepare(`SELECT s.*, a.name artist_name, al.title album_title FROM songs s
     JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id WHERE s.id = ?`);
   const imported = db.transaction(() => files.map((file, index) => {
@@ -580,8 +702,13 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
     const fallbackTitle = path.basename(file.originalname, path.extname(file.originalname)).replace(/[-_]+/g, ' ').trim();
     const title = String(meta.title || fallbackTitle || 'Untitled track').trim().slice(0, 250) || 'Untitled track';
     const trackGenre = String(meta.genre || genre || '').trim().slice(0, 100) || null;
+    let trackIsPublic = defaultIsPublic;
+    if (meta.is_public !== undefined) {
+      const v = String(meta.is_public).toLowerCase();
+      trackIsPublic = (v === '0' || v === 'false' || v === 'private') ? 0 : 1;
+    }
     const duration = wavDuration(file.path) || 0;
-    const id = insert.run(title, artistId, albumId, trackGenre, duration, '/media/uploads/' + file.filename, req.user.id).lastInsertRowid;
+    const id = insert.run(title, artistId, albumId, trackGenre, duration, '/media/uploads/' + file.filename, req.user.id, trackIsPublic).lastInsertRowid;
     return getSong.get(id);
   }))();
   res.status(201).json({ imported, count: imported.length });
@@ -607,21 +734,48 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
 
   let coverUrl = null;
   if (coverFile) coverUrl = '/media/uploads/' + coverFile.filename;
-  else {
+  else if (albumId) {
     const own = db.prepare('SELECT cover_url FROM albums WHERE id = ?').get(albumId);
     coverUrl = (own && own.cover_url) || null;
   }
 
+  let isPublic = 1;
+  if (body.is_public !== undefined) {
+    const val = String(body.is_public).toLowerCase();
+    isPublic = (val === '0' || val === 'false' || val === 'private') ? 0 : 1;
+  }
+
   const info = db.prepare(
-    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url, uploaded_by)
-     VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl, req.user.id);
+    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url, uploaded_by, is_public)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl, req.user.id, isPublic);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
     FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id WHERE s.id = ?
   `).get(info.lastInsertRowid);
   res.status(201).json(s);
+});
+
+router.patch('/songs/:id/visibility', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Song not found' });
+  if (!songOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
+
+  let isPublic;
+  if (req.body && req.body.is_public !== undefined) {
+    const val = String(req.body.is_public).toLowerCase();
+    isPublic = (val === '0' || val === 'false' || val === 'private') ? 0 : 1;
+  } else {
+    isPublic = existing.is_public ? 0 : 1;
+  }
+
+  db.prepare('UPDATE songs SET is_public = ? WHERE id = ?').run(isPublic, existing.id);
+  const updated = db.prepare(`
+    SELECT s.*, a.name artist_name, al.title album_title
+    FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id WHERE s.id = ?
+  `).get(existing.id);
+  res.json(updated);
 });
 
 router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
@@ -645,7 +799,7 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
     artistId = existing.artist_id;
   }
 
-  const albumId = body.album_id ? parseInt(body.album_id, 10) : existing.album_id;
+  const albumId = body.album_id !== undefined ? (body.album_id ? parseInt(body.album_id, 10) : null) : existing.album_id;
   const audioFile = req.files && req.files.audio && req.files.audio[0];
   const coverFile = req.files && req.files.cover && req.files.cover[0];
 
@@ -659,9 +813,15 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
   let coverUrl = existing.cover_url;
   if (coverFile) coverUrl = '/media/uploads/' + coverFile.filename;
 
+  let isPublic = existing.is_public ?? 1;
+  if (body.is_public !== undefined) {
+    const val = String(body.is_public).toLowerCase();
+    isPublic = (val === '0' || val === 'false' || val === 'private') ? 0 : 1;
+  }
+
   db.prepare(
-    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, cover_url=? WHERE id=?`
-  ).run(title, artistId, albumId, body.genre || existing.genre, duration, filePath, sourceUrl, coverUrl, existing.id);
+    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, cover_url=?, is_public=? WHERE id=?`
+  ).run(title, artistId, albumId, body.genre !== undefined ? (body.genre || null) : existing.genre, duration, filePath, sourceUrl, coverUrl, isPublic, existing.id);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
@@ -684,9 +844,10 @@ router.post('/songs/:id/play', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/songs/:id/download', (req, res) => {
+router.get('/songs/:id/download', optionalAuth, (req, res) => {
   const s = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
   if (!s || !s.file_path) return res.status(404).json({ error: 'No audio available' });
+  if (!canAccessSong(req, s)) return res.status(404).json({ error: 'No audio available' });
   db.prepare('UPDATE songs SET downloads = downloads + 1 WHERE id = ?').run(s.id);
   const rel = s.file_path.replace('/media/', '');
   const abs = path.join(uploadsDir, '..', rel);
@@ -696,12 +857,19 @@ router.get('/songs/:id/download', (req, res) => {
 
 // ============================== FAVORITES ==============================
 router.get('/favorites', authMiddleware, (req, res) => {
+  const own = artistForUser(req.user.id);
+  const ownArtistId = own ? own.id : -1;
+  const where = req.user.role === 'admin'
+    ? 'WHERE f.user_id = ?'
+    : 'WHERE f.user_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ?)';
+  const params = req.user.role === 'admin' ? [req.user.id] : [req.user.id, req.user.id, ownArtistId];
+
   const rows = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
     FROM favorites f JOIN songs s ON s.id = f.song_id
     JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
-    WHERE f.user_id = ? ORDER BY f.created_at DESC
-  `).all(req.user.id);
+    ${where} ORDER BY f.created_at DESC
+  `).all(...params);
   res.json(rows.map(r => ({ ...r, is_favorite: 1 })));
 });
 
@@ -720,14 +888,30 @@ router.get('/albums', optionalAuth, (req, res) => {
   const { q, artist_id } = req.query;
   const where = [];
   const params = [];
+
+  const own = req.user ? artistForUser(req.user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
   if (q) { where.push('(al.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
   if (artist_id) { where.push('al.artist_id = ?'); params.push(artist_id); }
+
+  let countWhere = 'WHERE s.album_id = al.id AND s.is_public = 1';
+  let countParams = [];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      countWhere = 'WHERE s.album_id = al.id';
+    } else {
+      countWhere = 'WHERE s.album_id = al.id AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR al.uploaded_by = ?)';
+      countParams = [req.user.id, ownArtistId, req.user.id];
+    }
+  }
+
   const rows = db.prepare(`
-    SELECT al.*, a.name artist_name, (SELECT COUNT(*) FROM songs s WHERE s.album_id = al.id) track_count
+    SELECT al.*, a.name artist_name, (SELECT COUNT(*) FROM songs s ${countWhere}) track_count
     FROM albums al JOIN artists a ON a.id = al.artist_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY al.release_year DESC, al.title ASC
-  `).all(...params);
+  `).all(...countParams, ...params);
   res.json(rows);
 });
 
@@ -736,12 +920,33 @@ router.get('/albums/:id', optionalAuth, (req, res) => {
     SELECT al.*, a.name artist_name FROM albums al JOIN artists a ON a.id = al.artist_id WHERE al.id = ?
   `).get(req.params.id);
   if (!al) return res.status(404).json({ error: 'Album not found' });
+
+  let where = 's.album_id = ? AND s.is_public = 1';
+  const params = [al.id];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      where = 's.album_id = ?';
+    } else {
+      const own = artistForUser(req.user.id);
+      const ownArtistId = own ? own.id : -1;
+      where = 's.album_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR al.uploaded_by = ?)';
+      params.push(req.user.id, ownArtistId, req.user.id);
+    }
+  }
+
   const songs = db.prepare(`
     SELECT s.*, a.name artist_name, al2.title album_title FROM songs s
     JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al2 ON al2.id = s.album_id
-    WHERE s.album_id = ? ORDER BY s.created_at ASC
-  `).all(al.id);
-  res.json({ ...al, songs });
+    WHERE ${where} ORDER BY s.created_at ASC
+  `).all(...params);
+
+  let favs = new Set();
+  if (req.user) {
+    const f = db.prepare('SELECT song_id FROM favorites WHERE user_id = ?').all(req.user.id);
+    favs = new Set(f.map(r => r.song_id));
+  }
+
+  res.json({ ...al, songs: songs.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 })) });
 });
 
 router.post('/albums', authMiddleware, (req, res) => {
@@ -778,31 +983,79 @@ router.delete('/albums/:id', authMiddleware, (req, res) => {
 });
 
 // ============================== ARTISTS ==============================
-router.get('/artists', (req, res) => {
+router.get('/artists', optionalAuth, (req, res) => {
   const { q } = req.query;
   const where = q ? 'WHERE a.name LIKE ? OR a.genre LIKE ?' : '';
   const params = q ? [`%${q}%`, `%${q}%`] : [];
+
+  const own = req.user ? artistForUser(req.user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
+  let songCountWhere = 'WHERE s.artist_id = a.id AND s.is_public = 1';
+  let songCountParams = [];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      songCountWhere = 'WHERE s.artist_id = a.id';
+    } else {
+      songCountWhere = 'WHERE s.artist_id = a.id AND (s.is_public = 1 OR s.uploaded_by = ? OR a.user_id = ?)';
+      songCountParams = [req.user.id, req.user.id];
+    }
+  }
+
   const rows = db.prepare(`
-    SELECT a.*, (SELECT COUNT(*) FROM songs s WHERE s.artist_id = a.id) song_count,
+    SELECT a.*, (SELECT COUNT(*) FROM songs s ${songCountWhere}) song_count,
            (SELECT COUNT(*) FROM albums al WHERE al.artist_id = a.id) album_count
     FROM artists a ${where} ORDER BY a.followers DESC
-  `).all(...params);
+  `).all(...songCountParams, ...params);
   res.json(rows);
 });
 
-router.get('/artists/:id', (req, res) => {
+router.get('/artists/:id', optionalAuth, (req, res) => {
+  const own = req.user ? artistForUser(req.user.id) : null;
+  const ownArtistId = own ? own.id : -1;
+
+  let songCountWhere = 'WHERE s.artist_id = a.id AND s.is_public = 1';
+  let songCountParams = [];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      songCountWhere = 'WHERE s.artist_id = a.id';
+    } else {
+      songCountWhere = 'WHERE s.artist_id = a.id AND (s.is_public = 1 OR s.uploaded_by = ? OR a.user_id = ?)';
+      songCountParams = [req.user.id, req.user.id];
+    }
+  }
+
   const a = db.prepare(`
-    SELECT a.*, (SELECT COUNT(*) FROM songs s WHERE s.artist_id = a.id) song_count
+    SELECT a.*, (SELECT COUNT(*) FROM songs s ${songCountWhere}) song_count
     FROM artists a WHERE a.id = ?
-  `).get(req.params.id);
+  `).get(...songCountParams, req.params.id);
   if (!a) return res.status(404).json({ error: 'Artist not found' });
+
+  let where = 's.artist_id = ? AND s.is_public = 1';
+  const params = [a.id];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      where = 's.artist_id = ?';
+    } else {
+      where = 's.artist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR a.user_id = ?)';
+      params.push(req.user.id, ownArtistId, req.user.id);
+    }
+  }
+
   const songs = db.prepare(`
     SELECT s.*, a2.name artist_name, al.title album_title FROM songs s
     JOIN artists a2 ON a2.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
-    WHERE s.artist_id = ? ORDER BY s.plays DESC
-  `).all(a.id);
+    WHERE ${where} ORDER BY s.plays DESC
+  `).all(...params);
+
+  let favs = new Set();
+  if (req.user) {
+    const f = db.prepare('SELECT song_id FROM favorites WHERE user_id = ?').all(req.user.id);
+    favs = new Set(f.map(r => r.song_id));
+  }
+
   const albums = db.prepare('SELECT * FROM albums WHERE artist_id = ? ORDER BY release_year DESC').all(a.id);
-  res.json({ ...a, songs, albums });
+  res.json({ ...a, songs: songs.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 })), albums });
 });
 
 router.post('/artists', authMiddleware, (req, res) => {
@@ -856,16 +1109,37 @@ function canManagePlaylist(req, playlist) {
   return req.user.role === 'admin' || playlist.user_id === req.user.id;
 }
 
-router.get('/playlists/:id', authMiddleware, (req, res) => {
+router.get('/playlists/:id', optionalAuth, (req, res) => {
   const p = db.prepare('SELECT p.*, u.name creator_name FROM playlists p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Playlist not found' });
+
+  let where = 'ps.playlist_id = ? AND s.is_public = 1';
+  const params = [p.id];
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      where = 'ps.playlist_id = ?';
+    } else {
+      const own = artistForUser(req.user.id);
+      const ownArtistId = own ? own.id : -1;
+      where = 'ps.playlist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR p.user_id = ?)';
+      params.push(req.user.id, ownArtistId, req.user.id);
+    }
+  }
+
   const songs = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title, ps.position
     FROM playlist_songs ps JOIN songs s ON s.id = ps.song_id
     JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
-    WHERE ps.playlist_id = ? ORDER BY ps.position ASC
-  `).all(p.id);
-  res.json({ ...p, songs });
+    WHERE ${where} ORDER BY ps.position ASC
+  `).all(...params);
+
+  let favs = new Set();
+  if (req.user) {
+    const f = db.prepare('SELECT song_id FROM favorites WHERE user_id = ?').all(req.user.id);
+    favs = new Set(f.map(r => r.song_id));
+  }
+
+  res.json({ ...p, songs: songs.map(r => ({ ...r, is_favorite: favs.has(r.id) ? 1 : 0 })) });
 });
 
 router.post('/playlists', authMiddleware, (req, res) => {

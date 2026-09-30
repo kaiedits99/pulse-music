@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Modal from './Modal.jsx';
+import Icon from './Icon.jsx';
 import { Spinner } from './ui.jsx';
 import ArtistField from './ArtistField.jsx';
 import { api } from '../api.js';
@@ -11,7 +12,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    title: '', artist_id: '', album_id: '', artist_name: '', album_title: '', genre: '', audio: null, source_url: '', cover: null
+    title: '', artist_id: '', album_id: '', artist_name: '', album_title: '', genre: '', audio: null, source_url: '', cover: null, is_public: 1
   });
 
   useEffect(() => {
@@ -25,7 +26,8 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
         genre: song?.genre || '',
         audio: null,
         source_url: song?.source_url || '',
-        cover: null
+        cover: null,
+        is_public: song?.is_public !== undefined ? (song.is_public ? 1 : 0) : 1
       });
     }
   }, [open, song, defaultArtistId]);
@@ -47,13 +49,18 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
     if (form.audio) fd.append('audio', form.audio);
     if (form.source_url.trim()) fd.append('source_url', form.source_url.trim());
     if (form.cover) fd.append('cover', form.cover);
+    fd.append('is_public', form.is_public ? '1' : '0');
 
     setSaving(true);
     try {
       const saved = song
         ? await api.uploadPut(`/api/songs/${song.id}`, fd)
         : await api.upload('/api/songs', fd);
-      toast(song ? 'Track updated' : 'Track uploaded successfully');
+      toast(
+        song
+          ? form.is_public ? 'Track updated (Public) 🌐' : 'Track updated (Private) 🔒'
+          : form.is_public ? 'Track published publicly 🌐' : 'Track saved privately 🔒'
+      );
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -108,6 +115,31 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
             <input type="file" accept="image/*,.svg,.png,.jpg,.jpeg,.webp" onChange={(e) => set('cover', e.target.files[0])} />
             {form.cover && <em className="file-note">{form.cover.name}</em>}
           </label>
+        </div>
+
+        <div className="field">
+          <span>Privacy &amp; Visibility</span>
+          <div className="vis-toggle-wrap">
+            <button
+              type="button"
+              className={`vis-toggle-btn ${form.is_public ? 'active' : ''}`}
+              onClick={() => set('is_public', 1)}
+            >
+              <Icon name="globe" size={16} /> Public (Visible to everyone)
+            </button>
+            <button
+              type="button"
+              className={`vis-toggle-btn ${!form.is_public ? 'active' : ''}`}
+              onClick={() => set('is_public', 0)}
+            >
+              <Icon name="lock" size={16} /> Private (Only for me)
+            </button>
+          </div>
+          <small className="muted">
+            {form.is_public
+              ? 'Published for everyone to stream, search, and discover on Pulse.'
+              : 'Kept private in your personal library. Only you can see and play it.'}
+          </small>
         </div>
 
         <div className="modal-actions">

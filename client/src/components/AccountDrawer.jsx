@@ -77,8 +77,9 @@ export default function AccountDrawer({ open, onClose }) {
       <nav className="drawer-section" aria-label="Account navigation">
         <h4>Quick access</h4>
         {[
+          ['library?filter=uploads', 'Your Uploads', 'Manage public & private music', 'upload'],
           ['settings', 'Settings', 'Manage your profile & theme', 'settings'],
-          ['upload', 'Upload music', 'Add a new track', 'upload'],
+          ['upload', 'Upload Music', 'Publish or save a new track', 'plus'],
           ['favorites', 'Favorites', 'Your saved music', 'heart']
         ].map(([to, label, sub, icon]) => (
           <Link className="drawer-link" to={`/${to}`} onClick={onClose} key={to}>
