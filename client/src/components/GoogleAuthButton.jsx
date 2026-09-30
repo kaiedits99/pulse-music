@@ -87,9 +87,9 @@ export default function GoogleAuthButton() {
 
   if (!status?.enabled) return null;
   return (
-    <div className="google-auth-block">
-      <div className="auth-divider"><span>or</span></div>
-      <div className="google-auth-wrap" ref={mountRef} aria-label="Sign in with Google" />
-    </div>
+    <>
+      <div className="auth-divider">or continue with</div>
+      <div className="google-btn-wrap" ref={mountRef} aria-label="Sign in with Google" />
+    </>
   );
 }

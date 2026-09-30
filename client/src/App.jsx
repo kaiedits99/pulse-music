@@ -9,7 +9,8 @@ import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import Overview from './pages/Overview.jsx';
-import Songs from './pages/Songs.jsx';
+import Search from './pages/Search.jsx';
+import Library from './pages/Library.jsx';
 import Albums from './pages/Albums.jsx';
 import AlbumDetail from './pages/AlbumDetail.jsx';
 import Artists from './pages/Artists.jsx';
@@ -26,8 +27,8 @@ function RequireAuth({ children }) {
   if (loading) {
     return (
       <div className="boot-screen">
-        <div className="brand-logo big"><Icon name="wave" size={26} /></div>
-        <Spinner />
+        <div className="brand-logo big"><Icon name="wave" size={28} /></div>
+        <Spinner size={24} />
       </div>
     );
   }
@@ -47,7 +48,10 @@ export default function App() {
                   <Route path="/login" element={<AuthPage />} />
                   <Route element={<RequireAuth><Layout /></RequireAuth>}>
                     <Route path="/" element={<Overview />} />
-                    <Route path="/songs" element={<Songs />} />
+                    <Route path="/search" element={<Search />} />
+                    {/* legacy path kept so old links and bookmarks keep working */}
+                    <Route path="/songs" element={<Search />} />
+                    <Route path="/library" element={<Library />} />
                     <Route path="/albums" element={<Albums />} />
                     <Route path="/albums/:id" element={<AlbumDetail />} />
                     <Route path="/artists" element={<Artists />} />

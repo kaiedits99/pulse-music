@@ -1,0 +1,308 @@
+/* ==========================================================================
+   Pulse — Design System : Tokens, reset, typography, utilities
+   ========================================================================== */
+
+:root,
+[data-theme='dark'] {
+  /* --- Surfaces --- */
+  --bg: #08080a;
+  --bg-deep: #050506;
+  --panel: #111114;
+  --panel-2: #141418;
+  --card: #141418;
+  --card-2: #1a1a20;
+  --card-3: #202027;
+  --card-hover: #23232b;
+  --overlay: rgba(4, 4, 6, 0.72);
+
+  /* --- Lines --- */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-2: rgba(255, 255, 255, 0.12);
+  --border-3: rgba(255, 255, 255, 0.2);
+
+  /* --- Text --- */
+  --text: #f4f4f5;
+  --text-2: #d4d4d8;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+  --text-ghost: #52525b;
+
+  /* --- Brand --- */
+  --accent: #8b5cf6;
+  --accent-2: #a855f7;
+  --accent-3: #c084fc;
+  --accent-deep: #6d28d9;
+  --accent-soft: rgba(139, 92, 246, 0.16);
+  --accent-soft-2: rgba(139, 92, 246, 0.28);
+  --grad: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  --grad-vivid: linear-gradient(135deg, #a855f7 0%, #7c3aed 55%, #6d28d9 100%);
+  --grad-text: linear-gradient(120deg, #c084fc 0%, #a855f7 50%, #818cf8 100%);
+
+  /* --- Status --- */
+  --play: #1ed760;
+  --play-hover: #3be477;
+  --green: #22c55e;
+  --green-soft: rgba(34, 197, 94, 0.14);
+  --danger: #f43f5e;
+  --danger-soft: rgba(244, 63, 94, 0.14);
+  --warning: #f59e0b;
+  --info: #38bdf8;
+
+  /* --- Geometry --- */
+  --r-xs: 8px;
+  --r-sm: 10px;
+  --r: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* --- Shell metrics --- */
+  --gap: 8px;
+  --sidebar-w: 278px;
+  --sidebar-size: 278px;
+  --player-h: 92px;
+  --topbar-h: 72px;
+  --content-max: 1560px;
+
+  /* --- Elevation --- */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+  --glow: 0 6px 24px rgba(139, 92, 246, 0.42);
+  --glow-sm: 0 3px 14px rgba(139, 92, 246, 0.35);
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+  color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------- light -- */
+[data-theme='light'],
+.theme-light {
+  --bg: #f4f2f8;
+  --bg-deep: #ece9f3;
+  --panel: #ffffff;
+  --panel-2: #ffffff;
+  --card: #ffffff;
+  --card-2: #f5f3fa;
+  --card-3: #ece9f5;
+  --card-hover: #e7e3f2;
+  --overlay: rgba(28, 20, 48, 0.44);
+
+  --border: rgba(84, 52, 150, 0.12);
+  --border-2: rgba(84, 52, 150, 0.2);
+  --border-3: rgba(84, 52, 150, 0.32);
+
+  --text: #170f28;
+  --text-2: #2f2545;
+  --text-dim: #5d5277;
+  --text-faint: #7d7396;
+  --text-ghost: #9d95b0;
+
+  --accent: #7c3aed;
+  --accent-2: #9333ea;
+  --accent-3: #a855f7;
+  --accent-deep: #5b21b6;
+  --accent-soft: rgba(124, 58, 237, 0.1);
+  --accent-soft-2: rgba(124, 58, 237, 0.18);
+
+  --play: #16a34a;
+  --play-hover: #15803d;
+  --green: #16a34a;
+  --green-soft: rgba(22, 163, 74, 0.12);
+
+  --shadow-sm: 0 2px 8px rgba(76, 29, 149, 0.08);
+  --shadow: 0 12px 32px rgba(76, 29, 149, 0.12);
+  --shadow-lg: 0 24px 60px rgba(76, 29, 149, 0.18);
+  --glow: 0 6px 22px rgba(124, 58, 237, 0.32);
+  --glow-sm: 0 3px 12px rgba(124, 58, 237, 0.26);
+
+  color-scheme: light;
+}
+
+/* ==========================================================================
+   Reset
+   ========================================================================== */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+img { display: block; max-width: 100%; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+table { border-collapse: collapse; width: 100%; }
+
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ==========================================================================
+   Scrollbars
+   ========================================================================== */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+[data-theme='light'] ::-webkit-scrollbar-thumb { background: rgba(84, 52, 150, 0.2); background-clip: padding-box; }
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover { background: rgba(84, 52, 150, 0.34); background-clip: padding-box; }
+
+.scroll-thin { scrollbar-width: thin; }
+
+/* ==========================================================================
+   Typography helpers
+   ========================================================================== */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.muted { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+.accent-text { color: var(--accent-3); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.grow { flex: 1; min-width: 0; }
+.center { display: grid; place-items: center; }
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.icon { flex-shrink: 0; }
+.flip-up { transform: rotate(180deg); }
+
+/* ==========================================================================
+   Animations
+   ========================================================================== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+@keyframes eqBar {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Loading primitives
+   ========================================================================== */
+.skeleton {
+  background: linear-gradient(90deg, var(--card-2) 25%, var(--card-3) 50%, var(--card-2) 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--r-sm);
+}
+
+.spinner {
+  display: inline-block;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent-3);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+[data-theme='light'] .spinner { border-color: rgba(124, 58, 237, 0.2); border-top-color: var(--accent); }
+
+.boot-screen {
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 22px;
+  background: var(--bg);
+}
+
+/* Animated "now playing" equaliser */
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+.eq i {
+  display: block;
+  width: 2.5px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--play);
+  transform-origin: bottom;
+  animation: eqBar 0.9s ease-in-out infinite;
+}
+.eq i:nth-child(2) { animation-delay: 0.18s; }
+.eq i:nth-child(3) { animation-delay: 0.36s; }
+.eq i:nth-child(4) { animation-delay: 0.54s; }

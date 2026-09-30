@@ -8,15 +8,22 @@ import { useToast } from '../context/ToastContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { api } from '../api.js';
 import { getRuntimeUrl, setRuntimeUrl } from '../config.js';
+import { formatNumber } from '../format.js';
 
 const GENRE_OPTIONS = [
-  { id: 'Pop', name: 'Pop', desc: 'Vocal anthems & modern hooks', icon: 'music', color: 'from-pink-500' },
-  { id: 'Indie', name: 'Indie', desc: 'Acoustic warmth & indie anthems', icon: 'wave', color: 'from-purple-500' },
-  { id: 'Alternative Rock', name: 'Alternative Rock', desc: 'Electric energy & driving guitars', icon: 'sparkle', color: 'from-blue-500' },
-  { id: 'Rock', name: 'Rock', desc: 'Stadium anthems & powerful riffs', icon: 'trending', color: 'from-amber-500' },
-  { id: 'K-Pop', name: 'K-Pop', desc: 'Upbeat dance & melodic hooks', icon: 'heart', color: 'from-fuchsia-500' },
-  { id: 'EDM', name: 'EDM', desc: 'Electronic euphoria & festival drops', icon: 'wave', color: 'from-cyan-500' },
-  { id: 'Other', name: 'Other', desc: 'Afrobeats, R&B, Soul & Fusion', icon: 'sparkle', color: 'from-emerald-500' }
+  { id: 'Pop', name: 'Pop', desc: 'Vocal anthems & modern hooks', icon: 'music' },
+  { id: 'Indie', name: 'Indie', desc: 'Acoustic warmth & indie anthems', icon: 'wave' },
+  { id: 'Alternative Rock', name: 'Alternative Rock', desc: 'Electric energy & driving guitars', icon: 'sparkle' },
+  { id: 'Rock', name: 'Rock', desc: 'Stadium anthems & powerful riffs', icon: 'trending' },
+  { id: 'K-Pop', name: 'K-Pop', desc: 'Upbeat dance & melodic hooks', icon: 'heart' },
+  { id: 'EDM', name: 'EDM', desc: 'Electronic euphoria & festival drops', icon: 'wave' },
+  { id: 'Other', name: 'Other', desc: 'Afrobeats, R&B, Soul & Fusion', icon: 'sparkle' }
+];
+
+const STEPS = [
+  { id: 1, label: 'Account' },
+  { id: 2, label: 'Username' },
+  { id: 3, label: 'Music taste' }
 ];
 
 export default function AuthPage() {
@@ -26,63 +33,41 @@ export default function AuthPage() {
   const navigate = useNavigate();
 
   const [mode, setMode] = useState('login'); // 'login' | 'register'
-  const [regStep, setRegStep] = useState(1); // 1: Account, 2: Username, 3: Genres
+  const [regStep, setRegStep] = useState(1); // 1: account, 2: username, 3: genres
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [showServer, setShowServer] = useState(false);
   const [serverUrl, setServerUrl] = useState(getRuntimeUrl() || '');
+  const [stats, setStats] = useState(null);
 
-  // Form state
   const [form, setForm] = useState({
-    name: '',
-    artistName: '',
-    email: '',
-    password: '',
-    username: '',
-    identifier: ''
+    name: '', artistName: '', email: '', password: '', username: '', identifier: ''
   });
-
   const [selectedGenres, setSelectedGenres] = useState([]);
-  const [usernameStatus, setUsernameStatus] = useState({
-    checking: false,
-    available: null,
-    reason: ''
-  });
-
+  const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: null, reason: '' });
   const checkTimerRef = useRef(null);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  /* ---- Live Username Availability Check ---- */
+  useEffect(() => {
+    api.get('/api/stats').then(setStats).catch(() => {});
+  }, []);
+
+  /* ------------------------------------------- live username availability */
   const checkUsernameAvailability = (uname) => {
     const clean = String(uname || '').trim();
-    if (!clean) {
-      setUsernameStatus({ checking: false, available: null, reason: '' });
-      return;
-    }
-    if (clean.length < 3) {
-      setUsernameStatus({ checking: false, available: false, reason: 'Username must be at least 3 characters' });
-      return;
-    }
-    if (clean.length > 30) {
-      setUsernameStatus({ checking: false, available: false, reason: 'Username cannot exceed 30 characters' });
-      return;
-    }
-    if (!/^[a-zA-Z0-9_]+$/.test(clean)) {
-      setUsernameStatus({ checking: false, available: false, reason: 'Only letters, numbers, and underscores allowed' });
-      return;
-    }
+    if (!clean) { setUsernameStatus({ checking: false, available: null, reason: '' }); return; }
+    if (clean.length < 3) { setUsernameStatus({ checking: false, available: false, reason: 'Username must be at least 3 characters' }); return; }
+    if (clean.length > 30) { setUsernameStatus({ checking: false, available: false, reason: 'Username cannot exceed 30 characters' }); return; }
+    if (!/^[a-zA-Z0-9_]+$/.test(clean)) { setUsernameStatus({ checking: false, available: false, reason: 'Only letters, numbers and underscores allowed' }); return; }
 
     setUsernameStatus((prev) => ({ ...prev, checking: true }));
     if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
-
     checkTimerRef.current = setTimeout(async () => {
       try {
         const res = await api.get(`/api/auth/check-username?username=${encodeURIComponent(clean)}`);
-        setUsernameStatus({
-          checking: false,
-          available: res.available,
-          reason: res.reason || ''
-        });
+        setUsernameStatus({ checking: false, available: res.available, reason: res.reason || '' });
       } catch {
         setUsernameStatus({ checking: false, available: null, reason: '' });
       }
@@ -90,64 +75,56 @@ export default function AuthPage() {
   };
 
   const onUsernameChange = (val) => {
-    // Sanitize to valid username characters as user types
     const sanitized = val.replace(/[^a-zA-Z0-9_]/g, '');
     set('username', sanitized);
     checkUsernameAvailability(sanitized);
   };
 
-  /* ---- Step Navigation for Signup ---- */
+  /* ---------------------------------------------------- step navigation  */
   const goToUsernameStep = (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return toast('Please enter your full name', 'error');
-    if (!form.email.trim() || !form.email.includes('@')) return toast('Please enter a valid email address', 'error');
-    if (!form.password || form.password.length < 6) return toast('Password must be at least 6 characters', 'error');
+    setError('');
+    if (!form.name.trim()) return setError('Please enter your full name');
+    if (!form.email.trim() || !form.email.includes('@')) return setError('Please enter a valid email address');
+    if (!form.password || form.password.length < 6) return setError('Password must be at least 6 characters');
 
-    // Auto-suggest username if empty
     if (!form.username.trim()) {
       const suggested = form.name.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
-      if (suggested) {
-        set('username', suggested);
-        checkUsernameAvailability(suggested);
-      }
+      if (suggested) { set('username', suggested); checkUsernameAvailability(suggested); }
     } else {
       checkUsernameAvailability(form.username);
     }
     setRegStep(2);
+    return undefined;
   };
 
   const goToGenreStep = (e) => {
     e.preventDefault();
+    setError('');
     const cleanUname = form.username.trim();
-    if (!cleanUname) return toast('Username is required', 'error');
-    if (usernameStatus.available === false) {
-      return toast(usernameStatus.reason || 'Please choose a different username', 'error');
-    }
-    if (cleanUname.length < 3 || cleanUname.length > 30) {
-      return toast('Username must be between 3 and 30 characters', 'error');
-    }
+    if (!cleanUname) return setError('Username is required');
+    if (usernameStatus.available === false) return setError(usernameStatus.reason || 'Please choose a different username');
+    if (cleanUname.length < 3 || cleanUname.length > 30) return setError('Username must be between 3 and 30 characters');
     setRegStep(3);
+    return undefined;
   };
 
-  /* ---- Genre selection handler (min 1, max 3) ---- */
   const toggleGenre = (genreId) => {
     if (selectedGenres.includes(genreId)) {
       setSelectedGenres(selectedGenres.filter((g) => g !== genreId));
     } else {
-      if (selectedGenres.length >= 3) {
-        toast('You can pick up to 3 favorite genres', 'info');
-        return;
-      }
+      if (selectedGenres.length >= 3) { toast('You can pick up to 3 favorite genres', 'info'); return; }
       setSelectedGenres([...selectedGenres, genreId]);
     }
   };
 
-  /* ---- Login Submit ---- */
+  /* ------------------------------------------------------------- submits */
   const submitLogin = async (e) => {
     e.preventDefault();
+    setError('');
     const id = form.identifier || form.email;
-    if (!id.trim()) return toast('Please enter your username or email', 'error');
-    if (!form.password) return toast('Please enter your password', 'error');
+    if (!id.trim()) return setError('Please enter your username or email');
+    if (!form.password) return setError('Please enter your password');
 
     setBusy(true);
     try {
@@ -155,41 +132,37 @@ export default function AuthPage() {
       toast('Welcome back!');
       navigate('/');
     } catch (err) {
-      toast(err.message || 'Invalid credentials', 'error');
+      setError(err.message || 'Invalid credentials');
     } finally {
       setBusy(false);
     }
+    return undefined;
   };
 
-  /* ---- Registration Submit (at Step 3) ---- */
   const submitRegister = async (e) => {
     if (e) e.preventDefault();
-    if (!selectedGenres.length) {
-      return toast('Please select at least 1 genre to personalize your music', 'info');
-    }
+    setError('');
+    if (!selectedGenres.length) return setError('Please select at least 1 genre to personalise your music');
 
     setBusy(true);
     try {
-      const payload = {
+      await register({
         name: form.name.trim(),
         artistName: form.artistName.trim() || form.name.trim(),
         username: form.username.trim(),
         email: form.email.trim(),
         password: form.password,
         favoriteGenres: selectedGenres
-      };
-      await register(payload);
-      toast(`Welcome to Pulse, @${form.username.trim()}! Here are your recommended songs.`);
+      });
+      toast(`Welcome to Pulse, @${form.username.trim()}!`);
       navigate('/');
     } catch (err) {
-      toast(err.message || 'Could not complete registration', 'error');
-      // If error is about username, go back to step 2
-      if (err.message && err.message.toLowerCase().includes('username')) {
-        setRegStep(2);
-      }
+      setError(err.message || 'Could not complete registration');
+      if (err.message && err.message.toLowerCase().includes('username')) setRegStep(2);
     } finally {
       setBusy(false);
     }
+    return undefined;
   };
 
   const saveServer = () => {
@@ -198,149 +171,205 @@ export default function AuthPage() {
     setTimeout(() => window.location.reload(), 600);
   };
 
-  const switchMode = (m) => {
-    setMode(m);
-    setRegStep(1);
-  };
-
+  const switchMode = (m) => { setMode(m); setRegStep(1); setError(''); };
   const isDark = theme === 'dark';
 
-  return (
-    <div className="auth-wrap">
-      <div className="auth-top-actions">
-        <button
-          className="icon-btn theme-toggle-btn"
-          onClick={toggleTheme}
-          title={`Switch to ${isDark ? 'light (white & purple)' : 'dark'} mode`}
-          aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-        >
-          <Icon name={isDark ? 'sun' : 'moon'} size={19} />
-        </button>
-      </div>
+  const fillDemo = () => {
+    setMode('login');
+    setForm((f) => ({ ...f, identifier: 'amara@pulse.app', email: 'amara@pulse.app', password: 'demo123' }));
+    setError('');
+    toast('Demo credentials filled — press Sign in', 'info');
+  };
 
-      <div className={`auth-panel ${mode === 'register' && regStep === 3 ? 'auth-panel-wide' : ''}`}>
+  return (
+    <div className="auth-screen">
+      {/* ================================================= LEFT / VISUAL == */}
+      <aside className="auth-visual">
         <div className="auth-brand">
           <div className="brand-logo big"><Icon name="wave" size={26} /></div>
-          <span className="brand-name">Pulse</span>
+          <span>Pulse</span>
         </div>
 
-        {mode === 'login' && (
-          <>
-            <h1 className="auth-title">Welcome back</h1>
-            <p className="auth-sub">Sign in with your username or email to stream and manage your music.</p>
+        <div>
+          <h1>Your catalog.<br />Your sound. <em>Everywhere.</em></h1>
+          <p>Upload, organise and stream your music — with offline downloads, smart recommendations and a player built for artists.</p>
 
-            <div className="auth-tabs">
-              <button className="tab active" onClick={() => switchMode('login')}>Sign in</button>
-              <button className="tab" onClick={() => switchMode('register')}>Sign up</button>
+          <div className="auth-feature-list">
+            <div className="auth-feature">
+              <span className="auth-feature-icon"><Icon name="upload" size={18} /></span>
+              Bulk-import up to 10 tracks with auto artwork and metadata
             </div>
-
-            <form onSubmit={submitLogin} className="form auth-form">
-              <label className="field">
-                <span>Username or Email</span>
-                <input
-                  type="text"
-                  value={form.identifier || form.email}
-                  onChange={(e) => { set('identifier', e.target.value); set('email', e.target.value); }}
-                  placeholder="e.g. adebayo or you@example.com"
-                  autoFocus
-                  required
-                />
-              </label>
-              <label className="field">
-                <span>Password</span>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => set('password', e.target.value)}
-                  placeholder="Your password"
-                  required
-                />
-              </label>
-              <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-                {busy ? <Spinner size={18} /> : 'Sign in to Pulse'}
-              </button>
-            </form>
-          </>
-        )}
-
-        {mode === 'register' && (
-          <>
-            <h1 className="auth-title">Sign up free to start listening</h1>
-            <p className="auth-sub">Create a Pulse account and discover music tailored to your taste.</p>
-
-            {/* Step Progress Bar */}
-            <div className="auth-step-header">
-              <div className="auth-step-pills">
-                <span className={`step-pill ${regStep >= 1 ? 'active' : ''}`}>1. Account</span>
-                <span className="step-arrow">→</span>
-                <span className={`step-pill ${regStep >= 2 ? 'active' : ''}`}>2. Username</span>
-                <span className="step-arrow">→</span>
-                <span className={`step-pill ${regStep >= 3 ? 'active' : ''}`}>3. Music Taste</span>
-              </div>
+            <div className="auth-feature">
+              <span className="auth-feature-icon"><Icon name="download" size={18} /></span>
+              Download playlists for true offline listening
             </div>
-
-            <div className="auth-tabs">
-              <button className="tab" onClick={() => switchMode('login')}>Sign in</button>
-              <button className="tab active" onClick={() => switchMode('register')}>Sign up</button>
+            <div className="auth-feature">
+              <span className="auth-feature-icon"><Icon name="sparkle" size={18} /></span>
+              Recommendations tuned to the genres you pick
             </div>
+          </div>
+        </div>
 
-            {/* STEP 1: Basic Account Details */}
-            {regStep === 1 && (
-              <form onSubmit={goToUsernameStep} className="form auth-form">
-                <h2 className="step-title">Create your account</h2>
-                <p className="step-desc">Enter your email and credentials to get started.</p>
+        <div className="auth-stats">
+          <div className="auth-stat"><strong>{stats ? formatNumber(stats.songs) : '—'}</strong><small>Tracks</small></div>
+          <div className="auth-stat"><strong>{stats ? formatNumber(stats.artists) : '—'}</strong><small>Artists</small></div>
+          <div className="auth-stat"><strong>{stats ? formatNumber(stats.plays) : '—'}</strong><small>Plays</small></div>
+        </div>
+      </aside>
 
+      {/* =================================================== RIGHT / FORM == */}
+      <main className="auth-form-side">
+        <div className="auth-card">
+          <div className="spread" style={{ marginBottom: 22 }}>
+            <div className="auth-tabs" style={{ flex: 1, marginBottom: 0 }}>
+              <button className={`tab ${mode === 'login' ? 'active' : ''}`} onClick={() => switchMode('login')}>Sign in</button>
+              <button className={`tab ${mode === 'register' ? 'active' : ''}`} onClick={() => switchMode('register')}>Sign up</button>
+            </div>
+            <button
+              className="icon-btn"
+              onClick={toggleTheme}
+              title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+              aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+              style={{ marginLeft: 10 }}
+            >
+              <Icon name={isDark ? 'sun' : 'moon'} size={19} />
+            </button>
+          </div>
+
+          {error && <div className="auth-error"><Icon name="info" size={16} /> {error}</div>}
+
+          {/* ------------------------------------------------------ LOGIN -- */}
+          {mode === 'login' && (
+            <>
+              <h2>Welcome back</h2>
+              <p className="auth-lead">Sign in with your username or email to stream and manage your music.</p>
+
+              <form onSubmit={submitLogin} className="form">
                 <label className="field">
-                  <span>Full name</span>
+                  <span>Username or email</span>
                   <input
-                    value={form.name}
-                    onChange={(e) => set('name', e.target.value)}
-                    placeholder="e.g. Chidera Obi"
+                    type="text"
+                    value={form.identifier || form.email}
+                    onChange={(e) => { set('identifier', e.target.value); set('email', e.target.value); }}
+                    placeholder="e.g. amara or you@example.com"
                     autoFocus
                     required
                   />
                 </label>
                 <label className="field">
-                  <span>Email address</span>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => set('email', e.target.value)}
-                    placeholder="you@example.com"
-                    required
-                  />
-                </label>
-                <label className="field">
                   <span>Password</span>
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => set('password', e.target.value)}
-                    placeholder="Minimum 6 characters"
-                    required
-                    minLength={6}
-                  />
-                </label>
-
-                <button type="submit" className="btn btn-primary btn-block btn-lg">
-                  Next <Icon name="chevronRight" size={17} />
-                </button>
-                <p className="auth-terms">By proceeding, you agree to Pulse's <a href="#terms">Terms of Use</a> and <a href="#privacy">Privacy Policy</a>.</p>
-              </form>
-            )}
-
-            {/* STEP 2: Username Dialogue Box */}
-            {regStep === 2 && (
-              <form onSubmit={goToGenreStep} className="form auth-form">
-                <div className="username-dialog-box">
-                  <div className="dialog-icon">
-                    <Icon name="artist" size={24} />
+                  <div className="password-wrap">
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={(e) => set('password', e.target.value)}
+                      placeholder="Your password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowPass((s) => !s)}
+                      aria-label={showPass ? 'Hide password' : 'Show password'}
+                    >
+                      <Icon name={showPass ? 'eyeOff' : 'eye'} size={17} />
+                    </button>
                   </div>
-                  <h2 className="step-title">Choose your username</h2>
-                  <p className="step-desc">
-                    Usernames are unique identifiers that make it easier to track your profile, catalog, and plays.
-                  </p>
+                </label>
+                <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={busy}>
+                  {busy ? <><Spinner size={18} /> Signing in…</> : 'Sign in to Pulse'}
+                </button>
+              </form>
 
+              <GoogleAuthButton />
+
+              <p className="auth-foot">
+                New to Pulse? <button className="link-btn" onClick={() => switchMode('register')}>Create an account</button>
+                {' · '}
+                <button className="link-btn" onClick={fillDemo}>Use demo account</button>
+              </p>
+
+              <div style={{ marginTop: 18 }}>
+                <button className="link-btn" onClick={() => setShowServer((s) => !s)}>
+                  <Icon name="settings" size={14} /> Backend server URL {showServer ? '▾' : '▸'}
+                </button>
+                {showServer && (
+                  <div className="stack" style={{ marginTop: 10 }}>
+                    <p className="auth-note">The mobile app connects to your hosted backend. Paste its URL (e.g. <code>https://your-project.glitch.me</code>) then save.</p>
+                    <div className="row">
+                      <input
+                        className="input grow"
+                        value={serverUrl}
+                        onChange={(e) => setServerUrl(e.target.value)}
+                        placeholder="https://your-backend.glitch.me"
+                      />
+                      <button className="btn btn-primary btn-sm" onClick={saveServer}>Save</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* --------------------------------------------------- REGISTER -- */}
+          {mode === 'register' && (
+            <>
+              <h2>Sign up free to start listening</h2>
+              <p className="auth-lead">Create a Pulse account and discover music tailored to your taste.</p>
+
+              <div className="chip-row" style={{ marginBottom: 22 }}>
+                {STEPS.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={`chip ${regStep >= s.id ? 'active' : ''}`}
+                    onClick={() => s.id < regStep && setRegStep(s.id)}
+                    disabled={s.id > regStep}
+                  >
+                    {regStep > s.id ? <Icon name="check" size={13} /> : `${s.id}.`} {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {regStep === 1 && (
+                <form onSubmit={goToUsernameStep} className="form">
+                  <label className="field">
+                    <span>Full name</span>
+                    <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Chidera Obi" autoFocus required />
+                  </label>
+                  <label className="field">
+                    <span>Artist / stage name (optional)</span>
+                    <input value={form.artistName} onChange={(e) => set('artistName', e.target.value)} placeholder="Defaults to your full name" />
+                  </label>
+                  <label className="field">
+                    <span>Email address</span>
+                    <input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="you@example.com" required />
+                  </label>
+                  <label className="field">
+                    <span>Password</span>
+                    <div className="password-wrap">
+                      <input
+                        type={showPass ? 'text' : 'password'}
+                        value={form.password}
+                        onChange={(e) => set('password', e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        required
+                        minLength={6}
+                      />
+                      <button type="button" className="password-toggle" onClick={() => setShowPass((s) => !s)} aria-label={showPass ? 'Hide password' : 'Show password'}>
+                        <Icon name={showPass ? 'eyeOff' : 'eye'} size={17} />
+                      </button>
+                    </div>
+                  </label>
+                  <button type="submit" className="btn btn-primary btn-block btn-lg">
+                    Next <Icon name="chevronRight" size={17} />
+                  </button>
+                  <p className="auth-note">By proceeding you agree to Pulse’s Terms of Use and Privacy Policy.</p>
+                </form>
+              )}
+
+              {regStep === 2 && (
+                <form onSubmit={goToGenreStep} className="form">
                   <label className="field">
                     <span>Username handle</span>
                     <div className="username-input-wrap">
@@ -357,148 +386,91 @@ export default function AuthPage() {
                         spellCheck="false"
                       />
                     </div>
-                  </label>
-
-                  {/* Availability feedback */}
-                  <div className="username-status-row">
-                    {usernameStatus.checking && (
-                      <span className="uname-feedback checking">
-                        <Spinner size={13} /> Checking availability…
-                      </span>
-                    )}
+                    {usernameStatus.checking && <span className="field-hint"><Spinner size={12} /> Checking availability…</span>}
                     {!usernameStatus.checking && usernameStatus.available === true && (
-                      <span className="uname-feedback ok">
-                        <Icon name="check" size={14} /> @{form.username} is available!
-                      </span>
+                      <span className="field-hint ok"><Icon name="check" size={13} /> @{form.username} is available</span>
                     )}
                     {!usernameStatus.checking && usernameStatus.available === false && (
-                      <span className="uname-feedback err">
-                        ✕ {usernameStatus.reason || 'This username is already taken'}
-                      </span>
+                      <span className="field-hint" style={{ color: 'var(--danger)' }}>✕ {usernameStatus.reason || 'This username is already taken'}</span>
                     )}
-                    {!usernameStatus.checking && usernameStatus.available === null && form.username.length === 0 && (
-                      <span className="uname-feedback neutral">
-                        Only letters, numbers, and underscores (3-30 chars).
-                      </span>
+                    {!usernameStatus.checking && usernameStatus.available === null && (
+                      <span className="field-hint">Letters, numbers and underscores only (3–30 characters).</span>
                     )}
+                  </label>
+
+                  <div className="row">
+                    <button type="button" className="btn btn-ghost" onClick={() => setRegStep(1)}>
+                      <Icon name="arrowLeft" size={16} /> Back
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary grow"
+                      disabled={!form.username || usernameStatus.available === false || usernameStatus.checking}
+                    >
+                      Continue <Icon name="chevronRight" size={17} />
+                    </button>
                   </div>
-                </div>
+                </form>
+              )}
 
-                <div className="step-btn-row">
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setRegStep(1)}
-                  >
-                    ← Back
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary flex-1"
-                    disabled={!form.username || usernameStatus.available === false || usernameStatus.checking}
-                  >
-                    Continue to Music Taste <Icon name="chevronRight" size={17} />
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* STEP 3: Genre Selection Screen */}
-            {regStep === 3 && (
-              <div className="genre-selection-step">
-                <div className="genre-step-header">
-                  <h2 className="step-title">Pick your music taste</h2>
-                  <p className="step-desc">
-                    Select <strong>1 to 3 genres</strong> you love. We'll tailor your feed and recommend the best tracks in these categories!
-                  </p>
-                  <div className="genre-counter-pill">
-                    <span>Selected: <strong>{selectedGenres.length} / 3</strong></span>
-                    {selectedGenres.length >= 3 && <span className="counter-max-badge">Max reached</span>}
+              {regStep === 3 && (
+                <div className="form">
+                  <div className="spread">
+                    <p className="auth-lead" style={{ marginBottom: 0 }}>Select <strong>1 to 3 genres</strong> you love.</p>
+                    <span className="hero-chip">{selectedGenres.length} / 3</span>
                   </div>
-                </div>
 
-                <div className="genre-picker-grid">
-                  {GENRE_OPTIONS.map((g) => {
-                    const isSelected = selectedGenres.includes(g.id);
-                    const isMaxAndNotSelected = selectedGenres.length >= 3 && !isSelected;
-
-                    return (
-                      <button
-                        key={g.id}
-                        type="button"
-                        className={`genre-card ${isSelected ? 'selected' : ''} ${isMaxAndNotSelected ? 'dimmed' : ''}`}
-                        onClick={() => toggleGenre(g.id)}
-                      >
-                        <div className="gc-header">
-                          <span className="gc-icon-badge">
-                            <Icon name={g.icon} size={18} />
-                          </span>
-                          <span className={`gc-check-circle ${isSelected ? 'checked' : ''}`}>
-                            {isSelected && <Icon name="check" size={14} />}
-                          </span>
-                        </div>
-                        <div className="gc-content">
+                  <div className="genre-picker-grid">
+                    {GENRE_OPTIONS.map((g) => {
+                      const isSelected = selectedGenres.includes(g.id);
+                      const isMaxAndNotSelected = selectedGenres.length >= 3 && !isSelected;
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          aria-pressed={isSelected}
+                          className={`genre-card ${isSelected ? 'selected' : ''} ${isMaxAndNotSelected ? 'dimmed' : ''}`}
+                          onClick={() => toggleGenre(g.id)}
+                        >
+                          <div className="gc-header">
+                            <span className="gc-icon-badge"><Icon name={g.icon} size={18} /></span>
+                            <span className={`gc-check-circle ${isSelected ? 'checked' : ''}`}>
+                              {isSelected && <Icon name="check" size={14} />}
+                            </span>
+                          </div>
                           <span className="gc-name">{g.name}</span>
                           <span className="gc-desc">{g.desc}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="step-btn-row" style={{ marginTop: 24 }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setRegStep(2)}
-                    disabled={busy}
-                  >
-                    ← Back to Username
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary flex-1 btn-lg"
-                    onClick={submitRegister}
-                    disabled={busy || selectedGenres.length === 0}
-                  >
-                    {busy ? <Spinner size={18} /> : (
-                      <>Sign up <Icon name="sparkle" size={17} /></>
-                    )}
-                  </button>
-                </div>
-                <p className="auth-terms" style={{ textAlign: 'center' }}>
-                  By signing up, you agree to Pulse's <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.
-                </p>
-              </div>
-            )}
-          </>
-        )}
-
-        {mode === 'login' && (
-          <>
-            <GoogleAuthButton />
-
-            <div className="server-box">
-              <button className="server-toggle" onClick={() => setShowServer(!showServer)}>
-                <Icon name="settings" size={15} /> Backend server URL {showServer ? '▾' : '▸'}
-              </button>
-              {showServer && (
-                <div className="server-fields">
-                  <p className="server-help">The Android app connects to your hosted backend. Paste its URL (e.g. <code>https://your-project.glitch.me</code>) then save.</p>
-                  <div className="server-row">
-                    <input
-                      value={serverUrl}
-                      onChange={(e) => setServerUrl(e.target.value)}
-                      placeholder="https://your-backend.glitch.me"
-                    />
-                    <button className="btn btn-primary btn-sm" onClick={saveServer}>Save</button>
+                        </button>
+                      );
+                    })}
                   </div>
+
+                  <div className="row">
+                    <button type="button" className="btn btn-ghost" onClick={() => setRegStep(2)} disabled={busy}>
+                      <Icon name="arrowLeft" size={16} /> Back
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary grow btn-lg"
+                      onClick={submitRegister}
+                      disabled={busy || selectedGenres.length === 0}
+                    >
+                      {busy ? <><Spinner size={18} /> Creating account…</> : <>Sign up <Icon name="sparkle" size={17} /></>}
+                    </button>
+                  </div>
+                  <p className="auth-note" style={{ textAlign: 'center' }}>
+                    By signing up you agree to Pulse’s Terms and Privacy Policy.
+                  </p>
                 </div>
               )}
-            </div>
-          </>
-        )}
-      </div>
+
+              <p className="auth-foot">
+                Already have an account? <button className="link-btn" onClick={() => switchMode('login')}>Sign in</button>
+              </p>
+            </>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

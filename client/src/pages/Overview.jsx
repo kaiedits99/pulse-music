@@ -1,62 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
-import { Skeleton } from '../components/ui.jsx';
-import { AlbumCard, ArtistCard } from '../components/Cards.jsx';
 import DiscoverRow from '../components/DiscoverRow.jsx';
+import { AlbumCard, ArtistCard, CollectionCard } from '../components/Cards.jsx';
+import { SectionHead, GridSkeleton, StatTile, EmptyState } from '../components/ui.jsx';
 import { api } from '../api.js';
-import { formatNumber } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { formatNumber } from '../format.js';
 
-/* Spotify-style colorful mood tiles for the "Browse all" grid */
 const MOOD_COLORS = [
-  ['#1e3a8a', '#7c3aed'], ['#064e3b', '#10b981'], ['#7f1d1d', '#f43f5e'],
-  ['#0c4a6e', '#0ea5e9'], ['#581c87', '#d946ef'], ['#78350f', '#f59e0b'],
-  ['#831843', '#ec4899'], ['#14532d', '#22c55e'], ['#1e293b', '#64748b']
+  ['#5b21b6', '#a855f7'], ['#065f46', '#22c55e'], ['#9f1239', '#fb7185'],
+  ['#075985', '#38bdf8'], ['#6b21a8', '#d946ef'], ['#92400e', '#f59e0b'],
+  ['#9d174d', '#ec4899'], ['#166534', '#4ade80'], ['#3730a3', '#818cf8']
 ];
-
-function GenreTile({ genre, color, count }) {
-  return (
-    <Link to={`/songs?genre=${encodeURIComponent(genre)}`} className="genre-tile" style={{ background: `linear-gradient(135deg, ${color[0]} 0%, ${color[1]} 100%)` }}>
-      <span className="genre-tile-name">{genre}</span>
-      <Icon name="music" size={40} className="genre-tile-art" />
-      {count != null && <span className="genre-tile-count">{count} tracks</span>}
-    </Link>
-  );
-}
-
-/* Compact stat pill used in the stats strip */
-function StatPill({ icon, value, label, accent }) {
-  return (
-    <div className="stat-pill">
-      <span className={`stat-pill-icon ${accent || ''}`}><Icon name={icon} size={16} /></span>
-      <span className="stat-pill-meta">
-        <strong>{value}</strong>
-        <small>{label}</small>
-      </span>
-    </div>
-  );
-}
 
 export default function Overview() {
   const { play } = usePlayer();
-  const { user } = useAuth();
+  const { user, artist } = useAuth();
+  const { toast } = useToast();
+
   const [stats, setStats] = useState(null);
   const [albums, setAlbums] = useState([]);
   const [artists, setArtists] = useState([]);
+  const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
-    api.get('/api/stats').then((d) => {
-      if (alive) {
-        setStats(d);
-        setLoading(false);
-      }
-    }).catch(() => { if (alive) setLoading(false); });
-    api.get('/api/albums').then((d) => { if (alive) setAlbums(d || []); }).catch(() => {});
-    api.get('/api/artists').then((d) => { if (alive) setArtists(d || []); }).catch(() => {});
+    Promise.all([
+      api.get('/api/stats').catch(() => null),
+      api.get('/api/albums').catch(() => []),
+      api.get('/api/artists').catch(() => []),
+      api.get('/api/playlists').catch(() => [])
+    ]).then(([s, al, ar, pl]) => {
+      if (!alive) return;
+      setStats(s);
+      setAlbums(al || []);
+      setArtists(ar || []);
+      setPlaylists(pl || []);
+      setLoading(false);
+    });
     return () => { alive = false; };
   }, []);
 
@@ -72,91 +57,169 @@ export default function Overview() {
   const top = stats?.top || [];
   const recent = stats?.recent || [];
   const genres = stats?.genres || [];
-  const genreTiles = genres.slice(0, 9);
+
+  const shuffleAll = () => {
+    const pool = recommended.length ? recommended : top;
+    if (!pool.length) { toast('Nothing to play yet — upload a track first', 'info'); return; }
+    const start = Math.floor(Math.random() * pool.length);
+    play(pool, start);
+    toast('Shuffling your mix');
+  };
+
+  const playPlaylist = async (pl) => {
+    try {
+      const detail = await api.get(`/api/playlists/${pl.id}`);
+      if (detail.songs?.length) play(detail.songs, 0);
+      else toast('This playlist is empty', 'info');
+    } catch (err) { toast(err.message || 'Could not play playlist', 'error'); }
+  };
+
+  const playAlbum = async (album) => {
+    try {
+      const detail = await api.get(`/api/albums/${album.id}`);
+      if (detail.songs?.length) play(detail.songs, 0);
+      else toast('This album has no tracks yet', 'info');
+    } catch (err) { toast(err.message || 'Could not play album', 'error'); }
+  };
+
+  const playArtist = async (a) => {
+    try {
+      const detail = await api.get(`/api/artists/${a.id}`);
+      if (detail.songs?.length) play(detail.songs, 0);
+      else toast('This artist has no tracks yet', 'info');
+    } catch (err) { toast(err.message || 'Could not play artist', 'error'); }
+  };
 
   return (
-    <div className="page home-page">
-      {/* ============ Hero greeting banner ============ */}
+    <div className="page">
+      {/* ============================= HERO ============================= */}
       <div className="home-hero">
-        <div className="home-hero-glow" aria-hidden="true" />
         <div className="home-hero-content">
           <div>
-            <span className="hero-eyebrow"><Icon name="wave" size={14} /> Pulse · Made for you</span>
+            <span className="eyebrow"><Icon name="wave" size={13} /> Pulse · Made for you</span>
             <h1>{greeting}, {firstName}</h1>
-            <p>{user?.username ? `@${user.username} · ` : ''}Here's your music universe for today.</p>
+            <p>
+              {user?.username ? `@${user.username} · ` : ''}
+              {artist ? `${artist.name} · ` : ''}
+              Your catalog, playlists and downloads — all in one place.
+            </p>
           </div>
-          {recommended.length > 0 && (
-            <button className="btn hero-play-btn" onClick={() => play(recommended, 0)}>
-              <Icon name="play" size={18} /> Shuffle
+          <div className="home-hero-actions">
+            <button className="btn btn-play btn-lg btn-pill" onClick={shuffleAll}>
+              <Icon name="shuffle" size={18} /> Shuffle play
             </button>
-          )}
+            <Link className="btn btn-ghost btn-lg btn-pill" to="/upload">
+              <Icon name="upload" size={18} /> Upload
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* ============ Made for you ============ */}
-      <DiscoverRow title="Made for you" songs={recommended} onPlay={play} />
+      {loading && <GridSkeleton count={6} height={210} />}
 
-      {/* ============ Quick picks ============ */}
-      {genreTiles.length > 0 && (
-        <section className="discover-section">
-          <div className="discover-head">
-            <h2>Browse all</h2>
-            <Link to="/songs" className="see-all">See all</Link>
-          </div>
-          <div className="genre-tile-grid">
-            {genreTiles.map((g, i) => (
-              <GenreTile key={g.genre} genre={g.genre} color={MOOD_COLORS[i % MOOD_COLORS.length]} count={g.c} />
+      {/* ========================== MADE FOR YOU ======================== */}
+      <DiscoverRow
+        title="Made for you"
+        icon="sparkle"
+        songs={recommended}
+        onPlay={play}
+        seeAll="/search"
+        note={stats?.user_genres?.length ? stats.user_genres.join(' · ') : undefined}
+      />
+
+      {/* =========================== PLAYLISTS ========================== */}
+      {playlists.length > 0 && (
+        <section className="section">
+          <SectionHead
+            icon="playlist"
+            title="Your playlists"
+            action={<Link to="/library?filter=playlists" className="see-all">Show all</Link>}
+          />
+          <div className="collection-grid">
+            {playlists.slice(0, 6).map((pl) => (
+              <CollectionCard
+                key={pl.id}
+                to={`/playlists/${pl.id}`}
+                type="Playlist"
+                typeTone="accent"
+                cover={pl.cover_url}
+                title={pl.name}
+                subtitle={`${pl.track_count ?? 0} songs`}
+                meta={{ icon: 'clock', text: pl.creator_name ? `By ${pl.creator_name}` : 'Playlist' }}
+                onPlay={() => playPlaylist(pl)}
+              />
             ))}
           </div>
         </section>
       )}
 
-      {/* ============ Recently played ============ */}
-      <DiscoverRow title="Recently played" songs={recent} onPlay={play} />
+      {/* =========================== BROWSE ALL ========================= */}
+      {genres.length > 0 && (
+        <section className="section">
+          <SectionHead title="Browse all" action={<Link to="/search" className="see-all">Show all</Link>} />
+          <div className="genre-tile-grid">
+            {genres.slice(0, 9).map((g, i) => {
+              const c = MOOD_COLORS[i % MOOD_COLORS.length];
+              return (
+                <Link
+                  key={g.genre}
+                  to={`/search?genre=${encodeURIComponent(g.genre)}`}
+                  className="genre-tile"
+                  style={{ background: `linear-gradient(135deg, ${c[0]} 0%, ${c[1]} 100%)` }}
+                >
+                  <span className="genre-tile-name">{g.genre}</span>
+                  <span className="genre-tile-count">{g.c} tracks</span>
+                  <Icon name="music" size={44} className="genre-tile-art" />
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-      {/* ============ Top tracks ============ */}
-      <DiscoverRow title="Top tracks this week" songs={top} onPlay={play} />
+      <DiscoverRow title="Recently added" icon="clock" songs={recent} onPlay={play} seeAll="/search" />
+      <DiscoverRow title="Top tracks this week" icon="trending" songs={top} onPlay={play} seeAll="/search?sort=plays" />
 
-      {/* ============ Albums & artists ============ */}
+      {/* ============================ ALBUMS ============================ */}
       {albums.length > 0 && (
-        <section className="discover-section">
-          <div className="discover-head"><h2>Albums you might like</h2><Link to="/albums" className="see-all">See all</Link></div>
-          <div className="discover-row">
-            {albums.slice(0, 8).map((album) => <AlbumCard key={album.id} album={album} />)}
-          </div>
-        </section>
-      )}
-      {artists.length > 0 && (
-        <section className="discover-section">
-          <div className="discover-head"><h2>Popular artists</h2><Link to="/artists" className="see-all">See all</Link></div>
-          <div className="discover-row">
-            {artists.slice(0, 8).map((artist) => <ArtistCard key={artist.id} artist={artist} />)}
+        <section className="section">
+          <SectionHead icon="album" title="Albums you might like" action={<Link to="/albums" className="see-all">Show all</Link>} />
+          <div className="collection-grid">
+            {albums.slice(0, 6).map((al) => <AlbumCard key={al.id} album={al} onPlay={playAlbum} />)}
           </div>
         </section>
       )}
 
-      {/* ============ Your stats (kept — compact) ============ */}
-      <section className="panel home-stats-panel">
-        <div className="panel-head">
-          <h3><Icon name="trending" size={16} /> Your platform stats</h3>
-          <Link to="/songs" className="link-more">Manage library</Link>
-        </div>
-        <div className="stats-strip">
-          <StatPill icon="music" value={loading ? '—' : (stats?.songs ?? 0)} label="Tracks" accent="c1" />
-          <StatPill icon="playCircle" value={loading ? '—' : formatNumber(stats?.plays ?? 0)} label="Total plays" accent="c2" />
-          <StatPill icon="download" value={loading ? '—' : formatNumber(stats?.downloads ?? 0)} label="Downloads" accent="c3" />
-          <StatPill icon="artist" value={loading ? '—' : (stats?.artists ?? 0)} label="Artists" accent="c4" />
-          <StatPill icon="album" value={loading ? '—' : (stats?.albums ?? 0)} label="Albums" accent="c5" />
-          <StatPill icon="playlist" value={loading ? '—' : (stats?.playlists ?? 0)} label="Playlists" accent="c6" />
+      {/* ============================ ARTISTS =========================== */}
+      {artists.length > 0 && (
+        <section className="section">
+          <SectionHead icon="artist" title="Popular artists" action={<Link to="/artists" className="see-all">Show all</Link>} />
+          <div className="collection-grid">
+            {artists.slice(0, 6).map((a) => <ArtistCard key={a.id} artist={a} onPlay={playArtist} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ============================= STATS ============================ */}
+      <section className="section">
+        <SectionHead icon="trending" title="Platform stats" action={<Link to="/library" className="see-all">Manage library</Link>} />
+        <div className="stat-grid">
+          <StatTile icon="music" value={loading ? '—' : stats?.songs ?? 0} label="Tracks" />
+          <StatTile icon="playCircle" value={loading ? '—' : formatNumber(stats?.plays ?? 0)} label="Total plays" tone="c2" />
+          <StatTile icon="download" value={loading ? '—' : formatNumber(stats?.downloads ?? 0)} label="Downloads" tone="c3" />
+          <StatTile icon="artist" value={loading ? '—' : stats?.artists ?? 0} label="Artists" tone="c4" />
+          <StatTile icon="album" value={loading ? '—' : stats?.albums ?? 0} label="Albums" tone="c5" />
+          <StatTile icon="playlist" value={loading ? '—' : stats?.playlists ?? 0} label="Playlists" tone="c6" />
         </div>
       </section>
 
-      {/* loading skeleton for rows */}
-      {loading && (
-        <div className="stack">
-          <Skeleton h={90} />
-          <Skeleton h={200} />
-        </div>
+      {!loading && !recommended.length && !top.length && (
+        <EmptyState
+          icon="music"
+          title="Your catalog is empty"
+          description="Upload your first track and Pulse will start building recommendations, stats and mixes around it."
+          action={<Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload music</Link>}
+        />
       )}
     </div>
   );
