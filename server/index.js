@@ -7,6 +7,7 @@ import routes from './routes.js';
 import { seedFeaturedCatalog } from './catalog.js';
 import db, { dataDir, audioDir, coverDir, uploadsDir } from './db.js';
 import { ensureSeedAssets, seedDatabase } from './seed.js';
+import { seedPodcasts } from './podcasts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -76,6 +77,9 @@ async function prepareData() {
 
   // Featured artist catalogs: idempotent, backfills missing tracks only.
   seedFeaturedCatalog();
+
+  // Podcasts & Shows: their own tables, their own media, same self-heal contract.
+  if (seedDemo) seedPodcasts();
 
   // Repair generated media whose rows survived in the database but whose files did
   // not. This covers the seeded demo WAVs *and* the cover art for artists/albums/

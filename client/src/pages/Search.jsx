@@ -15,6 +15,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatNumber } from '../format.js';
+import { episodesToTracks, resumeAt } from '../episodes.js';
 
 const SORTS = [
   { id: 'recent', label: 'Recently added' },
@@ -49,6 +50,7 @@ export default function Search() {
   const [artists, setArtists] = useState([]);
   const [albums, setAlbums] = useState([]);
   const [genres, setGenres] = useState([]);
+  const [podcasts, setPodcasts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; }
@@ -80,6 +82,16 @@ export default function Search() {
   }, [q, genre, artistId, sort, mineOnly, toast]);
 
   useEffect(() => { loadSongs(); }, [loadSongs]);
+
+  // Shows are a separate entity with their own search, so query them directly.
+  useEffect(() => {
+    if (!q.trim()) { setPodcasts([]); return; }
+    let alive = true;
+    api.get(`/api/podcasts?q=${encodeURIComponent(q.trim())}`)
+      .then((d) => { if (alive) setPodcasts(d?.podcasts || []); })
+      .catch(() => { if (alive) setPodcasts([]); });
+    return () => { alive = false; };
+  }, [q]);
 
   useEffect(() => {
     api.get('/api/artists').then(setArtists).catch(() => {});
@@ -251,6 +263,38 @@ export default function Search() {
                 onPlay={async () => {
                   const d = await api.get(`/api/albums/${a.id}`).catch(() => null);
                   if (d?.songs?.length) play(d.songs, 0); else toast('This album has no tracks yet', 'info');
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {podcasts.length > 0 && (
+        <section className="section">
+          <SectionHead
+            icon="podcast"
+            title="Podcasts & Shows"
+            note={`${podcasts.length} match${podcasts.length === 1 ? '' : 'es'}`}
+            action={<Link className="btn btn-ghost btn-sm" to="/podcasts"><Icon name="podcast" size={15} /> All shows</Link>}
+          />
+          <div className="collection-grid">
+            {podcasts.map((p) => (
+              <CollectionCard
+                key={p.id}
+                to={`/podcasts/${p.id}`}
+                type="Podcast"
+                typeTone="accent"
+                cover={p.cover_url}
+                title={p.title}
+                subtitle={`${p.publisher || 'Independent'}${p.category ? ` • ${p.category}` : ''}`}
+                meta={{ icon: 'mic', text: `${p.episode_count || 0} episode${p.episode_count === 1 ? '' : 's'}` }}
+                chip={p.subscribed ? 'FOLLOWING' : undefined}
+                onPlay={async () => {
+                  const d = await api.get(`/api/podcasts/${p.id}`).catch(() => null);
+                  const eps = d?.episodes || [];
+                  if (eps.length) { play(episodesToTracks(eps, d), 0, resumeAt(eps[0])); toast(`Playing “${p.title}”`); }
+                  else toast('This show has no episodes yet', 'info');
                 }}
               />
             ))}

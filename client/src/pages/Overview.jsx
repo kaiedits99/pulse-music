@@ -9,6 +9,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { formatNumber } from '../format.js';
+import { episodesToTracks, resumeAt } from '../episodes.js';
 
 const MOOD_COLORS = [
   ['#5b21b6', '#a855f7'], ['#065f46', '#22c55e'], ['#9f1239', '#fb7185'],
@@ -25,6 +26,7 @@ export default function Overview() {
   const [albums, setAlbums] = useState([]);
   const [artists, setArtists] = useState([]);
   const [playlists, setPlaylists] = useState([]);
+  const [podcasts, setPodcasts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,13 +35,15 @@ export default function Overview() {
       api.get('/api/stats').catch(() => null),
       api.get('/api/albums').catch(() => []),
       api.get('/api/artists').catch(() => []),
-      api.get('/api/playlists').catch(() => [])
-    ]).then(([s, al, ar, pl]) => {
+      api.get('/api/playlists').catch(() => []),
+      api.get('/api/podcasts?sort=popular').catch(() => ({ podcasts: [] }))
+    ]).then(([s, al, ar, pl, pods]) => {
       if (!alive) return;
       setStats(s);
       setAlbums(al || []);
       setArtists(ar || []);
       setPlaylists(pl || []);
+      setPodcasts(pods?.podcasts || []);
       setLoading(false);
     });
     return () => { alive = false; };
@@ -196,6 +200,34 @@ export default function Overview() {
           <SectionHead icon="artist" title="Popular artists" action={<Link to="/artists" className="see-all">Show all</Link>} />
           <div className="collection-grid">
             {artists.slice(0, 6).map((a) => <ArtistCard key={a.id} artist={a} onPlay={playArtist} />)}
+          </div>
+        </section>
+      )}
+
+      {/* =========================== PODCASTS =========================== */}
+      {podcasts.length > 0 && (
+        <section className="section">
+          <SectionHead
+            icon="podcast"
+            title="Podcasts for you"
+            action={<Link to="/podcasts" className="see-all">Show all</Link>}
+          />
+          <div className="collection-grid">
+            {podcasts.slice(0, 6).map((p) => (
+              <CollectionCard
+                key={p.id}
+                to={`/podcasts/${p.id}`}
+                type="Podcast"
+                typeTone="accent"
+                cover={p.cover_url}
+                title={p.title}
+                subtitle={`${p.publisher || 'Independent'}${p.category ? ` • ${p.category}` : ''}`}
+                meta={{ icon: 'mic', text: `${p.episode_count || 0} episode${p.episode_count === 1 ? '' : 's'}` }}
+                chip={p.subscribed ? 'FOLLOWING' : undefined}
+                onPlay={() => playPodcast(p)}
+                playLabel={`Play ${p.title}`}
+              />
+            ))}
           </div>
         </section>
       )}

@@ -6,6 +6,8 @@ import { formatDuration } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useFavoriteToggle } from './SongTable.jsx';
+import { isEpisode } from '../episodes.js';
+import { useEpisodeSaveToggle } from '../hooks/useEpisodeActions.js';
 import { useAddToPlaylistDialog } from './Forms.jsx';
 import {
   downloadSong as saveOffline,
@@ -24,6 +26,7 @@ export default function NowPlaying({ open, onClose }) {
 
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
+  const toggleEpisodeSave = useEpisodeSaveToggle();
   const { open: openAddToPlaylist, dialog: addDialog } = useAddToPlaylistDialog();
 
   const barRef = useRef(null);
@@ -66,6 +69,8 @@ export default function NowPlaying({ open, onClose }) {
   const displayTime = isDragging ? dragTime : (Number.isFinite(currentTime) ? currentTime : 0);
   const pct = safeDuration > 0 ? Math.max(0, Math.min(100, (displayTime / safeDuration) * 100)) : 0;
   const isFav = !!current.is_favorite;
+  const isEp = isEpisode(current);
+  const epSaved = !!current.saved;
   const downloaded = isSongDownloaded(current.id);
 
   const toggleOffline = async () => {
@@ -87,9 +92,20 @@ export default function NowPlaying({ open, onClose }) {
           Playing from queue
           <strong>{queue.length} track{queue.length === 1 ? '' : 's'}</strong>
         </div>
-        <button className="icon-btn" onClick={() => openAddToPlaylist(current)} aria-label="Add to playlist" title="Add to playlist">
-          <Icon name="plus" size={20} />
-        </button>
+        {isEp ? (
+          <button
+            className="icon-btn"
+            onClick={() => toggleEpisodeSave(current)}
+            aria-label={epSaved ? 'Remove from Your Episodes' : 'Save episode for later'}
+            title={epSaved ? 'Remove from Your Episodes' : 'Save episode for later'}
+          >
+            <Icon name={epSaved ? 'checkCircle' : 'plus'} size={20} />
+          </button>
+        ) : (
+          <button className="icon-btn" onClick={() => openAddToPlaylist(current)} aria-label="Add to playlist" title="Add to playlist">
+            <Icon name="plus" size={20} />
+          </button>
+        )}
       </header>
 
       <div className="np-body">
@@ -99,7 +115,9 @@ export default function NowPlaying({ open, onClose }) {
 
         <div className="np-meta">
           <h2>{current.title}</h2>
-          {current.artist_id ? (
+          {isEp && current.podcast_id ? (
+            <Link to={`/podcasts/${current.podcast_id}`} onClick={onClose}>{current.artist_name}</Link>
+          ) : current.artist_id ? (
             <Link to={`/artists/${current.artist_id}`} onClick={onClose}>{current.artist_name}</Link>
           ) : (
             <span className="np-artist">{current.artist_name}</span>
@@ -159,10 +177,17 @@ export default function NowPlaying({ open, onClose }) {
         </div>
 
         <div className="np-extra">
-          <button className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleFavorite(current)}>
-            <Icon name={isFav ? 'heartFill' : 'heart'} size={16} />
-            {isFav ? 'Liked' : 'Like'}
-          </button>
+          {isEp ? (
+            <button className={`btn btn-sm ${epSaved ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleEpisodeSave(current)}>
+              <Icon name={epSaved ? 'checkCircle' : 'plus'} size={16} />
+              {epSaved ? 'Saved' : 'Save episode'}
+            </button>
+          ) : (
+            <button className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleFavorite(current)}>
+              <Icon name={isFav ? 'heartFill' : 'heart'} size={16} />
+              {isFav ? 'Liked' : 'Like'}
+            </button>
+          )}
           <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
             <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
             {downloaded ? 'Downloaded' : 'Download'}

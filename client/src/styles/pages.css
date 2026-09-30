@@ -654,3 +654,179 @@
   .storage-stats { gap: 18px; }
   .storage-stat strong { font-size: 20px; }
 }
+
+/* ==========================================================================
+   PODCASTS — show cards reuse .collection-grid; episodes get their own row
+   ========================================================================== */
+.episode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.episode-row {
+  display: flex;
+  gap: 16px;
+  padding: 14px;
+  border-radius: var(--r);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.16s ease;
+}
+.episode-row:hover {
+  background: var(--card-2);
+  border-color: var(--border-2);
+}
+.episode-row.is-current {
+  border-color: var(--accent-soft-2);
+  background: linear-gradient(90deg, var(--accent-soft) 0%, var(--panel) 42%);
+}
+
+.ep-art {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+}
+.ep-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ep-art-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 4, 6, 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+.ep-art:hover .ep-art-play,
+.ep-art:focus-visible .ep-art-play,
+.episode-row.is-current .ep-art-play { opacity: 1; }
+
+.ep-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+
+.ep-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ep-eyebrow a { color: var(--accent-3); }
+.ep-eyebrow a:hover { text-decoration: underline; }
+
+.ep-title {
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--text);
+  line-height: 1.35;
+  margin: 0;
+}
+.episode-row.is-current .ep-title { color: var(--accent-3); }
+
+.ep-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ep-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.ep-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--card-3);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.14s ease;
+}
+.ep-play-btn:hover { background: var(--play); border-color: var(--play); color: #05140a; }
+.ep-play-btn:active { transform: scale(0.97); }
+.ep-play-btn.is-playing { background: var(--play); border-color: var(--play); color: #05140a; }
+
+.ep-time,
+.ep-plays {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.ep-progress {
+  position: relative;
+  width: 108px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--card-3);
+  overflow: hidden;
+}
+.ep-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--grad);
+  border-radius: var(--r-pill);
+}
+
+.ep-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.ep-actions .icon-btn.on-green { color: var(--green); }
+
+.hero-icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+
+/* Podcast badge in the player bar */
+.pl-kind {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-3);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+@media (max-width: 860px) {
+  .ep-art { width: 68px; height: 68px; }
+  .ep-desc { -webkit-line-clamp: 1; }
+}
+@media (max-width: 620px) {
+  .episode-row { padding: 12px; gap: 12px; }
+  .ep-art { width: 58px; height: 58px; }
+  .ep-title { font-size: 14.5px; }
+  .ep-desc { display: none; }
+  .ep-plays { display: none; }
+  .ep-progress { width: 72px; }
+  .ep-actions { margin-left: auto; }
+}

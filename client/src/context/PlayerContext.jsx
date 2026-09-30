@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { api } from '../api.js';
+import { api, getToken } from '../api.js';
 import { mediaUrl } from '../config.js';
 import { resolvePlayableUrl } from '../offline.js';
 
@@ -37,6 +37,13 @@ function normaliseSong(song) {
     is_favorite: song.is_favorite ? 1 : 0,
     plays: song.plays ?? 0,
     downloads: song.downloads ?? 0,
+    // Podcast episodes travel through the same queue (see episodes.js).
+    kind: song.kind === 'episode' ? 'episode' : 'song',
+    episode_id: song.episode_id ?? null,
+    podcast_id: song.podcast_id ?? null,
+    description: song.description || '',
+    published_at: song.published_at || null,
+    saved: song.saved ? 1 : 0,
   };
 }
 
@@ -56,6 +63,8 @@ export function PlayerProvider({ children }) {
   const volumeRef = useRef(0.9);
   const mountedRef = useRef(true);
   const loadSeqRef = useRef(0); // guards async loads against fast track switching
+  // Resume positions for podcast episodes: { episodeId, last, ready }
+  const progressRef = useRef({ episodeId: null, last: 0, ready: false });
 
   const [queue, setQueue] = useState([]);
   const [index, setIndex] = useState(-1);
@@ -81,6 +90,24 @@ export function PlayerProvider({ children }) {
     setQueue(value);
   };
 
+  /* ---- Episode resume positions ----
+     Only episodes report progress, only while signed in, and only once the new
+     source is actually loaded (so a track switch never writes the outgoing
+     position onto the incoming episode). */
+  const pushProgress = useCallback((force = false, completed = false) => {
+    const state = progressRef.current;
+    const audio = audioRef.current;
+    if (!state.episodeId || !state.ready || !audio) return;
+    if (!getToken()) return;
+    const t = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    if (!force && Math.abs(t - state.last) < 10) return;
+    state.last = t;
+    api.put(`/api/episodes/${state.episodeId}/progress`, {
+      position_seconds: completed ? 0 : t,
+      completed
+    }).catch(() => {});
+  }, []);
+
   /* ---- loadSong: sets up audio source and begins playback ---- */
   const loadSong = useCallback((song, startAtTime = 0) => {
     try {
@@ -102,6 +129,14 @@ export function PlayerProvider({ children }) {
       const startTime = Number.isFinite(startAtTime) && startAtTime > 0 ? startAtTime : 0;
       setCurrentTime(startTime);
       pendingSeekRef.current = startTime > 0 ? startTime : null;
+
+      // Flush where we left off on the outgoing episode, then re-arm for this one.
+      pushProgress(true);
+      progressRef.current = {
+        episodeId: song.kind === 'episode' ? song.episode_id : null,
+        last: startTime,
+        ready: false
+      };
 
       audio.pause();
 
@@ -127,6 +162,7 @@ export function PlayerProvider({ children }) {
               audio.currentTime = startTime;
             } catch { /* will apply when metadata loads */ }
           }
+          progressRef.current.ready = true;
 
           const playPromise = audio.play();
           if (playPromise && typeof playPromise.catch === 'function') {
@@ -139,13 +175,17 @@ export function PlayerProvider({ children }) {
         })
         .catch(() => { if (seq === loadSeqRef.current) setError('Could not prepare this track for playback.'); });
 
-      // Record play count (fire-and-forget)
-      if (song.id) api.post(`/api/songs/${song.id}/play`).catch(() => {});
+      // Record play count (fire-and-forget) — episodes have their own counter.
+      if (song.kind === 'episode' && song.episode_id) {
+        api.post(`/api/episodes/${song.episode_id}/play`).catch(() => {});
+      } else if (song.id) {
+        api.post(`/api/songs/${song.id}/play`).catch(() => {});
+      }
     } catch (err) {
       setError('An unexpected error occurred while loading this track.');
       if (import.meta.env.DEV) console.error('[PlayerContext] loadSong error:', err);
     }
-  }, []);
+  }, [pushProgress]);
 
   const advance = useCallback(() => {
     const items = queueRef.current;
@@ -177,6 +217,7 @@ export function PlayerProvider({ children }) {
     const onTime = () => {
       if (!mountedRef.current) return;
       setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+      pushProgress(false);
     };
 
     const onMetadata = () => {
@@ -208,6 +249,7 @@ export function PlayerProvider({ children }) {
     const onPause = () => {
       if (!mountedRef.current) return;
       setIsPlaying(false);
+      pushProgress(true);
     };
 
     const onError = () => {
@@ -222,11 +264,17 @@ export function PlayerProvider({ children }) {
     audio.addEventListener('loadeddata', onMetadata);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
-    audio.addEventListener('ended', advance);
+    const onEnded = () => {
+      pushProgress(true, true); // finished: clear the resume point
+      advance();
+    };
+
+    audio.addEventListener('ended', onEnded);
     audio.addEventListener('error', onError);
     audioRef.current = audio;
 
     return () => {
+      pushProgress(true);
       mountedRef.current = false;
       audio.pause();
       audio.removeAttribute('src');
@@ -238,11 +286,11 @@ export function PlayerProvider({ children }) {
       audio.removeEventListener('loadeddata', onMetadata);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('ended', advance);
+      audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
       audioRef.current = null;
     };
-  }, [advance]);
+  }, [advance, pushProgress]);
 
   /* ---- Public API ---- */
 
@@ -353,11 +401,17 @@ export function PlayerProvider({ children }) {
     updateQueue(queueRef.current.map((song) => song.id === songId ? { ...song, is_favorite: value } : song));
   }, []);
 
+  /** Patch any field of a queued item (used for the episode “Saved” toggle). */
+  const patchTrack = useCallback((trackId, patch) => {
+    updateQueue(queueRef.current.map((song) => song.id === trackId ? { ...song, ...patch } : song));
+  }, []);
+
   return (
     <PlayerContext.Provider value={{
       current, queue, index, isPlaying, currentTime, duration,
       volume, shuffle, repeat, error,
-      play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat, markFavorite
+      play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat,
+      markFavorite, patchTrack
     }}>
       {children}
     </PlayerContext.Provider>

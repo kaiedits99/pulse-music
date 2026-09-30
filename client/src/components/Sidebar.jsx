@@ -11,7 +11,8 @@ import { useInstallPrompt } from '../hooks/useInstallPrompt.js';
 const PRIMARY_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
   { to: '/search', icon: 'search', label: 'Search' },
-  { to: '/library', icon: 'library', label: 'Your Library' }
+  { to: '/library', icon: 'library', label: 'Your Library' },
+  { to: '/podcasts', icon: 'podcast', label: 'Podcasts' }
 ];
 
 export default function Sidebar({ open, onClose }) {

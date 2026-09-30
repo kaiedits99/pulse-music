@@ -105,6 +105,10 @@ export default function Downloads() {
     cover_url: s.cover_url,
     duration_seconds: s.duration_seconds,
     file_path: s.audioUrl ? s.audioUrl.replace(window.location.origin, '') : null,
+    // keep podcast episodes routable (play counts, resume, show links)
+    kind: s.kind || 'song',
+    episode_id: s.episode_id ?? null,
+    podcast_id: s.podcast_id ?? null,
     plays: 0,
     downloads: 0
   })), [songs]);

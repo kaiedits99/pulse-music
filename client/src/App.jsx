@@ -16,6 +16,8 @@ import AlbumDetail from './pages/AlbumDetail.jsx';
 import Artists from './pages/Artists.jsx';
 import ArtistDetail from './pages/ArtistDetail.jsx';
 import Playlists from './pages/Playlists.jsx';
+import Podcasts from './pages/Podcasts.jsx';
+import PodcastDetail from './pages/PodcastDetail.jsx';
 import PlaylistDetail from './pages/PlaylistDetail.jsx';
 import Favorites from './pages/Favorites.jsx';
 import Downloads from './pages/Downloads.jsx';
@@ -58,6 +60,8 @@ export default function App() {
                     <Route path="/artists/:id" element={<ArtistDetail />} />
                     <Route path="/playlists" element={<Playlists />} />
                     <Route path="/playlists/:id" element={<PlaylistDetail />} />
+                    <Route path="/podcasts" element={<Podcasts />} />
+                    <Route path="/podcasts/:id" element={<PodcastDetail />} />
                     <Route path="/favorites" element={<Favorites />} />
                     <Route path="/downloads" element={<Downloads />} />
                     <Route path="/upload" element={<Upload />} />

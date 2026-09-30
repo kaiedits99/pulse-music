@@ -81,6 +81,11 @@ export async function downloadSong(song) {
     artist_name: song.artist_name || '',
     cover_url: song.cover_url || null,
     duration_seconds: song.duration_seconds || 0,
+    // Podcast episodes are cached through the same store; keep what the player
+    // needs to route play counts and links back to the right entity.
+    kind: song.kind === 'episode' ? 'episode' : 'song',
+    episode_id: song.episode_id ?? null,
+    podcast_id: song.podcast_id ?? null,
     audioUrl,
     at: Date.now()
   };
@@ -136,8 +141,12 @@ export async function removePlaylistDownloads(playlistId) {
   writeIndex(idx);
 }
 
+// Song ids are numeric; podcast episodes use the string key `ep-<id>`, so only
+// coerce keys that really are numbers.
+const decodeId = (id) => (/^\d+$/.test(id) ? Number(id) : id);
+
 export function downloadedSongs() {
-  return Object.entries(readIndex().songs).map(([id, e]) => ({ id: Number(id), ...e }));
+  return Object.entries(readIndex().songs).map(([id, e]) => ({ id: decodeId(id), ...e }));
 }
 
 export function downloadedPlaylists() {

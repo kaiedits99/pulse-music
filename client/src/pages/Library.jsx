@@ -13,6 +13,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatBytes, formatLongDuration, formatNumber, timeAgo } from '../format.js';
+import { episodesToTracks, resumeAt } from '../episodes.js';
 import {
   downloadSong as saveOffline,
   downloadedPlaylists,
@@ -28,6 +29,7 @@ const FILTERS = [
   { id: 'playlists', label: 'Playlists' },
   { id: 'artists', label: 'Artists' },
   { id: 'albums', label: 'Albums' },
+  { id: 'podcasts', label: 'Podcasts & Shows' },
   { id: 'tracks', label: 'Tracks' },
   { id: 'downloaded', label: 'Downloaded', icon: 'check', iconGreen: true },
   { id: 'local', label: 'Local Files' }
@@ -61,6 +63,8 @@ export default function Library() {
   const [songs, setSongs] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [myTracks, setMyTracks] = useState([]);
+  const [podcasts, setPodcasts] = useState([]);
+  const [savedEpisodes, setSavedEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
@@ -73,13 +77,15 @@ export default function Library() {
   /* ------------------------------------------------------------- loading */
   const load = useCallback(async () => {
     setLoading(true);
-    const [pl, al, ar, sg, fav, mine] = await Promise.all([
+    const [pl, al, ar, sg, fav, mine, pods, eps] = await Promise.all([
       api.get('/api/playlists').catch(() => []),
       api.get('/api/albums').catch(() => []),
       api.get('/api/artists').catch(() => []),
       api.get('/api/songs').catch(() => []),
       api.get('/api/favorites').catch(() => []),
-      api.get('/api/songs?mine=1').catch(() => [])
+      api.get('/api/songs?mine=1').catch(() => []),
+      api.get('/api/podcasts').catch(() => ({ podcasts: [] })),
+      api.get('/api/episodes?saved=1&limit=50').catch(() => [])
     ]);
     setPlaylists(pl || []);
     setAlbums(al || []);
@@ -87,6 +93,8 @@ export default function Library() {
     setSongs(sg || []);
     setFavorites(fav || []);
     setMyTracks(mine || []);
+    setPodcasts(pods?.podcasts || []);
+    setSavedEpisodes(eps || []);
     setLoading(false);
   }, []);
 
@@ -139,6 +147,16 @@ export default function Library() {
       if (detail.songs?.length) { play(detail.songs, 0); toast(`Playing ${a.name}`); }
       else toast('This artist has no tracks yet', 'info');
     } catch (err) { toast(err.message || 'Could not play artist', 'error'); }
+  };
+
+  const playPodcast = async (show) => {
+    try {
+      const detail = await api.get(`/api/podcasts/${show.id}`);
+      const episodes = detail.episodes || [];
+      if (!episodes.length) { toast('This show has no episodes yet', 'info'); return; }
+      play(episodesToTracks(episodes, detail), 0, resumeAt(episodes[0]));
+      toast(`Playing “${show.title}”`);
+    } catch (err) { toast(err.message || 'Could not play this show', 'error'); }
   };
 
   const deletePlaylist = async (pl) => {
@@ -231,6 +249,25 @@ export default function Library() {
       raw: a
     }));
 
+    podcasts.forEach((p) => out.push({
+      key: `pod-${p.id}`,
+      kind: 'podcasts',
+      type: 'Podcast',
+      typeTone: 'accent',
+      to: `/podcasts/${p.id}`,
+      cover: p.cover_url,
+      title: p.title,
+      subtitle: `${p.publisher || 'Independent'}${p.category ? ` • ${p.category}` : ''}`,
+      meta: p.subscribed
+        ? { icon: 'check', text: 'Following', tone: 'green' }
+        : { icon: 'mic', text: `${p.episode_count || 0} episode${p.episode_count === 1 ? '' : 's'}` },
+      chip: p.subscribed ? 'FOLLOWING' : undefined,
+      sortDate: p.latest_published_at ? new Date(p.latest_published_at).getTime() : 0,
+      size: p.episode_count || 0,
+      onPlay: () => playPodcast(p),
+      raw: p
+    }));
+
     songs.forEach((s) => {
       const downloaded = isSongDownloaded(s.id);
       const mine = myTracks.some((m) => m.id === s.id);
@@ -254,7 +291,7 @@ export default function Library() {
     });
 
     return out;
-  }, [playlists, albums, artists, songs, myTracks, user, play, toast]);
+  }, [playlists, albums, artists, songs, myTracks, podcasts, user, play, toast]);
 
   const filtered = useMemo(() => {
     let list = items;
@@ -339,6 +376,18 @@ export default function Library() {
               <span className="hub-eyebrow">Your own releases</span>
               <h3>Your Uploads</h3>
               <p>{myTracks.length} track{myTracks.length === 1 ? '' : 's'} published • {artist?.name || user?.name || 'Your catalog'}</p>
+            </div>
+          </Link>
+
+          <Link to="/podcasts?filter=saved" className="hub-card">
+            <div className="hub-top">
+              <span className="hub-icon"><Icon name="podcast" size={24} /></span>
+              <span className="hub-chip">{podcasts.filter((p) => p.subscribed).length} following</span>
+            </div>
+            <div className="hub-bottom">
+              <span className="hub-eyebrow">Podcasts &amp; shows</span>
+              <h3>Your Episodes</h3>
+              <p>{savedEpisodes.length} episode{savedEpisodes.length === 1 ? '' : 's'} saved • {podcasts.length} show{podcasts.length === 1 ? '' : 's'} on Pulse</p>
             </div>
           </Link>
 
@@ -450,7 +499,8 @@ export default function Library() {
           { value: playlists.length, label: 'Playlists' },
           { value: albums.length, label: 'Albums' },
           { value: artists.length, label: 'Artists' },
-          { value: songs.length, label: 'Tracks' }
+          { value: songs.length, label: 'Tracks' },
+          { value: podcasts.length, label: 'Shows' }
         ]}
         actions={(
           <>

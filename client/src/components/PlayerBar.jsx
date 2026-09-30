@@ -8,6 +8,8 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useFavoriteToggle } from './SongTable.jsx';
 import { useAddToPlaylistDialog } from './Forms.jsx';
+import { isEpisode } from '../episodes.js';
+import { useEpisodeSaveToggle } from '../hooks/useEpisodeActions.js';
 import {
   downloadSong as saveOffline,
   removeSong as removeOffline,
@@ -32,6 +34,7 @@ export default function PlayerBar() {
 
   const { toast } = useToast();
   const toggleFavorite = useFavoriteToggle();
+  const toggleEpisodeSave = useEpisodeSaveToggle();
   const { open: openAddToPlaylist, dialog: addDialog } = useAddToPlaylistDialog();
 
   const barRef = useRef(null);
@@ -147,7 +150,9 @@ export default function PlayerBar() {
 
   const shareTrack = async () => {
     if (!current) return;
-    const url = `${window.location.origin}/search?q=${encodeURIComponent(current.title)}`;
+    const url = isEpisode(current) && current.podcast_id
+      ? `${window.location.origin}/podcasts/${current.podcast_id}`
+      : `${window.location.origin}/search?q=${encodeURIComponent(current.title)}`;
     const data = { title: current.title, text: `${current.title} — ${current.artist_name} on Pulse`, url };
     try {
       if (navigator.share) { await navigator.share(data); return; }
@@ -170,6 +175,8 @@ export default function PlayerBar() {
   const displayTime = isDragging ? dragTime : (Number.isFinite(currentTime) ? currentTime : 0);
   const pct = safeDuration > 0 ? Math.max(0, Math.min(100, (displayTime / safeDuration) * 100)) : 0;
   const isFav = !!current.is_favorite;
+  const isEp = isEpisode(current);
+  const epSaved = !!current.saved;
   const downloaded = isSongDownloaded(current.id);
   const volIcon = volume === 0 ? 'volumeMute' : volume < 0.45 ? 'volumeLow' : 'volume';
 
@@ -185,8 +192,15 @@ export default function PlayerBar() {
         <div className="player-left">
           <Cover src={current.cover_url || current.album_cover} alt={current.title} size={54} className="pl-art" />
           <div className="pl-meta">
-            <span className="pl-title">{current.title}</span>
-            {current.artist_id ? (
+            <span className="pl-title">
+              {isEp && <span className="pl-kind">Episode</span>}
+              {current.title}
+            </span>
+            {isEp && current.podcast_id ? (
+              <Link to={`/podcasts/${current.podcast_id}`} className="pl-artist" onClick={(e) => e.stopPropagation()}>
+                {current.artist_name}
+              </Link>
+            ) : current.artist_id ? (
               <Link to={`/artists/${current.artist_id}`} className="pl-artist" onClick={(e) => e.stopPropagation()}>
                 {current.artist_name}
               </Link>
@@ -194,22 +208,35 @@ export default function PlayerBar() {
               <span className="pl-artist">{current.artist_name}</span>
             )}
           </div>
-          <button
-            className={`pl-mini-btn ${isFav ? 'on' : ''}`}
-            onClick={() => toggleFavorite(current)}
-            title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-            aria-label={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-          >
-            <Icon name={isFav ? 'heartFill' : 'heart'} size={18} />
-          </button>
-          <button
-            className="pl-mini-btn mobile-hide"
-            onClick={() => openAddToPlaylist(current)}
-            title="Add to playlist"
-            aria-label="Add to playlist"
-          >
-            <Icon name="plus" size={18} />
-          </button>
+          {isEp ? (
+            <button
+              className={`pl-mini-btn ${epSaved ? 'on-green' : ''}`}
+              onClick={() => toggleEpisodeSave(current)}
+              title={epSaved ? 'Remove from Your Episodes' : 'Save episode for later'}
+              aria-label={epSaved ? 'Remove from Your Episodes' : 'Save episode for later'}
+            >
+              <Icon name={epSaved ? 'checkCircle' : 'plus'} size={18} />
+            </button>
+          ) : (
+            <>
+              <button
+                className={`pl-mini-btn ${isFav ? 'on' : ''}`}
+                onClick={() => toggleFavorite(current)}
+                title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+                aria-label={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+              >
+                <Icon name={isFav ? 'heartFill' : 'heart'} size={18} />
+              </button>
+              <button
+                className="pl-mini-btn mobile-hide"
+                onClick={() => openAddToPlaylist(current)}
+                title="Add to playlist"
+                aria-label="Add to playlist"
+              >
+                <Icon name="plus" size={18} />
+              </button>
+            </>
+          )}
         </div>
 
         {/* ---------------- center : transport ---------------- */}
@@ -224,8 +251,13 @@ export default function PlayerBar() {
             >
               <Icon name="shuffle" size={18} />
             </button>
-            <button className="ctl-btn" onClick={prev} title="Previous track" aria-label="Previous track">
-              <Icon name="prev" size={19} />
+            <button
+              className="ctl-btn"
+              onClick={() => (isEp ? seekRelative(-15) : prev())}
+              title={isEp ? 'Back 15 seconds' : 'Previous track'}
+              aria-label={isEp ? 'Back 15 seconds' : 'Previous track'}
+            >
+              <Icon name={isEp ? 'skipBack15' : 'prev'} size={19} />
             </button>
             <button
               className="play-btn-lg"
@@ -235,8 +267,13 @@ export default function PlayerBar() {
             >
               <Icon name={isPlaying ? 'pause' : 'play'} size={20} />
             </button>
-            <button className="ctl-btn" onClick={next} title="Next track" aria-label="Next track">
-              <Icon name="next" size={19} />
+            <button
+              className="ctl-btn"
+              onClick={() => (isEp ? seekRelative(30) : next())}
+              title={isEp ? 'Forward 30 seconds' : 'Next track'}
+              aria-label={isEp ? 'Forward 30 seconds' : 'Next track'}
+            >
+              <Icon name={isEp ? 'skipForward30' : 'next'} size={19} />
             </button>
             <button
               className={`ctl-btn ${repeat ? 'on' : ''}`}

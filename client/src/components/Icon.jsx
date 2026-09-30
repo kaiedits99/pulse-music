@@ -39,6 +39,8 @@ const paths = {
   repeatOne: <><path d="M17 2.5 21 6l-4 3.5" /><path d="M3 11.5V10a4 4 0 0 1 4-4h14" /><path d="M7 21.5 3 18l4-3.5" /><path d="M21 12.5V14a4 4 0 0 1-4 4H3" /><text x="12" y="15" fontSize="8" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">1</text></>,
   skipBack10: <><path d="M3.5 13a8.5 8.5 0 1 1 2.2 5.5" /><path d="M3.5 8.5v4.5H8" /><text x="12" y="15" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></>,
   skipForward10: <><path d="M20.5 13a8.5 8.5 0 1 0-2.2 5.5" /><path d="M20.5 8.5v4.5H16" /><text x="12" y="15" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></>,
+  skipBack15: <><path d="M3.5 13a8.5 8.5 0 1 1 2.2 5.5" /><path d="M3.5 8.5v4.5H8" /><text x="12" y="15" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">15</text></>,
+  skipForward30: <><path d="M20.5 13a8.5 8.5 0 1 0-2.2 5.5" /><path d="M20.5 8.5v4.5H16" /><text x="12" y="15" fontSize="6.5" textAnchor="middle" fill="currentColor" stroke="none" fontWeight="700" fontFamily="system-ui, sans-serif">30</text></>,
   volume: <><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a9 9 0 0 1 0 12" /></>,
   volumeLow: <><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 9.5a4 4 0 0 1 0 5" /></>,
   volumeMute: <><path d="M11 5 6 9H3v6h3l5 4z" /><path d="m16 9.5 5 5M21 9.5l-5 5" /></>,
