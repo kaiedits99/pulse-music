@@ -12,7 +12,8 @@ const MOBILE_NAV = [
   { to: '/search', icon: 'search', label: 'Search' },
   { to: '/library', icon: 'library', label: 'Library' },
   { to: '/podcasts', icon: 'podcast', label: 'Podcasts' },
-  { to: '/upload', icon: 'upload', label: 'Upload' }
+  { to: '/upload', icon: 'upload', label: 'Upload' },
+  { to: '/offline-player', icon: 'headphones', label: 'Offline' }
 ];
 
 export default function Layout() {

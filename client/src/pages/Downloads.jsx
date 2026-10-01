@@ -107,11 +107,17 @@ export default function Downloads() {
     file_path: s.audioUrl ? s.audioUrl.replace(window.location.origin, '') : null,
     // keep podcast episodes routable (play counts, resume, show links)
     kind: s.kind || 'song',
+    offline_only: true,
     episode_id: s.episode_id ?? null,
     podcast_id: s.podcast_id ?? null,
     plays: 0,
     downloads: 0
   })), [songs]);
+
+  const playDownloadedPlaylist = (playlist) => {
+    if (!playlist.songs?.length) { toast('Nothing downloaded in this playlist', 'info'); return; }
+    play(playlist.songs.map((song) => ({ ...song, offline_only: true })), 0);
+  };
 
   const totalTracks = useMemo(
     () => playlists.reduce((t, p) => t + (p.songs?.length || 0), 0) + songs.length,
@@ -142,6 +148,7 @@ export default function Downloads() {
           : 'You are offline — this is your downloaded library.'}
         actions={(
           <>
+            <Link className="btn btn-ghost btn-pill" to="/offline-player"><Icon name="headphones" size={16} /> Offline Player</Link>
             <Link className="btn btn-ghost btn-pill" to="/playlists"><Icon name="playlist" size={16} /> Browse playlists</Link>
             {total > 0 && (
               <button className="btn btn-ghost btn-pill danger" onClick={() => setConfirmClear(true)}>
@@ -189,7 +196,7 @@ export default function Downloads() {
                       title={pl.name}
                       subtitle={`${pl.songs?.length || 0} tracks offline`}
                       meta={{ icon: 'checkCircle', text: `Saved ${new Date(pl.at).toLocaleDateString()}`, tone: 'green' }}
-                      onPlay={() => (pl.songs?.length ? play(pl.songs, 0) : toast('Nothing downloaded in this playlist', 'info'))}
+                      onPlay={() => playDownloadedPlaylist(pl)}
                       playLabel={`Play ${pl.name} offline`}
                       actions={(
                         <button className="icon-btn icon-btn-sm danger" onClick={(e) => { e.preventDefault(); dropPlaylist(pl); }} aria-label="Remove download" title="Remove from downloads">
@@ -210,7 +217,7 @@ export default function Downloads() {
                       subtitle={`${pl.songs?.length || 0} tracks • saved ${new Date(pl.at).toLocaleDateString()}`}
                       meta="Downloaded"
                       metaTone="green"
-                      onPlay={() => (pl.songs?.length ? play(pl.songs, 0) : toast('Nothing downloaded in this playlist', 'info'))}
+                      onPlay={() => playDownloadedPlaylist(pl)}
                       actions={(
                         <button className="icon-btn icon-btn-sm danger" onClick={(e) => { e.preventDefault(); dropPlaylist(pl); }} aria-label="Remove download">
                           <Icon name="close" size={15} />

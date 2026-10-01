@@ -13,7 +13,8 @@ const PRIMARY_NAV = [
   { to: '/search', icon: 'search', label: 'Search' },
   { to: '/library', icon: 'library', label: 'Your Library' },
   { to: '/library?filter=uploads', icon: 'upload', label: 'Your Uploads', isUploads: true },
-  { to: '/podcasts', icon: 'podcast', label: 'Podcasts' }
+  { to: '/podcasts', icon: 'podcast', label: 'Podcasts' },
+  { to: '/offline-player', icon: 'headphones', label: 'Offline Player' }
 ];
 
 export default function Sidebar({ open, onClose }) {
@@ -27,7 +28,7 @@ export default function Sidebar({ open, onClose }) {
   const [, setOfflineTick] = useState(0);
 
   const loadPlaylists = useCallback(() => {
-    if (!user) return;
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
     api.get('/api/playlists').then((d) => setPlaylists(d || [])).catch(() => {});
   }, [user]);
 

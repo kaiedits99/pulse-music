@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { PlayerProvider } from './context/PlayerContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import Layout from './components/Layout.jsx';
+import OfflineRouteManager from './components/OfflineRouteManager.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
@@ -23,9 +24,11 @@ import Favorites from './pages/Favorites.jsx';
 import Downloads from './pages/Downloads.jsx';
 import Upload from './pages/Upload.jsx';
 import Settings from './pages/Settings.jsx';
+import OfflinePlayer from './pages/OfflinePlayer.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) {
     return (
       <div className="boot-screen">
@@ -34,7 +37,8 @@ function RequireAuth({ children }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  const offlineRoute = location.pathname === '/offline-player' || (typeof navigator !== 'undefined' && navigator.onLine === false);
+  if (!user && !offlineRoute) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -46,6 +50,7 @@ export default function App() {
           <ToastProvider>
             <AuthProvider>
               <PlayerProvider>
+                <OfflineRouteManager />
                 <Routes>
                   <Route path="/login" element={<AuthPage />} />
                   <Route element={<RequireAuth><Layout /></RequireAuth>}>
@@ -64,6 +69,7 @@ export default function App() {
                     <Route path="/podcasts/:id" element={<PodcastDetail />} />
                     <Route path="/favorites" element={<Favorites />} />
                     <Route path="/downloads" element={<Downloads />} />
+                    <Route path="/offline-player" element={<OfflinePlayer />} />
                     <Route path="/upload" element={<Upload />} />
                     <Route path="/settings" element={<Settings />} />
                   </Route>
