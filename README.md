@@ -114,6 +114,12 @@ make a healthy instance look dead to the platform.
   copy even online (instant, zero-bandwidth playback). A service worker also caches the app
   shell. "Download" (file) on a row still saves the actual file to the device — in the Android
   app that lands in the phone's downloads via the system browser.
+- **Offline Player** (`/offline-player`) — automatically opens when the browser goes offline and
+  returns to the previous page when connectivity comes back. Its single queue combines Pulse
+  downloads with audio files the user explicitly imports from a folder or file picker. Imported
+  audio is stored locally in IndexedDB, never uploaded, and playback never falls back to streaming.
+  Folder selection depends on browser support; on phones, selecting multiple audio files is the
+  most reliable option.
 - **Podcasts & Shows** (`/podcasts`, `/podcasts/:id`) — a section of its own, not a re-skin of
   uploads. Shows and episodes live in their own tables (`podcasts`, `episodes`,
   `podcast_subscriptions`, `saved_episodes`, `episode_progress`) with their own routes, so an

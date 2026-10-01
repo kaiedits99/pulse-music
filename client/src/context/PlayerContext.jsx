@@ -38,7 +38,9 @@ function normaliseSong(song) {
     plays: song.plays ?? 0,
     downloads: song.downloads ?? 0,
     // Podcast episodes travel through the same queue (see episodes.js).
-    kind: song.kind === 'episode' ? 'episode' : 'song',
+    kind: song.kind === 'episode' ? 'episode' : song.kind === 'local' ? 'local' : 'song',
+    local_id: song.local_id ?? (song.kind === 'local' ? song.id : null),
+    offline_only: Boolean(song.offline_only),
     episode_id: song.episode_id ?? null,
     podcast_id: song.podcast_id ?? null,
     description: song.description || '',
@@ -112,8 +114,10 @@ export function PlayerProvider({ children }) {
   const loadSong = useCallback((song, startAtTime = 0) => {
     try {
       const audio = audioRef.current;
+      const isLocal = song?.kind === 'local' || Boolean(song?.local_id);
+      const offlineOnly = isLocal || Boolean(song?.offline_only);
       const source = resolveSource(song);
-      if (!audio || !source) {
+      if (!audio || (!source && !isLocal)) {
         setError('This track does not have a playable audio source.');
         return;
       }
@@ -133,26 +137,32 @@ export function PlayerProvider({ children }) {
       // Flush where we left off on the outgoing episode, then re-arm for this one.
       pushProgress(true);
       progressRef.current = {
-        episodeId: song.kind === 'episode' ? song.episode_id : null,
+        episodeId: song.kind === 'episode' && !offlineOnly ? song.episode_id : null,
         last: startTime,
         ready: false
       };
 
       audio.pause();
 
-      const streamUrl = mediaUrl(source);
-      if (!streamUrl) {
+      const streamUrl = offlineOnly ? null : mediaUrl(source);
+      if (!offlineOnly && !streamUrl) {
         setError('This track does not have a valid playback URL.');
         return;
       }
 
-      // Offline-first like Spotify: downloaded tracks (and everything while
-      // offline) resolve to the locally cached copy; otherwise stream.
+      // Offline-first: saved site tracks use their cache and local imports use
+      // their IndexedDB copy; ordinary tracks keep using the network stream.
       const seq = ++loadSeqRef.current;
       resolvePlayableUrl(song)
         .then((playUrl) => {
           if (seq !== loadSeqRef.current || !mountedRef.current) return; // superseded
-          const url = playUrl || streamUrl;
+          const url = offlineOnly ? playUrl : (playUrl || streamUrl);
+          if (!url) {
+            setError(isLocal
+              ? 'This local file is no longer available. Import it again to play.'
+              : 'This saved copy is missing. Reconnect and download the track again.');
+            return;
+          }
           audio.src = url;
           audio.volume = volumeRef.current;
           audio.load();
@@ -176,9 +186,9 @@ export function PlayerProvider({ children }) {
         .catch(() => { if (seq === loadSeqRef.current) setError('Could not prepare this track for playback.'); });
 
       // Record play count (fire-and-forget) — episodes have their own counter.
-      if (song.kind === 'episode' && song.episode_id) {
+      if (song.kind === 'episode' && song.episode_id && !offlineOnly) {
         api.post(`/api/episodes/${song.episode_id}/play`).catch(() => {});
-      } else if (song.id) {
+      } else if (song.id && !offlineOnly) {
         api.post(`/api/songs/${song.id}/play`).catch(() => {});
       }
     } catch (err) {
@@ -211,6 +221,7 @@ export function PlayerProvider({ children }) {
   }, [loadSong]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const audio = new Audio();
     audio.preload = 'metadata';
 

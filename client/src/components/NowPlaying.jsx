@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
+import WaveformSeekbar from './WaveformSeekbar.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
@@ -29,9 +30,7 @@ export default function NowPlaying({ open, onClose }) {
   const toggleEpisodeSave = useEpisodeSaveToggle();
   const { open: openAddToPlaylist, dialog: addDialog } = useAddToPlaylistDialog();
 
-  const barRef = useRef(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragTime, setDragTime] = useState(0);
+  const [previewTime, setPreviewTime] = useState(null);
   const [, setOfflineTick] = useState(0);
 
   useEffect(() => {
@@ -56,20 +55,13 @@ export default function NowPlaying({ open, onClose }) {
     ? duration
     : (Number.isFinite(current?.duration_seconds) && current.duration_seconds > 0 ? current.duration_seconds : 0);
 
-  const timeFromEvent = useCallback((e) => {
-    if (!barRef.current || !safeDuration) return 0;
-    const rect = barRef.current.getBoundingClientRect();
-    if (!rect.width) return 0;
-    const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? 0);
-    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * safeDuration;
-  }, [safeDuration]);
-
   if (!open || !current) return null;
 
-  const displayTime = isDragging ? dragTime : (Number.isFinite(currentTime) ? currentTime : 0);
-  const pct = safeDuration > 0 ? Math.max(0, Math.min(100, (displayTime / safeDuration) * 100)) : 0;
+  const displayTime = previewTime != null ? previewTime : (Number.isFinite(currentTime) ? currentTime : 0);
   const isFav = !!current.is_favorite;
   const isEp = isEpisode(current);
+  const isLocal = current.kind === 'local';
+  const isOfflineOnly = isLocal || !!current.offline_only;
   const epSaved = !!current.saved;
   const downloaded = isSongDownloaded(current.id);
 
@@ -92,7 +84,9 @@ export default function NowPlaying({ open, onClose }) {
           Playing from queue
           <strong>{queue.length} track{queue.length === 1 ? '' : 's'}</strong>
         </div>
-        {isEp ? (
+        {isOfflineOnly ? (
+          <span className="np-local-label"><Icon name={isLocal ? 'headphones' : 'download'} size={15} /> {isLocal ? 'Device' : 'Offline'}</span>
+        ) : isEp ? (
           <button
             className="icon-btn"
             onClick={() => toggleEpisodeSave(current)}
@@ -127,26 +121,13 @@ export default function NowPlaying({ open, onClose }) {
         <div className="np-progress">
           <div className="progress-row">
             <span className="progress-time">{formatDuration(displayTime)}</span>
-            <div
-              ref={barRef}
-              className={`progress-bar ${isDragging ? 'is-dragging' : ''}`}
-              onPointerDown={(e) => {
-                try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-                const t = timeFromEvent(e); setIsDragging(true); setDragTime(t); seek(t);
-              }}
-              onPointerMove={(e) => { if (isDragging) setDragTime(timeFromEvent(e)); }}
-              onPointerUp={(e) => { if (!isDragging) return; setIsDragging(false); seek(timeFromEvent(e)); }}
-              onPointerCancel={() => setIsDragging(false)}
-              role="slider"
-              tabIndex={0}
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(safeDuration)}
-              aria-valuenow={Math.round(displayTime)}
-            >
-              <div className="progress-fill" style={{ width: `${pct}%` }} />
-              <div className="progress-thumb" style={{ left: `${pct}%` }} />
-            </div>
+            <WaveformSeekbar
+              duration={safeDuration}
+              currentTime={currentTime}
+              onSeek={seek}
+              onPreviewChange={setPreviewTime}
+              seed={`${current.kind}:${current.id ?? current.title}`}
+            />
             <span className="progress-time">{formatDuration(safeDuration)}</span>
           </div>
           {error && <div className="player-error" role="status">{error}</div>}
@@ -177,21 +158,27 @@ export default function NowPlaying({ open, onClose }) {
         </div>
 
         <div className="np-extra">
-          {isEp ? (
-            <button className={`btn btn-sm ${epSaved ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleEpisodeSave(current)}>
-              <Icon name={epSaved ? 'checkCircle' : 'plus'} size={16} />
-              {epSaved ? 'Saved' : 'Save episode'}
-            </button>
+          {isOfflineOnly ? (
+            <span className="tag tag-local"><Icon name={isLocal ? 'headphones' : 'download'} size={14} /> {isLocal ? 'Local file' : 'Saved offline'}</span>
           ) : (
-            <button className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleFavorite(current)}>
-              <Icon name={isFav ? 'heartFill' : 'heart'} size={16} />
-              {isFav ? 'Liked' : 'Like'}
-            </button>
+            <>
+              {isEp ? (
+                <button className={`btn btn-sm ${epSaved ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleEpisodeSave(current)}>
+                  <Icon name={epSaved ? 'checkCircle' : 'plus'} size={16} />
+                  {epSaved ? 'Saved' : 'Save episode'}
+                </button>
+              ) : (
+                <button className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleFavorite(current)}>
+                  <Icon name={isFav ? 'heartFill' : 'heart'} size={16} />
+                  {isFav ? 'Liked' : 'Like'}
+                </button>
+              )}
+              <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
+                <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
+                {downloaded ? 'Downloaded' : 'Download'}
+              </button>
+            </>
           )}
-          <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
-            <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
-            {downloaded ? 'Downloaded' : 'Download'}
-          </button>
           {current.album_title && <span className="tag">{current.album_title}</span>}
           {current.genre && <span className="tag tag-accent">{current.genre}</span>}
         </div>

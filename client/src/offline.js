@@ -7,6 +7,8 @@
 //
 // Playlist downloads also snapshot the playlist + its tracks, so the Downloads
 // page can list and play them fully offline (no API call needed).
+import { resolveLocalAudioUrl } from './localMusic.js';
+
 const CACHE_NAME = 'pulse-offline-v1';
 const INDEX_KEY = 'pulse_offline_index_v1';
 export const OFFLINE_EVENT = 'pulse-offline-updated';
@@ -167,8 +169,24 @@ const blobUrlCache = new Map(); // songId → object URL (kept for page lifetime
 // error-retry path when a stream fails while offline.
 export async function resolvePlayableUrl(song) {
   if (!song) return null;
+  if (song.kind === 'local' || song.local_id) {
+    return resolveLocalAudioUrl(song.local_id || song.id);
+  }
   const audioUrl = songAudioUrl(song);
   if (!audioUrl) return null;
+  if (song.offline_only) {
+    if (blobUrlCache.has(song.id)) return blobUrlCache.get(song.id);
+    try {
+      const c = await cache();
+      const hit = await c.match(audioUrl);
+      if (hit) {
+        const url = URL.createObjectURL(await hit.blob());
+        blobUrlCache.set(song.id, url);
+        return url;
+      }
+    } catch { /* offline-only never falls back to the network */ }
+    return null;
+  }
   if (isSongDownloaded(song.id) || !navigator.onLine) {
     if (blobUrlCache.has(song.id)) return blobUrlCache.get(song.id);
     try {
