@@ -11,7 +11,7 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 ## Tech stack
 
 - **Frontend:** React 18 + React Router + Vite, custom CSS design system (dark theme)
-- **Backend:** Node.js + Express
+- **Backend:** Node.js 24 (LTS) + Express
 - **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`, optionally copied
   to a bucket by Litestream so it survives hosts that wipe their disk
 - **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
@@ -157,12 +157,17 @@ for a small community):
   last changes are copied first (Litestream copies on a timer only).
 
 Two smaller helpers make the free plan comfortable: `KEEP_AWAKE=true` makes the app request its own
-`/api/health` every 5 minutes so the host doesn't put it to sleep (an outside uptime monitor on the
-same address does the same job and also wakes it), and password hashing runs on a worker thread, so
-a sign-in doesn't hold up everyone else's requests.
+`/api/health` every 5 minutes, inside `KEEP_AWAKE_HOURS` (default `0-24`, and `render.yaml` sets
+`6-24` read in `PULSE_TIMEZONE`), so the host doesn't put it to sleep during the hours people use it —
+important, because keeping a free Render service awake around the clock burns the whole 750-hour
+monthly allowance and gets **every** free service in the workspace suspended until the 1st (an outside
+uptime monitor on the same address does the same job, and also wakes the app after a restart). Password
+hashing runs on a worker thread, so a sign-in doesn't hold up everyone else's requests.
 
 `npm run storage:check` tries your bucket settings for real (write, signed read, delete, CORS, and
-Litestream's own connection) and explains anything that is wrong.
+Litestream's own connection) and explains anything that is wrong. Once the app is deployed,
+`npm run health -- https://your-app.onrender.com` asks it how it is doing — whether it is awake and
+whether uploads really are on the bucket — waiting out the cold start of a sleeping free instance.
 
 ### Configuration
 
@@ -178,6 +183,8 @@ Litestream's own connection) and explains anything that is wrong.
 | `S3_SIGNED_URL_TTL_SECONDS` | `21600` (6 h) | How long signed links last (60 to 604800) |
 | `KEEP_AWAKE` | unset | `true` makes the app request its own `/api/health` every 5 minutes (needs `RENDER_EXTERNAL_URL`, which Render sets, or `KEEP_AWAKE_URL`) |
 | `KEEP_AWAKE_URL` | `RENDER_EXTERNAL_URL` | Public address of the app, if it isn't on Render |
+| `KEEP_AWAKE_HOURS` | `0-24` (around the clock) | Hours the keep-awake ping runs, `"<start>-<end>"` on the 24-hour clock, e.g. `6-24` for 6am to midnight. Anything unparseable means around the clock. **An always-awake free Render service uses the workspace's whole 750-hour monthly allowance and gets suspended until the 1st** — see DEPLOY.md, step 5 |
+| `PULSE_TIMEZONE` | host clock (UTC on Render) | IANA name such as `Africa/Lagos`; the timezone `KEEP_AWAKE_HOURS` is read in |
 | `PULSE_DB_SYNC_SECONDS` | `5` | How often Litestream copies the database (1 to 20). Smaller means less to lose in a crash and more writes to the bucket |
 | `LITESTREAM_DISABLED` | unset | `true` runs without database copies even though a bucket is set |
 | `LITESTREAM_BIN`, `LITESTREAM_CONFIG` | the npm-installed program, `litestream.yml` | Advanced: use a different Litestream program or settings file |
@@ -242,6 +249,12 @@ person saved are left alone), including from saved playlists.
   confirm dialogs, responsive layout (mobile sidebar drawer)
 
 ## Running locally
+
+Pulse runs on **Node.js 24** in production. The version is pinned in three places that must agree —
+`package.json` (`engines.node`), `.node-version` and `render.yaml` — because the database driver
+(`better-sqlite3`) is a native module that only works on Node versions it has a prebuilt binary for;
+`npm test` checks that the three pins match. Any Node 22+ works for development too (you'll just see
+an `EBADENGINE` warning from npm).
 
 ```bash
 # 1. backend deps

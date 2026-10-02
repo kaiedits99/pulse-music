@@ -56,7 +56,9 @@ words. It never prints your keys.
    and asks for the four bucket values: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and
    `S3_SECRET_ACCESS_KEY`. (Set all four or none: a partly filled set stops the app from starting,
    on purpose, rather than quietly using a disk that gets wiped.)
-   - Build: `npm ci && cd client && npm ci && npm run build`
+   - Build: `npm ci && cd client && npm ci && npm run build`, on **Node 24** (pinned in
+     `render.yaml`, `package.json` and `.node-version` — see [If the build
+     fails](#if-the-build-fails) if a deploy ever picks a different version)
    - Start: `npm run start:render`. It restores the database from the bucket if this machine
      doesn't have one, then runs the server under Litestream.
    - Health check: `GET /api/health` (unauthenticated, no DB work: Render only routes
@@ -78,29 +80,125 @@ the [configuration table in the README](README.md#configuration), including `KEE
 
 ### 4. Check that it is working
 
-- Open `https://<your-app>.onrender.com/api/health`. It should say `"storage":"bucket"`.
-  (`"local"` means the bucket settings didn't reach the service.)
+- Open `https://<your-app>.onrender.com/api/health`, or run the same check from your machine (it
+  waits out a sleeping free instance's cold start and explains the answer in plain words):
+
+  ```bash
+  npm run health -- https://<your-app>.onrender.com
+  ```
+
+  A healthy answer looks like:
+
+  ```json
+  {"status":"ok","storage":"bucket","commit":"b8682dc","node":"v24.21.0","uptime":42,"time":"2026-10-02T15:04:05.678Z"}
+  ```
+
+  - `"storage":"bucket"` — uploads are in the bucket and survive this machine being wiped.
+    `"local"` means the bucket settings didn't reach the service, and on a host with a temporary disk
+    uploads are lost on the next restart.
+  - `"commit"` — the commit the host deployed (Render reports it). Compare it with `main`; if it is
+    older, the deploy did not go through and the old version is still serving.
+  - **No `"storage"` field at all** — this is a Pulse from before bucket storage existed. Its
+    accounts and uploads are on the instance's own disk and a restart wipes them; deploy the
+    current version.
 - In the Render logs, look for `Uploads are kept on bucket "…"` and Litestream's
   `replicating to` line.
 - Upload a track, then in Render choose **Manual Deploy → Deploy latest commit**. When it is
   back, your account and the track should still be there. The log says `restoring snapshot` when
   the database came back from the bucket.
 
-### 5. Keep it awake
+### 5. Keep it awake during the hours people use it
 
-Render's free service falls asleep after about 15 minutes without a visitor and takes up to a
-minute to wake. Two things stop that, and using both is best:
+Render's free service falls asleep after about 15 minutes without a visitor, and takes up to a minute
+to wake. Two things stop that, and using both is best:
 
 - **Built in:** with `KEEP_AWAKE=true` (already in `render.yaml`) the app requests its own
-  `/api/health` every 5 minutes. It needs no account.
+  `/api/health` every 5 minutes, but only inside `KEEP_AWAKE_HOURS` (also already set, to `6-24`,
+  read in `PULSE_TIMEZONE`). It needs no account.
 - **An outside monitor:** it comes from outside Render's network and also wakes the app up if it ever
   does stop. For example [UptimeRobot](https://uptimerobot.com) (free): add an *HTTP(s)* monitor for
   `https://<your-app>.onrender.com/api/health` with a 5-minute interval. Its free plan is for
-  personal, non-commercial use.
+  personal, non-commercial use. If you use one, give it the same awake hours as above (UptimeRobot
+  calls this the monitor's *alert/check schedule*), or it will keep the app up all night.
 
-Free web services get **750 instance-hours a month** across your whole Render workspace. One
-service that never sleeps uses about 744 of them, so it fits, but a second always-on free service in
-the same workspace would not.
+#### Why the awake hours matter (don't skip this)
+
+Render grants a workspace **750 free instance hours per calendar month** and a month is only about
+**730** hours long, so an app kept awake around the clock spends the entire allowance by itself. When
+the hours run out, Render **suspends every free service in the workspace until the 1st of the next
+month** — not a bill, but the site is simply gone, which is exactly the kind of interruption a public
+share link can't afford.
+
+`KEEP_AWAKE_HOURS=6-24` keeps the app awake from 06:00 to midnight and lets it sleep for the quiet
+six hours. That is roughly **550–560 instance hours a month**, which cannot run out, and the only cost
+is that the first visitor of the morning pays the one-minute cold start — Render wakes the app by
+itself the moment anyone opens the link. Every hour you take off the schedule buys back margin.
+
+- `KEEP_AWAKE_HOURS=0-24` (or leaving it out, or a typo) means "around the clock". That fits inside
+  750 hours only if the service is the *only* free service in the workspace and the month is short:
+  a 31-day month is 744 hours, so there are about **six hours of margin**, and every deploy briefly
+  runs the old and new instance at once, which eats into it. Any second always-on free service in the
+  same workspace will run the hours out mid-month. Render's dashboard → **Billing → Free instance
+  hours** shows where the workspace stands.
+- `PULSE_TIMEZONE` (IANA name, e.g. `Africa/Lagos`) is the clock those hours are read in. Without it
+  they mean the server's time, which is UTC on Render — `6-24` would start at 07:00 Lagos time. Set
+  it in the dashboard under **Environment** if it isn't already there; the boot log prints the
+  schedule it is using, for example
+  `[pulse] Keep-awake ping enabled (https://…/api/health, 06:00–24:00 Africa/Lagos).`
+
+#### What a sleep (or a suspension) does and does not touch
+
+The sleep is only about instance hours. Nothing that matters is on the instance's disk:
+
+- **Uploads are in the bucket from the moment they arrive.** With bucket settings configured, each
+  upload is copied there *before* the database records it, and the temporary local copy is deleted as
+  soon as the upload finishes (see `keepUploads` in `server/media.js`). `/media/uploads/…` always
+  sends the listener to a signed bucket link, so playing, seeking and downloading never depend on the
+  instance, and waking up cannot lose a file. `GET /api/health` reporting `"storage":"bucket"` is the
+  proof this is on; `"local"` means every sleep will wipe uploads.
+- **The database is restored at every boot.** Each wake is a fresh container: `npm run start:render`
+  copies `pulse.db` back from the bucket before the server listens, so accounts, tracks, playlists and
+  the IDs behind share links are all there. Litestream copies changes every ~5 seconds, so an
+  unannounced kill can lose at most the last few seconds of changes, and on a graceful stop the app
+  stays up 7 extra seconds to flush first.
+- **The share link itself** is just a URL on the service. While it is asleep a visitor sees Render's
+  loading page for up to a minute, then the page and its media load normally.
+
+The one thing a wipe *does* lose: uploads made while Pulse ran without bucket settings (or files from
+before a bucket was configured) — those live on the instance disk only. If `/api/health` reports
+`"storage":"local"`, fix that before worrying about awake hours.
+
+
+### If the build fails
+
+Nearly always this is the **Node.js version**. Pulse's database driver, `better-sqlite3`, is a
+*native* module: for the Node versions its publisher supports it downloads a ready-made binary, and
+for any other version it tries to **compile itself**, which fails once Node's C++ API has moved on.
+If the build log shows a `node-gyp` failure, `make failed with exit code`, or an error inside
+`node_modules/better-sqlite3`, that is what happened — it is not a problem with your code or your
+bucket settings.
+
+That is why Pulse pins Node **24** (the current LTS) in three files that must agree, and why
+`npm test` (run by `server/test/node-version.test.js`) fails if they are ever changed apart:
+
+| Where | Value |
+|-------|-------|
+| `package.json` → `engines.node` | `24.x` |
+| `.node-version` | `24` |
+| `render.yaml` → `NODE_VERSION` | `"24"` |
+
+If a deploy still uses another version, something is overriding the pin. Render chooses the version
+in this order, first match wins: the `NODE_VERSION` environment variable, then `.node-version`, then
+`.nvmrc`, then `engines.node`. So check the service's **Environment** page for a leftover
+`NODE_VERSION` (change it to `24`, or delete it), and remember Render only applies a version change
+on a **new deploy** — press *Manual Deploy → Deploy latest commit* afterwards.
+
+To move to a newer Node later: check that `better-sqlite3` publishes prebuilt binaries for it (its
+GitHub releases list them per Node version), update the three places above, and run `npm test`.
+
+If a Blueprint created the service, `render.yaml` is the source of truth: after pulling these
+changes, open the Blueprint on Render and apply the sync so the new `NODE_VERSION` reaches the
+service.
 
 ### What to expect on the free plan
 
@@ -202,7 +300,8 @@ since app-store signing and OS toolchains can't run here).
 | Keep uploads on a host with a temporary disk | An S3-compatible bucket (Cloudflare R2) via the `S3_*` settings | `server/storage.js`, `server/media.js`, `docs/r2-cors.json` |
 | Keep the database on a host with a temporary disk | Litestream copying it to the same bucket | `litestream.yml`, `scripts/start-with-litestream.sh` |
 | Check the bucket settings before relying on them | `npm run storage:check` | `scripts/storage-check.mjs` |
-| Stop a free service falling asleep | `KEEP_AWAKE=true` plus an outside monitor on `/api/health` | `server/keepalive.js` |
+| Check a running deployment (is it up? are uploads on the bucket?) | `npm run health -- https://your-app.onrender.com` | `scripts/health-check.mjs` |
+| Stop a free service falling asleep (during chosen hours) | `KEEP_AWAKE=true` + `KEEP_AWAKE_HOURS` + `PULSE_TIMEZONE`, plus an outside monitor on `/api/health` | `server/keepalive.js` |
 | Keep everything on the server instead | Render Disk mounted on `data/` (or `PULSE_DATA_DIR` on a volume) | `render.yaml` (commented `disk:` block), `server/db.js` |
 | Start from a blank catalog | Nothing to do — Pulse never seeds data | `server/index.js` |
 | Frontend on Netlify | Static build + redirects | `netlify.toml`, `client/public/_redirects` |
