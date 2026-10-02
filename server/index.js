@@ -7,7 +7,7 @@ import routes from './routes.js';
 import db, { dataDir, uploadsDir } from './db.js';
 import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
 import { storage, redirectToBucket } from './media.js';
-import { keepAwakeTarget, startKeepAwake } from './keepalive.js';
+import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js';
 import { installGracefulShutdown } from './shutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,10 +85,14 @@ if (!storage.remote && process.env.RENDER) {
 const PORT = process.env.PORT || 8080;
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[pulse] Server running at http://0.0.0.0:${PORT}`);
-  const keepAwake = keepAwakeTarget();
+  const keepAwake = keepAwakeConfig();
   if (keepAwake) {
-    startKeepAwake({ url: keepAwake });
-    console.log(`[pulse] Keep-awake ping enabled (${keepAwake}).`);
+    startKeepAwake(keepAwake);
+    // Say the hours out loud: whether the app is awake around the clock (nearly the whole free monthly
+    // allowance) or only during the hours people use it decides if the instance hours ever run out.
+    const schedule = formatWakeHours(keepAwake.hours);
+    const zone = keepAwake.hours && keepAwake.timeZone ? ` ${keepAwake.timeZone}` : '';
+    console.log(`[pulse] Keep-awake ping enabled (${keepAwake.url}, ${schedule}${zone}).`);
   }
 });
 installGracefulShutdown(server, { delaySeconds: process.env.PULSE_SHUTDOWN_DELAY_SECONDS });

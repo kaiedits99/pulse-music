@@ -88,21 +88,48 @@ the [configuration table in the README](README.md#configuration), including `KEE
   back, your account and the track should still be there. The log says `restoring snapshot` when
   the database came back from the bucket.
 
-### 5. Keep it awake
+### 5. Keep it awake during the hours people use it
 
-Render's free service falls asleep after about 15 minutes without a visitor and takes up to a
-minute to wake. Two things stop that, and using both is best:
+Render's free service falls asleep after about 15 minutes without a visitor, and takes up to a minute
+to wake. Two things stop that, and using both is best:
 
 - **Built in:** with `KEEP_AWAKE=true` (already in `render.yaml`) the app requests its own
-  `/api/health` every 5 minutes. It needs no account.
+  `/api/health` every 5 minutes, but only inside `KEEP_AWAKE_HOURS` (also already set, to `6-24`,
+  read in `PULSE_TIMEZONE`). It needs no account.
 - **An outside monitor:** it comes from outside Render's network and also wakes the app up if it ever
   does stop. For example [UptimeRobot](https://uptimerobot.com) (free): add an *HTTP(s)* monitor for
   `https://<your-app>.onrender.com/api/health` with a 5-minute interval. Its free plan is for
-  personal, non-commercial use.
+  personal, non-commercial use. If you use one, give it the same awake hours as above (UptimeRobot
+  calls this the monitor's *alert/check schedule*), or it will keep the app up all night.
 
-Free web services get **750 instance-hours a month** across your whole Render workspace. One
-service that never sleeps uses about 744 of them, so it fits, but a second always-on free service in
-the same workspace would not.
+#### Why the awake hours matter (don't skip this)
+
+Render grants a workspace **750 free instance hours per calendar month** and a month is only about
+**730** hours long, so an app kept awake around the clock spends the entire allowance by itself. When
+the hours run out, Render **suspends every free service in the workspace until the 1st of the next
+month** — not a bill, but the site is simply gone, which is exactly the kind of interruption a public
+share link can't afford.
+
+`KEEP_AWAKE_HOURS=6-24` keeps the app awake from 06:00 to midnight and lets it sleep for the quiet
+six hours. That is roughly **550–560 instance hours a month**, which cannot run out, and the only cost
+is that the first visitor of the morning pays the one-minute cold start — Render wakes the app by
+itself the moment anyone opens the link. Every hour you take off the schedule buys back margin.
+
+- `KEEP_AWAKE_HOURS=0-24` (or leaving it out, or a typo) means "around the clock". That fits inside
+  750 hours only if the service is the *only* free service in the workspace and the month is short
+  (a 30-day month is 720 hours; a 31-day one is 744). Render's dashboard → **Billing → Free instance
+  hours** shows where the workspace stands.
+- A second always-on free service in the same workspace will run the hours out mid-month.
+- `PULSE_TIMEZONE` (IANA name, e.g. `Africa/Lagos`) is the clock those hours are read in. Without it
+  they mean the server's time, which is UTC on Render — `6-24` would start at 07:00 Lagos time. Set
+  it in the dashboard under **Environment** if it isn't already there; the boot log prints the
+  schedule it is using, for example
+  `[pulse] Keep-awake ping enabled (https://…/api/health, 06:00–24:00 Africa/Lagos).`
+
+What is never at risk: the database and every upload live in the bucket (Litestream copies changes
+within ~5 seconds), so a suspension, a restart or a cold start never loses a track or an account. The
+only thing that stopping the pings costs is the first visitor waiting for a wake-up.
+
 
 ### If the build fails
 
@@ -235,7 +262,7 @@ since app-store signing and OS toolchains can't run here).
 | Keep uploads on a host with a temporary disk | An S3-compatible bucket (Cloudflare R2) via the `S3_*` settings | `server/storage.js`, `server/media.js`, `docs/r2-cors.json` |
 | Keep the database on a host with a temporary disk | Litestream copying it to the same bucket | `litestream.yml`, `scripts/start-with-litestream.sh` |
 | Check the bucket settings before relying on them | `npm run storage:check` | `scripts/storage-check.mjs` |
-| Stop a free service falling asleep | `KEEP_AWAKE=true` plus an outside monitor on `/api/health` | `server/keepalive.js` |
+| Stop a free service falling asleep (during chosen hours) | `KEEP_AWAKE=true` + `KEEP_AWAKE_HOURS` + `PULSE_TIMEZONE`, plus an outside monitor on `/api/health` | `server/keepalive.js` |
 | Keep everything on the server instead | Render Disk mounted on `data/` (or `PULSE_DATA_DIR` on a volume) | `render.yaml` (commented `disk:` block), `server/db.js` |
 | Start from a blank catalog | Nothing to do — Pulse never seeds data | `server/index.js` |
 | Frontend on Netlify | Static build + redirects | `netlify.toml`, `client/public/_redirects` |

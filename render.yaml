@@ -39,9 +39,23 @@ services:
       - key: S3_SECRET_ACCESS_KEY
         sync: false
       # Free instances fall asleep after ~15 minutes without a visitor. With this on, the app requests
-      # its own /api/health every 5 minutes. An outside monitor on the same address is a good addition.
+      # its own /api/health every 5 minutes, but only during KEEP_AWAKE_HOURS below.
       - key: KEEP_AWAKE
         value: "true"
+      # Render's free plan gives the whole workspace 750 instance hours a month and a month is only
+      # about 730 hours long. An app kept awake around the clock therefore spends the entire allowance
+      # by itself, and Render suspends the service as soon as it is gone — the site disappears until
+      # the 1st of the next month. "6-24" keeps it awake from 6am to midnight and lets it sleep for the
+      # quiet six hours, which puts the month at roughly 550 hours and makes running out impossible.
+      # Anyone visiting during the sleeping hours simply waits a few seconds for it to wake. Set
+      # "0-24" to be awake around the clock and accept that the allowance runs out before month end.
+      - key: KEEP_AWAKE_HOURS
+        value: "6-24"
+      # The timezone those hours are read in (IANA name). Without it the times would be in the server's
+      # clock, which is UTC on Render. Set this to your own timezone in the dashboard, or in this file
+      # before you create the Blueprint.
+      - key: PULSE_TIMEZONE
+        value: Africa/Lagos
     # NOTE — free-tier storage: Render's free instances have an **ephemeral filesystem**, wiped on every
     # restart, redeploy or sleep. Pulse therefore keeps its uploads in the bucket above and its database
     # in the same bucket through Litestream, so nothing is lost. Without the S3_* settings, the database
