@@ -80,8 +80,20 @@ the [configuration table in the README](README.md#configuration), including `KEE
 
 ### 4. Check that it is working
 
-- Open `https://<your-app>.onrender.com/api/health`. It should say `"storage":"bucket"`.
-  (`"local"` means the bucket settings didn't reach the service.)
+- Open `https://<your-app>.onrender.com/api/health`, or run the same check from your machine (it
+  waits out a sleeping free instance's cold start and explains the answer in plain words):
+
+  ```bash
+  npm run health -- https://<your-app>.onrender.com
+  ```
+
+  It should say `"storage":"bucket"`. (`"local"` means the bucket settings didn't reach the service —
+  and on a host with a temporary disk, that means uploads are lost on the next restart.) A healthy
+  answer looks like:
+
+  ```json
+  {"status":"ok","storage":"bucket","uptime":42,"time":"2026-10-02T15:04:05.678Z"}
+  ```
 - In the Render logs, look for `Uploads are kept on bucket "…"` and Litestream's
   `replicating to` line.
 - Upload a track, then in Render choose **Manual Deploy → Deploy latest commit**. When it is
@@ -281,6 +293,7 @@ since app-store signing and OS toolchains can't run here).
 | Keep uploads on a host with a temporary disk | An S3-compatible bucket (Cloudflare R2) via the `S3_*` settings | `server/storage.js`, `server/media.js`, `docs/r2-cors.json` |
 | Keep the database on a host with a temporary disk | Litestream copying it to the same bucket | `litestream.yml`, `scripts/start-with-litestream.sh` |
 | Check the bucket settings before relying on them | `npm run storage:check` | `scripts/storage-check.mjs` |
+| Check a running deployment (is it up? are uploads on the bucket?) | `npm run health -- https://your-app.onrender.com` | `scripts/health-check.mjs` |
 | Stop a free service falling asleep (during chosen hours) | `KEEP_AWAKE=true` + `KEEP_AWAKE_HOURS` + `PULSE_TIMEZONE`, plus an outside monitor on `/api/health` | `server/keepalive.js` |
 | Keep everything on the server instead | Render Disk mounted on `data/` (or `PULSE_DATA_DIR` on a volume) | `render.yaml` (commented `disk:` block), `server/db.js` |
 | Start from a blank catalog | Nothing to do — Pulse never seeds data | `server/index.js` |

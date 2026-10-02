@@ -165,7 +165,9 @@ uptime monitor on the same address does the same job, and also wakes the app aft
 hashing runs on a worker thread, so a sign-in doesn't hold up everyone else's requests.
 
 `npm run storage:check` tries your bucket settings for real (write, signed read, delete, CORS, and
-Litestream's own connection) and explains anything that is wrong.
+Litestream's own connection) and explains anything that is wrong. Once the app is deployed,
+`npm run health -- https://your-app.onrender.com` asks it how it is doing — whether it is awake and
+whether uploads really are on the bucket — waiting out the cold start of a sleeping free instance.
 
 ### Configuration
 

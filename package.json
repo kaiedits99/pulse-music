@@ -8,6 +8,7 @@
     "start": "node server/index.js",
     "start:render": "bash scripts/start-with-litestream.sh",
     "storage:check": "node scripts/storage-check.mjs",
+    "health": "node scripts/health-check.mjs",
     "dev": "node server/index.js",
     "test": "node --test server/test/*.test.js"
   },
