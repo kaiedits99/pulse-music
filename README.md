@@ -11,7 +11,7 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 ## Tech stack
 
 - **Frontend:** React 18 + React Router + Vite, custom CSS design system (dark theme)
-- **Backend:** Node.js + Express
+- **Backend:** Node.js 24 (LTS) + Express
 - **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`, optionally copied
   to a bucket by Litestream so it survives hosts that wipe their disk
 - **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
@@ -242,6 +242,12 @@ person saved are left alone), including from saved playlists.
   confirm dialogs, responsive layout (mobile sidebar drawer)
 
 ## Running locally
+
+Pulse runs on **Node.js 24** in production. The version is pinned in three places that must agree —
+`package.json` (`engines.node`), `.node-version` and `render.yaml` — because the database driver
+(`better-sqlite3`) is a native module that only works on Node versions it has a prebuilt binary for;
+`npm test` checks that the three pins match. Any Node 22+ works for development too (you'll just see
+an `EBADENGINE` warning from npm).
 
 ```bash
 # 1. backend deps

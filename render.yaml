@@ -16,8 +16,14 @@ services:
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      # The Node.js version is pinned on purpose. `better-sqlite3` is a native module:
+      # it runs from a prebuilt binary for known Node versions and otherwise tries to
+      # compile itself from source, which fails on Node versions newer than the package
+      # supports (that is what broke the 2026-10-02 deploy on Node 26). The pin lives in
+      # three places that must agree — here, `engines.node` and `.node-version` — and
+      # server/test/node-version.test.js fails the suite if they ever drift apart.
       - key: NODE_VERSION
-        value: 20
+        value: "24"
       - key: JWT_SECRET
         generateValue: true
       - key: GOOGLE_CLIENT_ID

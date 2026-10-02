@@ -56,7 +56,9 @@ words. It never prints your keys.
    and asks for the four bucket values: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and
    `S3_SECRET_ACCESS_KEY`. (Set all four or none: a partly filled set stops the app from starting,
    on purpose, rather than quietly using a disk that gets wiped.)
-   - Build: `npm ci && cd client && npm ci && npm run build`
+   - Build: `npm ci && cd client && npm ci && npm run build`, on **Node 24** (pinned in
+     `render.yaml`, `package.json` and `.node-version` — see [If the build
+     fails](#if-the-build-fails) if a deploy ever picks a different version)
    - Start: `npm run start:render`. It restores the database from the bucket if this machine
      doesn't have one, then runs the server under Litestream.
    - Health check: `GET /api/health` (unauthenticated, no DB work: Render only routes
@@ -101,6 +103,37 @@ minute to wake. Two things stop that, and using both is best:
 Free web services get **750 instance-hours a month** across your whole Render workspace. One
 service that never sleeps uses about 744 of them, so it fits, but a second always-on free service in
 the same workspace would not.
+
+### If the build fails
+
+Nearly always this is the **Node.js version**. Pulse's database driver, `better-sqlite3`, is a
+*native* module: for the Node versions its publisher supports it downloads a ready-made binary, and
+for any other version it tries to **compile itself**, which fails once Node's C++ API has moved on.
+If the build log shows a `node-gyp` failure, `make failed with exit code`, or an error inside
+`node_modules/better-sqlite3`, that is what happened — it is not a problem with your code or your
+bucket settings.
+
+That is why Pulse pins Node **24** (the current LTS) in three files that must agree, and why
+`npm test` (run by `server/test/node-version.test.js`) fails if they are ever changed apart:
+
+| Where | Value |
+|-------|-------|
+| `package.json` → `engines.node` | `24.x` |
+| `.node-version` | `24` |
+| `render.yaml` → `NODE_VERSION` | `"24"` |
+
+If a deploy still uses another version, something is overriding the pin. Render chooses the version
+in this order, first match wins: the `NODE_VERSION` environment variable, then `.node-version`, then
+`.nvmrc`, then `engines.node`. So check the service's **Environment** page for a leftover
+`NODE_VERSION` (change it to `24`, or delete it), and remember Render only applies a version change
+on a **new deploy** — press *Manual Deploy → Deploy latest commit* afterwards.
+
+To move to a newer Node later: check that `better-sqlite3` publishes prebuilt binaries for it (its
+GitHub releases list them per Node version), update the three places above, and run `npm test`.
+
+If a Blueprint created the service, `render.yaml` is the source of truth: after pulling these
+changes, open the Blueprint on Render and apply the sync so the new `NODE_VERSION` reaches the
+service.
 
 ### What to expect on the free plan
 
