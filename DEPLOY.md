@@ -116,19 +116,38 @@ is that the first visitor of the morning pays the one-minute cold start — Rend
 itself the moment anyone opens the link. Every hour you take off the schedule buys back margin.
 
 - `KEEP_AWAKE_HOURS=0-24` (or leaving it out, or a typo) means "around the clock". That fits inside
-  750 hours only if the service is the *only* free service in the workspace and the month is short
-  (a 30-day month is 720 hours; a 31-day one is 744). Render's dashboard → **Billing → Free instance
+  750 hours only if the service is the *only* free service in the workspace and the month is short:
+  a 31-day month is 744 hours, so there are about **six hours of margin**, and every deploy briefly
+  runs the old and new instance at once, which eats into it. Any second always-on free service in the
+  same workspace will run the hours out mid-month. Render's dashboard → **Billing → Free instance
   hours** shows where the workspace stands.
-- A second always-on free service in the same workspace will run the hours out mid-month.
 - `PULSE_TIMEZONE` (IANA name, e.g. `Africa/Lagos`) is the clock those hours are read in. Without it
   they mean the server's time, which is UTC on Render — `6-24` would start at 07:00 Lagos time. Set
   it in the dashboard under **Environment** if it isn't already there; the boot log prints the
   schedule it is using, for example
   `[pulse] Keep-awake ping enabled (https://…/api/health, 06:00–24:00 Africa/Lagos).`
 
-What is never at risk: the database and every upload live in the bucket (Litestream copies changes
-within ~5 seconds), so a suspension, a restart or a cold start never loses a track or an account. The
-only thing that stopping the pings costs is the first visitor waiting for a wake-up.
+#### What a sleep (or a suspension) does and does not touch
+
+The sleep is only about instance hours. Nothing that matters is on the instance's disk:
+
+- **Uploads are in the bucket from the moment they arrive.** With bucket settings configured, each
+  upload is copied there *before* the database records it, and the temporary local copy is deleted as
+  soon as the upload finishes (see `keepUploads` in `server/media.js`). `/media/uploads/…` always
+  sends the listener to a signed bucket link, so playing, seeking and downloading never depend on the
+  instance, and waking up cannot lose a file. `GET /api/health` reporting `"storage":"bucket"` is the
+  proof this is on; `"local"` means every sleep will wipe uploads.
+- **The database is restored at every boot.** Each wake is a fresh container: `npm run start:render`
+  copies `pulse.db` back from the bucket before the server listens, so accounts, tracks, playlists and
+  the IDs behind share links are all there. Litestream copies changes every ~5 seconds, so an
+  unannounced kill can lose at most the last few seconds of changes, and on a graceful stop the app
+  stays up 7 extra seconds to flush first.
+- **The share link itself** is just a URL on the service. While it is asleep a visitor sees Render's
+  loading page for up to a minute, then the page and its media load normally.
+
+The one thing a wipe *does* lose: uploads made while Pulse ran without bucket settings (or files from
+before a bucket was configured) — those live on the instance disk only. If `/api/health` reports
+`"storage":"local"`, fix that before worrying about awake hours.
 
 
 ### If the build fails
