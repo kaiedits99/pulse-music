@@ -4,12 +4,17 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import db, { uploadsDir } from './db.js';
+import { searchClause } from './search.js';
 import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
+import { storage, keepUploads, sendDownload, releaseMedia } from './media.js';
 
 const router = express.Router();
 
+// Express 4 does not catch rejected promises, so async handlers are wrapped to reach the error handler.
+const wrap = (handler) => (req, res, next) => { Promise.resolve(handler(req, res, next)).catch(next); };
+
 // ---------- Multer for uploads ----------
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination(req, file, cb) {
     cb(null, uploadsDir);
   },
@@ -19,7 +24,7 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({
-  storage,
+  storage: diskStorage,
   limits: { fileSize: 60 * 1024 * 1024 },
   fileFilter(req, file, cb) {
     if (file.fieldname === 'audio') {
@@ -139,10 +144,10 @@ function resolveUploadArtist(req, body) {
 // Unauthenticated liveness probe used as the Render health check path
 // (see render.yaml). It deliberately does no database work: on a host that
 // restarts with a wiped filesystem we want "process is up and serving" to be
-// distinguishable from "data is ready", and boot-time seeding/self-healing
-// should never be able to make the instance look dead to the platform.
+// distinguishable from "data is ready", and boot-time maintenance should never
+// be able to make the instance look dead to the platform.
 router.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+  res.json({ status: 'ok', storage: storage.remote ? 'bucket' : 'local', uptime: Math.round(process.uptime()), time: new Date().toISOString() });
 });
 
 // ============================== AUTH ==============================
@@ -160,7 +165,7 @@ router.get('/auth/check-username', (req, res) => {
   res.json({ available: true, username: raw });
 });
 
-router.post('/auth/register', (req, res) => {
+router.post('/auth/register', wrap(async (req, res) => {
   const { name, username, email, password, artistName, favoriteGenres } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
@@ -182,6 +187,10 @@ router.post('/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
 
+  // Hash before touching the database: the uniqueness checks below and the insert must run back to
+  // back, with nothing awaited in between, so two sign-ups can never both claim the same name.
+  const passwordHash = await hashPassword(password);
+
   const emailExists = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(cleanEmail);
   if (emailExists) return res.status(400).json({ error: 'An account with this email already exists' });
 
@@ -200,7 +209,7 @@ router.post('/auth/register', (req, res) => {
 
   const info = db.prepare(
     'INSERT INTO users (name, username, email, password_hash, role, favorite_genres) VALUES (?,?,?,?,?,?)'
-  ).run(cleanName, cleanUsername, cleanEmail, hashPassword(password), 'artist', genresJson);
+  ).run(cleanName, cleanUsername, cleanEmail, passwordHash, 'artist', genresJson);
   const userId = info.lastInsertRowid;
 
   // create artist profile
@@ -209,7 +218,7 @@ router.post('/auth/register', (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
-});
+}));
 
 // ---------- Private admin passphrase login ----------
 // Admin access is handled here, server-side only. The exact passphrase (typed
@@ -221,7 +230,7 @@ router.post('/auth/register', (req, res) => {
 const ADMIN_PASSPHRASE = 'You bill me, I block you';
 const ADMIN_PASSKEY = "that's one thing that I hate";
 
-router.post('/auth/login', (req, res) => {
+router.post('/auth/login', wrap(async (req, res) => {
   const { email, identifier, password } = req.body || {};
 
   // Private admin access — raw, exact comparison BEFORE any trimming or
@@ -235,11 +244,16 @@ router.post('/auth/login', (req, res) => {
       // Admin row missing (e.g. wiped users table) — recreate it so the
       // private login keeps working. Password stays the passkey, never stored
       // in plaintext beyond the bcrypt hash.
-      const now = new Date().toISOString();
-      const info = db.prepare(
-        'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
-      ).run('Adebayo Cole', 'adebayo', 'admin@pulse.app', hashPassword(ADMIN_PASSKEY), 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
-      admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+      const adminHash = await hashPassword(ADMIN_PASSKEY);
+      // Another sign-in may have recreated it while we were hashing; nothing is awaited from here to the insert.
+      admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+      if (!admin) {
+        const now = new Date().toISOString();
+        const info = db.prepare(
+          'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
+        ).run('Adebayo Cole', 'adebayo', 'admin@pulse.app', adminHash, 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
+        admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+      }
     }
     return res.json({ token: signToken(admin), user: publicUser(admin) });
   }
@@ -260,11 +274,11 @@ router.post('/auth/login', (req, res) => {
     }
   }
 
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  if (!user || !(await verifyPassword(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid username/email or password' });
   }
   res.json({ token: signToken(user), user: publicUser(user) });
-});
+}));
 
 // ---------- Google sign-in (ID token / "credential" flow) ----------
 // The browser obtains a Google-signed ID token via Google Identity Services and
@@ -281,7 +295,7 @@ router.get('/auth/google/status', (req, res) => {
   res.json({ enabled: Boolean(GOOGLE_CLIENT_ID), clientId: GOOGLE_CLIENT_ID || null });
 });
 
-router.post('/auth/google', async (req, res) => {
+router.post('/auth/google', wrap(async (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'Google sign-in is not configured on this server' });
   }
@@ -318,6 +332,12 @@ router.post('/auth/google', async (req, res) => {
   // Passwordless Google-only accounts get a random hash so they can never be
   // signed into via the password form.
   let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+  let randomHash = null;
+  if (!user) {
+    randomHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+    // Another sign-in may have created the account while we were hashing; nothing is awaited from here on.
+    user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+  }
   if (!user) {
     const now = new Date().toISOString();
     const cleanName = String(payload.name || email.split('@')[0]).trim().slice(0, 60) || 'New Artist';
@@ -327,13 +347,13 @@ router.post('/auth/google', async (req, res) => {
     for (let i = 2; taken.get(username); i++) username = `${base.slice(0, 24)}_${i}`;
     const info = db.prepare(
       'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
-    ).run(cleanName, username, email, hashPassword(crypto.randomBytes(32).toString('hex')), 'artist', String(payload.picture || '') || null, '[]', now);
+    ).run(cleanName, username, email, randomHash, 'artist', String(payload.picture || '') || null, '[]', now);
     const userId = info.lastInsertRowid;
     db.prepare('INSERT INTO artists (name, user_id, created_at) VALUES (?,?,?)').run(cleanName, userId, now);
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   }
   res.json({ token: signToken(user), user: publicUser(user) });
-});
+}));
 
 router.put('/auth/preferences', authMiddleware, (req, res) => {
   const { favoriteGenres, username } = req.body || {};
@@ -392,7 +412,8 @@ router.get('/stats', optionalAuth, (req, res) => {
   }
 
   const songs = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(plays),0) plays, COALESCE(SUM(downloads),0) downloads FROM songs ${songCountWhere}`).get(...countParams);
-  const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
+  // Artists that actually have music the caller can see (profiles are created at sign-up).
+  const artists = db.prepare(`SELECT COUNT(DISTINCT artist_id) c FROM songs ${songCountWhere}`).get(...countParams).c;
   const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
   const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
   const podcasts = db.prepare('SELECT COUNT(*) c FROM podcasts').get().c;
@@ -409,7 +430,7 @@ router.get('/stats', optionalAuth, (req, res) => {
     `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
      FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
      ${songVisibilityWhere}
-     ORDER BY s.created_at DESC LIMIT 8`
+     ORDER BY s.created_at DESC, s.id DESC LIMIT 8`
   ).all(...songParams);
 
   // Recent public uploads (published for everyone)
@@ -420,7 +441,7 @@ router.get('/stats', optionalAuth, (req, res) => {
      LEFT JOIN albums al ON al.id = s.album_id
      LEFT JOIN users u ON u.id = s.uploaded_by
      WHERE s.is_public = 1 AND (s.uploaded_by IS NOT NULL OR s.file_path LIKE '/media/uploads/%')
-     ORDER BY s.created_at DESC LIMIT 10`
+     ORDER BY s.created_at DESC, s.id DESC LIMIT 10`
   ).all();
 
   // Current user's own uploads (both public and private)
@@ -432,7 +453,7 @@ router.get('/stats', optionalAuth, (req, res) => {
        JOIN artists a ON a.id = s.artist_id
        LEFT JOIN albums al ON al.id = s.album_id
        WHERE (s.uploaded_by = ? OR s.artist_id = ?)
-       ORDER BY s.created_at DESC LIMIT 10`
+       ORDER BY s.created_at DESC, s.id DESC LIMIT 10`
     ).all(req.user.id, ownArtistId);
   }
 
@@ -628,15 +649,20 @@ router.get('/songs', optionalAuth, (req, res) => {
     where.push('(s.uploaded_by IS NOT NULL OR s.file_path LIKE \'/media/uploads/%\')');
   }
 
-  if (q) { where.push('(s.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  // Free-text search: every word must match the track title, the artist or the genre.
+  const search = searchClause(['s.title', 'a.name', 's.genre'], q);
+  if (search.sql) { where.push(search.sql); params.push(...search.params); }
   if (artist_id) { where.push('s.artist_id = ?'); params.push(artist_id); }
   if (album_id) { where.push('s.album_id = ?'); params.push(album_id); }
   if (genre) { where.push('s.genre = ?'); params.push(genre); }
 
+  // created_at only has one-second resolution (a bulk import shares it), so every
+  // order falls back to the id to keep "newest first" truly newest first.
   let order = 's.created_at DESC';
-  if (sort === 'plays') order = 's.plays DESC';
-  if (sort === 'downloads') order = 's.downloads DESC';
+  if (sort === 'plays') order = 's.plays DESC, s.created_at DESC';
+  if (sort === 'downloads') order = 's.downloads DESC, s.created_at DESC';
   if (sort === 'title') order = 's.title ASC';
+  order += ', s.id DESC';
 
   const rows = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
@@ -673,7 +699,7 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
 
 // Bulk import is intentionally limited to ten files per request. Audio stays in Pulse storage;
 // only upload music you own or are authorized to make available.
-router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, res) => {
+router.post('/songs/import', authMiddleware, upload.array('audio', 10), keepUploads, (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'Choose at least one audio file' });
   const artistId = resolveUploadArtist(req, req.body);
@@ -714,7 +740,7 @@ router.post('/songs/import', authMiddleware, upload.array('audio', 10), (req, re
   res.status(201).json({ imported, count: imported.length });
 });
 
-router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
+router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), keepUploads, (req, res) => {
   const body = req.body;
   const title = (body.title || '').trim();
   if (!title) return res.status(400).json({ error: 'Title is required' });
@@ -778,7 +804,7 @@ router.patch('/songs/:id/visibility', authMiddleware, (req, res) => {
   res.json(updated);
 });
 
-router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
+router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), keepUploads, (req, res) => {
   const existing = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Song not found' });
   if (!songOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
@@ -822,6 +848,7 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
   db.prepare(
     `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, cover_url=?, is_public=? WHERE id=?`
   ).run(title, artistId, albumId, body.genre !== undefined ? (body.genre || null) : existing.genre, duration, filePath, sourceUrl, coverUrl, isPublic, existing.id);
+  releaseMedia([audioFile ? existing.file_path : null, coverFile ? existing.cover_url : null]);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
@@ -835,6 +862,7 @@ router.delete('/songs/:id', authMiddleware, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Song not found' });
   if (!songOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
   db.prepare('DELETE FROM songs WHERE id = ?').run(existing.id);
+  releaseMedia([existing.file_path, existing.cover_url]);
   res.json({ ok: true });
 });
 
@@ -844,15 +872,12 @@ router.post('/songs/:id/play', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/songs/:id/download', optionalAuth, (req, res) => {
+router.get('/songs/:id/download', optionalAuth, (req, res, next) => {
   const s = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
   if (!s || !s.file_path) return res.status(404).json({ error: 'No audio available' });
   if (!canAccessSong(req, s)) return res.status(404).json({ error: 'No audio available' });
   db.prepare('UPDATE songs SET downloads = downloads + 1 WHERE id = ?').run(s.id);
-  const rel = s.file_path.replace('/media/', '');
-  const abs = path.join(uploadsDir, '..', rel);
-  const safe = path.basename(s.file_path);
-  res.download(abs, safe);
+  sendDownload(res, next, s.file_path, path.basename(s.file_path));
 });
 
 // ============================== FAVORITES ==============================
@@ -873,13 +898,26 @@ router.get('/favorites', authMiddleware, (req, res) => {
   res.json(rows.map(r => ({ ...r, is_favorite: 1 })));
 });
 
+// A route id must be a plain positive integer ("12"), never "12abc", "1e3" or "-4".
+const parseSongId = (raw) => (/^[1-9]\d{0,14}$/.test(String(raw)) ? Number(raw) : null);
+
+// Liking is idempotent. A song can only be liked by someone who is allowed to see it, and the
+// answer for "does not exist" and "not yours to see" is the same 404, so ids can't be probed.
 router.post('/favorites/:songId', authMiddleware, (req, res) => {
-  db.prepare('INSERT OR IGNORE INTO favorites (user_id, song_id) VALUES (?,?)').run(req.user.id, req.params.songId);
+  const songId = parseSongId(req.params.songId);
+  if (!songId) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT id, is_public, uploaded_by, artist_id FROM songs WHERE id = ?').get(songId);
+  if (!canAccessSong(req, song)) return res.status(404).json({ error: 'Song not found' });
+  db.prepare('INSERT OR IGNORE INTO favorites (user_id, song_id) VALUES (?,?)').run(req.user.id, song.id);
   res.json({ is_favorite: 1 });
 });
 
+// Un-liking only ever touches the caller's own row, so it needs no visibility check
+// (and still works for a track that has since been made private or deleted).
 router.delete('/favorites/:songId', authMiddleware, (req, res) => {
-  db.prepare('DELETE FROM favorites WHERE user_id = ? AND song_id = ?').run(req.user.id, req.params.songId);
+  const songId = parseSongId(req.params.songId);
+  if (!songId) return res.status(400).json({ error: 'Invalid song id' });
+  db.prepare('DELETE FROM favorites WHERE user_id = ? AND song_id = ?').run(req.user.id, songId);
   res.json({ is_favorite: 0 });
 });
 
@@ -892,7 +930,8 @@ router.get('/albums', optionalAuth, (req, res) => {
   const own = req.user ? artistForUser(req.user.id) : null;
   const ownArtistId = own ? own.id : -1;
 
-  if (q) { where.push('(al.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  const search = searchClause(['al.title', 'a.name', 'al.genre'], q);
+  if (search.sql) { where.push(search.sql); params.push(...search.params); }
   if (artist_id) { where.push('al.artist_id = ?'); params.push(artist_id); }
 
   let countWhere = 'WHERE s.album_id = al.id AND s.is_public = 1';
@@ -979,14 +1018,16 @@ router.delete('/albums/:id', authMiddleware, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Album not found' });
   if (!albumOwnerIs(req, existing)) return res.status(403).json({ error: 'Not allowed' });
   db.prepare('DELETE FROM albums WHERE id = ?').run(existing.id);
+  releaseMedia([existing.cover_url]);
   res.json({ ok: true });
 });
 
 // ============================== ARTISTS ==============================
 router.get('/artists', optionalAuth, (req, res) => {
   const { q } = req.query;
-  const where = q ? 'WHERE a.name LIKE ? OR a.genre LIKE ?' : '';
-  const params = q ? [`%${q}%`, `%${q}%`] : [];
+  const search = searchClause(['a.name', 'a.genre'], q);
+  const where = search.sql ? `WHERE ${search.sql}` : '';
+  const params = search.params;
 
   const own = req.user ? artistForUser(req.user.id) : null;
   const ownArtistId = own ? own.id : -1;
@@ -1002,10 +1043,12 @@ router.get('/artists', optionalAuth, (req, res) => {
     }
   }
 
+  // song_count only counts tracks the caller may see, so clients can tell a profile that has
+  // music (worth listing on browse pages) from one that was only created at sign-up.
   const rows = db.prepare(`
     SELECT a.*, (SELECT COUNT(*) FROM songs s ${songCountWhere}) song_count,
            (SELECT COUNT(*) FROM albums al WHERE al.artist_id = a.id) album_count
-    FROM artists a ${where} ORDER BY a.followers DESC
+    FROM artists a ${where} ORDER BY a.followers DESC, song_count DESC, a.id ASC
   `).all(...songCountParams, ...params);
   res.json(rows);
 });
@@ -1080,7 +1123,14 @@ router.delete('/artists/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM artists WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Artist not found' });
   if (!artistOwnerIs(req, existing.id)) return res.status(403).json({ error: 'Not allowed' });
+  // Removing an artist also removes their tracks and albums, so note their files before the rows go.
+  const artistMedia = [
+    existing.avatar_url,
+    ...db.prepare('SELECT file_path, cover_url FROM songs WHERE artist_id = ?').all(existing.id).flatMap((song) => [song.file_path, song.cover_url]),
+    ...db.prepare('SELECT cover_url FROM albums WHERE artist_id = ?').all(existing.id).map((album) => album.cover_url)
+  ];
   db.prepare('DELETE FROM artists WHERE id = ?').run(existing.id);
+  releaseMedia(artistMedia);
   res.json({ ok: true });
 });
 
@@ -1291,7 +1341,7 @@ router.get('/podcasts/:id', optionalAuth, (req, res) => {
   res.json({ ...shapeShow(show), can_manage: canManagePodcast(req, show), episodes: episodes.map(shapeEpisode) });
 });
 
-router.post('/podcasts', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), (req, res) => {
+router.post('/podcasts', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), keepUploads, (req, res) => {
   const title = (req.body.title || '').trim();
   if (!title) return res.status(400).json({ error: 'Show title is required' });
   const coverFile = req.files && req.files.cover && req.files.cover[0];
@@ -1310,7 +1360,7 @@ router.post('/podcasts', authMiddleware, upload.fields([{ name: 'cover', maxCoun
   res.status(201).json(shapeShow(show));
 });
 
-router.put('/podcasts/:id', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), (req, res) => {
+router.put('/podcasts/:id', authMiddleware, upload.fields([{ name: 'cover', maxCount: 1 }]), keepUploads, (req, res) => {
   const existing = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Podcast not found' });
   if (!canManagePodcast(req, existing)) return res.status(403).json({ error: 'Not allowed' });
@@ -1324,6 +1374,7 @@ router.put('/podcasts/:id', authMiddleware, upload.fields([{ name: 'cover', maxC
     coverFile ? '/media/uploads/' + coverFile.filename : existing.cover_url,
     existing.id
   );
+  if (coverFile) releaseMedia([existing.cover_url]);
   const show = db.prepare(`SELECT ${SHOW_COLUMNS} FROM podcasts p WHERE p.id = @id`).get({ uid: req.user.id, id: existing.id });
   res.json(shapeShow(show));
 });
@@ -1332,7 +1383,10 @@ router.delete('/podcasts/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Podcast not found' });
   if (!canManagePodcast(req, existing)) return res.status(403).json({ error: 'Not allowed' });
+  const episodeMedia = db.prepare('SELECT file_path, cover_url FROM episodes WHERE podcast_id = ?').all(existing.id)
+    .flatMap((episode) => [episode.file_path, episode.cover_url]);
   db.prepare('DELETE FROM podcasts WHERE id = ?').run(existing.id);
+  releaseMedia([existing.cover_url, ...episodeMedia]);
   res.json({ ok: true });
 });
 
@@ -1350,7 +1404,7 @@ router.delete('/podcasts/:id/subscribe', authMiddleware, (req, res) => {
 });
 
 // ---------- episodes ----------
-router.post('/podcasts/:id/episodes', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
+router.post('/podcasts/:id/episodes', authMiddleware, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), keepUploads, (req, res) => {
   const show = db.prepare('SELECT * FROM podcasts WHERE id = ?').get(req.params.id);
   if (!show) return res.status(404).json({ error: 'Podcast not found' });
   if (!canManagePodcast(req, show)) return res.status(403).json({ error: 'Not allowed' });
@@ -1418,6 +1472,7 @@ router.delete('/episodes/:id', authMiddleware, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Episode not found' });
   if (!canManagePodcast(req, { user_id: row.show_owner })) return res.status(403).json({ error: 'Not allowed' });
   db.prepare('DELETE FROM episodes WHERE id = ?').run(row.id);
+  releaseMedia([row.file_path, row.cover_url]);
   res.json({ ok: true });
 });
 
@@ -1457,13 +1512,11 @@ router.put('/episodes/:id/progress', authMiddleware, (req, res) => {
   res.json({ ok: true, position_seconds: completed ? 0 : position, completed: !!completed });
 });
 
-router.get('/episodes/:id/download', (req, res) => {
+router.get('/episodes/:id/download', (req, res, next) => {
   const row = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
   if (!row || !row.file_path) return res.status(404).json({ error: 'No audio available' });
   db.prepare('UPDATE episodes SET downloads = downloads + 1 WHERE id = ?').run(row.id);
-  const rel = row.file_path.replace('/media/', '');
-  const abs = path.join(uploadsDir, '..', rel);
-  res.download(abs, path.basename(row.file_path));
+  sendDownload(res, next, row.file_path, path.basename(row.file_path));
 });
 
 export default router;

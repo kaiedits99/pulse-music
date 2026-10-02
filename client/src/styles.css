@@ -5,9 +5,11 @@
      shell       app frame: sidebar, topbar, content, player, mobile nav
      components  buttons, chips, cards, panels, forms, tables, feedback
      pages       page-specific layouts (auth, detail, upload, settings…)
+   plus the landing page, which stands alone and is only used before sign-in
    ========================================================================== */
 
 @import './styles/base.css';
 @import './styles/shell.css';
 @import './styles/components.css';
 @import './styles/pages.css';
+@import './styles/landing.css';

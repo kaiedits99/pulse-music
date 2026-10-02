@@ -4,10 +4,11 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
-import { seedFeaturedCatalog } from './catalog.js';
-import db, { dataDir, audioDir, coverDir, uploadsDir } from './db.js';
-import { ensureSeedAssets, seedDatabase } from './seed.js';
-import { seedPodcasts } from './podcasts.js';
+import db, { dataDir, uploadsDir } from './db.js';
+import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
+import { storage, redirectToBucket } from './media.js';
+import { keepAwakeTarget, startKeepAwake } from './keepalive.js';
+import { installGracefulShutdown } from './shutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -17,8 +18,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// static media (audio, covers, uploads) with Range support for streaming
-app.use('/media', express.static(dataDir, { maxAge: '1d' }));
+// Uploaded audio and artwork, with Range support for streaming. Only the uploads
+// folder is exposed — the data directory also holds the SQLite database, which must
+// never be downloadable.
+app.use('/media/uploads', express.static(uploadsDir, { maxAge: '1d' }));
+// With a bucket configured, uploads live there instead: anything not on local disk is sent to the
+// bucket (see media.js), so playback bandwidth never passes through this server.
+if (storage.remote) app.get('/media/uploads/:name', redirectToBucket);
 
 // API
 app.use('/api', routes);
@@ -39,66 +45,50 @@ app.use((err, req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Boot-time data readiness.
+// Boot.
 //
-// Render's free tier (and any container host without an attached disk) restarts
-// with a **wiped filesystem**: data/pulse.db, the synthesized demo audio and the
-// generated cover art can all vanish — and they can vanish independently, e.g. a
-// redeploy keeps the DB but loses data/audio, leaving every seeded track pointing
-// at a file that 404s. So instead of "seed once when the users table is empty" we
-// reconcile three things on every start:
+// Pulse starts EMPTY: nothing is seeded, generated or imported. The catalog is made
+// of what people upload, and every public upload is visible to everyone who signs
+// in afterwards. The only thing done here is clearing out demo content that an
+// older version of Pulse may have left in an existing database (see
+// legacy-demo-cleanup.js) — a no-op on a fresh install.
 //
-//   1. the database (users/artists/albums/songs/playlists demo data),
-//   2. the featured-artist catalogs (metadata, already idempotent),
-//   3. the generated media those rows reference (audio + covers).
-//
-// All of it is deterministic and idempotent, so a cold boot converges on the same
-// state every time. A failure here is logged but never blocks the server from
-// listening — an app that serves is better than a crash-looping deploy.
+// A failure is logged but never stops the server from listening.
 // ---------------------------------------------------------------------------
-async function prepareData() {
-  for (const dir of [dataDir, audioDir, coverDir, uploadsDir]) {
-    fs.mkdirSync(dir, { recursive: true });
+try {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const removed = purgeLegacyDemoData(db, dataDir);
+  if (removed.total > 0) {
+    console.log(
+      `[pulse] Removed leftover demo content: ${removed.songs} track(s), ${removed.albums} album(s), `
+      + `${removed.artists} artist(s), ${removed.playlists} playlist(s), ${removed.podcasts} podcast show(s) `
+      + `(${removed.episodes} episode(s)), ${removed.accounts} demo account(s), ${removed.files} generated file(s).`
+    );
   }
-
-  // Opt out of demo data (see render.yaml) without losing the self-heal below.
-  const seedDemo = String(process.env.SEED_DEMO_DATA ?? 'true').toLowerCase() !== 'false';
-  if (process.env.PULSE_TEST_FAIL_SEED === '1') {
-    throw new Error('simulated seeding failure (PULSE_TEST_FAIL_SEED=1)');
+  for (const email of removed.keptAccounts) {
+    console.warn(`[pulse] Kept legacy demo account ${email} because it owns real data. `
+      + 'Its old demo password still works — delete the account if it is not yours.');
   }
-  const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
-
-  if (userCount === 0 && seedDemo) {
-    console.log('[pulse] Empty database detected — seeding demo data…');
-    seedDatabase();
-  } else if (userCount === 0) {
-    console.log('[pulse] SEED_DEMO_DATA=false — starting with an empty database.');
-  }
-
-  // Featured artist catalogs: idempotent, backfills missing tracks only.
-  seedFeaturedCatalog();
-
-  // Podcasts & Shows: their own tables, their own media, same self-heal contract.
-  if (seedDemo) seedPodcasts();
-
-  // Repair generated media whose rows survived in the database but whose files did
-  // not. This covers the seeded demo WAVs *and* the cover art for artists/albums/
-  // playlists — including featured artists, which the catalog seeder skips because
-  // they already exist. Cheap and idempotent when nothing is missing.
-  const restored = ensureSeedAssets();
-  if (!restored.audio && !restored.covers) {
-    console.log(`[pulse] Generated media intact (${restored.tracks} seeded track(s) verified).`);
-  }
+} catch (err) {
+  console.error('[pulse] Legacy demo cleanup failed — starting anyway:', err.message);
 }
 
-try {
-  await prepareData();
-} catch (err) {
-  console.error('[pulse] Data seeding/self-healing failed — starting anyway:', err.message);
-  console.error(err.stack);
+console.log(`[pulse] Uploads are kept on ${storage.describe()}.`);
+if (!storage.remote && process.env.RENDER) {
+  console.warn(
+    '[pulse] WARNING: running on Render without a bucket. The database and every upload live on this '
+    + "instance's temporary disk and are lost on each restart, redeploy or sleep. Set S3_ENDPOINT, S3_BUCKET, "
+    + 'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (see DEPLOY.md), or ignore this if you attached a Render Disk.'
+  );
 }
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[pulse] Server running at http://0.0.0.0:${PORT}`);
+  const keepAwake = keepAwakeTarget();
+  if (keepAwake) {
+    startKeepAwake({ url: keepAwake });
+    console.log(`[pulse] Keep-awake ping enabled (${keepAwake}).`);
+  }
 });
+installGracefulShutdown(server, { delaySeconds: process.env.PULSE_SHUTDOWN_DELAY_SECONDS });

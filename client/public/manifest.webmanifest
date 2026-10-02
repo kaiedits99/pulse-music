@@ -1,7 +1,7 @@
 {
-  "name": "Pulse — Music Platform for Artists",
+  "name": "Pulse — Global Music Sharing",
   "short_name": "Pulse",
-  "description": "Stream, upload and manage your music catalog. Download tracks for offline listening.",
+  "description": "Share your music with the world and listen to what everyone else shares. Download tracks for offline listening.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

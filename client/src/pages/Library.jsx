@@ -12,8 +12,9 @@ import { ConfirmDialog } from '../components/Modal.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { useFavorites } from '../context/FavoritesContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { formatBytes, formatLongDuration, formatNumber, timeAgo } from '../format.js';
+import { formatBytes, formatLongDuration, formatNumber, timeAgo, plural } from '../format.js';
 import { episodesToTracks, resumeAt } from '../episodes.js';
 import {
   downloadSong as saveOffline,
@@ -62,11 +63,17 @@ export default function Library() {
   const [albums, setAlbums] = useState([]);
   const [artists, setArtists] = useState([]);
   const [songs, setSongs] = useState([]);
-  const [favorites, setFavorites] = useState([]);
+  const [likedFetched, setFavorites] = useState([]);
   const [myTracks, setMyTracks] = useState([]);
   const [podcasts, setPodcasts] = useState([]);
   const [savedEpisodes, setSavedEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { isLiked, revision } = useFavorites();
+  const favorites = useMemo(() => likedFetched.filter(isLiked), [likedFetched, isLiked]);
+
+  // The pickers in the album/track forms need every profile (your own included); the
+  // library itself only lists artists that have music, not ones created at sign-up.
+  const artistsWithMusic = useMemo(() => artists.filter((a) => (a.song_count || 0) > 0), [artists]);
 
   const [uploadTab, setUploadTab] = useState('all'); // 'all' | 'public' | 'private'
   const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
@@ -104,6 +111,12 @@ export default function Library() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // The Liked Songs card follows hearts clicked anywhere else (e.g. the player bar).
+  useEffect(() => {
+    if (!revision) return;
+    api.get('/api/favorites').then((fav) => setFavorites(fav || [])).catch(() => {});
+  }, [revision]);
 
   useEffect(() => {
     const cb = () => setOfflineTick((t) => t + 1);
@@ -236,7 +249,7 @@ export default function Library() {
       to: `/playlists/${p.id}`,
       cover: p.cover_url,
       title: p.name,
-      subtitle: p.creator_name ? `By ${p.creator_name} • ${p.track_count ?? 0} songs` : `${p.track_count ?? 0} songs`,
+      subtitle: p.creator_name ? `By ${p.creator_name} • ${plural(p.track_count, 'song')}` : plural(p.track_count, 'song'),
       meta: isPlaylistDownloaded(p.id)
         ? { icon: 'download', text: 'Downloaded', tone: 'green' }
         : { icon: 'clock', text: timeAgo(p.created_at) || 'Playlist' },
@@ -256,14 +269,14 @@ export default function Library() {
       cover: a.cover_url,
       title: a.title,
       subtitle: `${a.artist_name || 'Unknown artist'}${a.release_year ? ` • ${a.release_year}` : ''}`,
-      meta: { icon: 'disc', text: `${a.track_count || 0} tracks` },
+      meta: { icon: 'disc', text: plural(a.track_count, 'track') },
       sortDate: (a.release_year || 0) * 1000,
       size: a.track_count || 0,
       onPlay: () => playAlbum(a),
       raw: a
     }));
 
-    artists.forEach((a) => out.push({
+    artistsWithMusic.forEach((a) => out.push({
       key: `ar-${a.id}`,
       kind: 'artists',
       type: 'Artist',
@@ -341,7 +354,7 @@ export default function Library() {
     });
 
     return out;
-  }, [playlists, albums, artists, songs, myTracks, podcasts, user, artist, play, toast]);
+  }, [playlists, albums, artistsWithMusic, songs, myTracks, podcasts, user, artist, play, toast]);
 
   const filtered = useMemo(() => {
     let list = items;
@@ -365,7 +378,7 @@ export default function Library() {
     return sorted;
   }, [items, filter, sort, uploadTab]);
 
-  const totalCollections = playlists.length + albums.length + artists.length;
+  const totalCollections = playlists.length + albums.length + artistsWithMusic.length;
   const offlineCount = dlSongs.length;
   const storagePct = storage.quota > 0
     ? Math.min(100, (storage.usage / storage.quota) * 100)
@@ -654,7 +667,7 @@ export default function Library() {
         stats={[
           { value: playlists.length, label: 'Playlists' },
           { value: albums.length, label: 'Albums' },
-          { value: artists.length, label: 'Artists' },
+          { value: artistsWithMusic.length, label: 'Artists' },
           { value: songs.length, label: 'Tracks' },
           { value: podcasts.length, label: 'Shows' }
         ]}

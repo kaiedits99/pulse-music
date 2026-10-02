@@ -2,20 +2,28 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { foldText } from './search.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const dataDir = path.join(__dirname, '..', 'data');
-export const audioDir = path.join(dataDir, 'audio');
-export const coverDir = path.join(dataDir, 'covers');
+// Everything Pulse stores (SQLite file + uploaded audio/artwork) lives under one
+// folder. Point PULSE_DATA_DIR at a mounted disk to keep it somewhere else.
+export const dataDir = process.env.PULSE_DATA_DIR
+  ? path.resolve(process.env.PULSE_DATA_DIR)
+  : path.join(__dirname, '..', 'data');
 export const uploadsDir = path.join(dataDir, 'uploads');
 
-for (const d of [dataDir, audioDir, coverDir, uploadsDir]) {
+for (const d of [dataDir, uploadsDir]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
 const db = new Database(path.join(dataDir, 'pulse.db'));
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL'); // the usual pairing with WAL: much fewer disk syncs, still crash-safe
+db.pragma('busy_timeout = 5000'); // wait briefly instead of failing if Litestream is mid-checkpoint
 db.pragma('foreign_keys = ON');
+
+// Case-, accent- and punctuation-insensitive text for catalog search (see search.js).
+db.function('pulse_fold', { deterministic: true }, (value) => foldText(value));
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

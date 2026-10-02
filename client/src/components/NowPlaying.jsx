@@ -6,7 +6,7 @@ import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { useFavoriteToggle } from './SongTable.jsx';
+import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
 import { isEpisode } from '../episodes.js';
 import { useEpisodeSaveToggle } from '../hooks/useEpisodeActions.js';
 import { useAddToPlaylistDialog } from './Forms.jsx';
@@ -26,7 +26,7 @@ export default function NowPlaying({ open, onClose }) {
   } = usePlayer();
 
   const { toast } = useToast();
-  const toggleFavorite = useFavoriteToggle();
+  const { isLiked, toggleLike } = useFavorites();
   const toggleEpisodeSave = useEpisodeSaveToggle();
   const { open: openAddToPlaylist, dialog: addDialog } = useAddToPlaylistDialog();
 
@@ -58,7 +58,7 @@ export default function NowPlaying({ open, onClose }) {
   if (!open || !current) return null;
 
   const displayTime = previewTime != null ? previewTime : (Number.isFinite(currentTime) ? currentTime : 0);
-  const isFav = !!current.is_favorite;
+  const isFav = isLiked(current);
   const isEp = isEpisode(current);
   const isLocal = current.kind === 'local';
   const isOfflineOnly = isLocal || !!current.offline_only;
@@ -167,8 +167,13 @@ export default function NowPlaying({ open, onClose }) {
                   <Icon name={epSaved ? 'checkCircle' : 'plus'} size={16} />
                   {epSaved ? 'Saved' : 'Save episode'}
                 </button>
-              ) : (
-                <button className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`} onClick={() => toggleFavorite(current)}>
+              ) : isLikeable(current) && (
+                <button
+                  type="button"
+                  className={`btn btn-sm ${isFav ? 'btn-soft' : 'btn-ghost'}`}
+                  onClick={() => toggleLike(current)}
+                  aria-pressed={isFav}
+                >
                   <Icon name={isFav ? 'heartFill' : 'heart'} size={16} />
                   {isFav ? 'Liked' : 'Like'}
                 </button>

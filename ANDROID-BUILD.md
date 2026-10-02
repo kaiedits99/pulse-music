@@ -71,4 +71,5 @@ cd android && ./gradlew assembleDebug
 - **App ID** is `com.pulse.music`; **min Android** is 6.0 (API 23).
 - This is a **debug APK**. To publish on the Play Store you'd sign it and build a release
   version (`assembleRelease` + a keystore) — ask me if you want that set up.
-- First launch auto-seeds demo data on the server, so the app looks alive immediately.
+- A new server starts with an **empty catalog** — there is no sample data. Sign up in the app and
+  upload a track; it becomes the shared catalog that every other user sees.

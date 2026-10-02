@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { Cover } from './ui.jsx';
-import { formatNumber, timeAgo } from '../format.js';
+import { formatNumber, timeAgo, plural } from '../format.js';
 
 /**
  * The card from the Pulse design: square (or round) artwork with a type badge,
@@ -70,7 +70,7 @@ export function AlbumCard({ album, onPlay, actions }) {
       cover={album.cover_url}
       title={album.title}
       subtitle={`${album.artist_name || 'Unknown artist'}${album.release_year ? ` • ${album.release_year}` : ''}`}
-      meta={{ icon: 'disc', text: `${album.track_count || 0} tracks` }}
+      meta={{ icon: 'disc', text: plural(album.track_count, 'track') }}
       onPlay={onPlay ? () => onPlay(album) : undefined}
       playLabel={`Play ${album.title}`}
       actions={actions}
@@ -88,7 +88,7 @@ export function ArtistCard({ artist, onPlay, actions }) {
       round
       title={artist.name}
       subtitle={`${artist.genre || 'Artist'} • ${formatNumber(artist.followers)} listeners`}
-      meta={{ icon: 'music', text: `${artist.song_count ?? 0} tracks` }}
+      meta={{ icon: 'music', text: plural(artist.song_count, 'track') }}
       onPlay={onPlay ? () => onPlay(artist) : undefined}
       playLabel={`Play ${artist.name}`}
       actions={actions}
@@ -105,7 +105,7 @@ export function PlaylistCard({ playlist, onPlay, onDelete, downloaded }) {
       typeTone="accent"
       cover={playlist.cover_url}
       title={playlist.name}
-      subtitle={playlist.creator_name ? `By ${playlist.creator_name} • ${playlist.track_count ?? 0} songs` : `${playlist.track_count ?? 0} songs`}
+      subtitle={playlist.creator_name ? `By ${playlist.creator_name} • ${plural(playlist.track_count, 'song')}` : plural(playlist.track_count, 'song')}
       meta={downloaded
         ? { icon: 'download', text: 'Downloaded', tone: 'green' }
         : { icon: 'clock', text: playlist.created_at ? timeAgo(playlist.created_at) : 'Playlist' }}

@@ -214,4 +214,47 @@ export async function cachedCoverBlobUrl(coverPath) {
   }
 }
 
+/* ---- one-time cleanup of the retired demo catalog ----
+   Older versions shipped generated demo audio (/media/audio/…) and covers (/media/covers/…); real uploads
+   live in /media/uploads/. A device that saved any of that demo music for offline listening would keep
+   listing and playing it long after the server stopped knowing about it, so it is removed once per device. */
+const SEED_MEDIA = /^\/media\/(audio|covers)\//;
+const SEED_PURGED_KEY = 'pulse_demo_media_purged_v1';
+
+function isSeedMedia(url) {
+  if (!url || typeof url !== 'string') return false;
+  try { return SEED_MEDIA.test(new URL(url, window.location.origin).pathname); } catch { return false; }
+}
+
+/** Returns true when something was removed. Safe to call on every start: it only does work once. */
+export async function purgeLegacyDemoDownloads() {
+  try { if (localStorage.getItem(SEED_PURGED_KEY)) return false; } catch { return false; }
+
+  let changed = false;
+  const idx = readIndex();
+
+  for (const [id, entry] of Object.entries(idx.songs)) {
+    if (isSeedMedia(entry.audioUrl)) { delete idx.songs[id]; changed = true; }
+  }
+  for (const [id, snapshot] of Object.entries(idx.playlists)) {
+    const all = snapshot.songs || [];
+    const kept = all.filter((song) => !isSeedMedia(song.file_path || song.source_url));
+    if (kept.length === all.length) continue;
+    changed = true;
+    if (!kept.length) delete idx.playlists[id]; // nothing real left in this saved playlist
+    else idx.playlists[id] = { ...snapshot, songs: kept, cover_url: isSeedMedia(snapshot.cover_url) ? null : snapshot.cover_url };
+  }
+
+  try {
+    const store = await cache();
+    for (const request of await store.keys()) {
+      if (isSeedMedia(request.url)) { await store.delete(request); changed = true; }
+    }
+  } catch { /* Cache Storage unavailable: the index above is what the screens read */ }
+
+  if (changed) writeIndex(idx); // also tells open screens to refresh
+  try { localStorage.setItem(SEED_PURGED_KEY, '1'); } catch { /* try again next start */ }
+  return changed;
+}
+
 export { CACHE_NAME };

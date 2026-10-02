@@ -2,12 +2,14 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { ThemeProvider } from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { PlayerProvider } from './context/PlayerContext.jsx';
+import { FavoritesProvider } from './context/FavoritesContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import Layout from './components/Layout.jsx';
 import OfflineRouteManager from './components/OfflineRouteManager.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
+import Landing from './pages/Landing.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import Overview from './pages/Overview.jsx';
 import Search from './pages/Search.jsx';
@@ -38,7 +40,12 @@ function RequireAuth({ children }) {
     );
   }
   const offlineRoute = location.pathname === '/offline-player' || (typeof navigator !== 'undefined' && navigator.onLine === false);
-  if (!user && !offlineRoute) return <Navigate to="/login" replace />;
+  if (!user && !offlineRoute) {
+    // The front door: a signed-out visitor sees the landing page at "/", and is sent to sign in anywhere
+    // else (remembering where they were headed, so a shared link still works once they are in).
+    if (location.pathname === '/') return <Landing />;
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  }
   return children;
 }
 
@@ -49,33 +56,37 @@ export default function App() {
         <BrowserRouter>
           <ToastProvider>
             <AuthProvider>
-              <PlayerProvider>
-                <OfflineRouteManager />
-                <Routes>
-                  <Route path="/login" element={<AuthPage />} />
-                  <Route element={<RequireAuth><Layout /></RequireAuth>}>
-                    <Route path="/" element={<Overview />} />
-                    <Route path="/search" element={<Search />} />
-                    {/* legacy path kept so old links and bookmarks keep working */}
-                    <Route path="/songs" element={<Search />} />
-                    <Route path="/library" element={<Library />} />
-                    <Route path="/albums" element={<Albums />} />
-                    <Route path="/albums/:id" element={<AlbumDetail />} />
-                    <Route path="/artists" element={<Artists />} />
-                    <Route path="/artists/:id" element={<ArtistDetail />} />
-                    <Route path="/playlists" element={<Playlists />} />
-                    <Route path="/playlists/:id" element={<PlaylistDetail />} />
-                    <Route path="/podcasts" element={<Podcasts />} />
-                    <Route path="/podcasts/:id" element={<PodcastDetail />} />
-                    <Route path="/favorites" element={<Favorites />} />
-                    <Route path="/downloads" element={<Downloads />} />
-                    <Route path="/offline-player" element={<OfflinePlayer />} />
-                    <Route path="/upload" element={<Upload />} />
-                    <Route path="/settings" element={<Settings />} />
-                  </Route>
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </PlayerProvider>
+              <FavoritesProvider>
+                <PlayerProvider>
+                  <OfflineRouteManager />
+                  <Routes>
+                    {/* the keys make /login and /signup remount, so each opens on its own tab */}
+                    <Route path="/login" element={<AuthPage key="login" initialMode="login" />} />
+                    <Route path="/signup" element={<AuthPage key="signup" initialMode="register" />} />
+                    <Route element={<RequireAuth><Layout /></RequireAuth>}>
+                      <Route path="/" element={<Overview />} />
+                      <Route path="/search" element={<Search />} />
+                      {/* legacy path kept so old links and bookmarks keep working */}
+                      <Route path="/songs" element={<Search />} />
+                      <Route path="/library" element={<Library />} />
+                      <Route path="/albums" element={<Albums />} />
+                      <Route path="/albums/:id" element={<AlbumDetail />} />
+                      <Route path="/artists" element={<Artists />} />
+                      <Route path="/artists/:id" element={<ArtistDetail />} />
+                      <Route path="/playlists" element={<Playlists />} />
+                      <Route path="/playlists/:id" element={<PlaylistDetail />} />
+                      <Route path="/podcasts" element={<Podcasts />} />
+                      <Route path="/podcasts/:id" element={<PodcastDetail />} />
+                      <Route path="/favorites" element={<Favorites />} />
+                      <Route path="/downloads" element={<Downloads />} />
+                      <Route path="/offline-player" element={<OfflinePlayer />} />
+                      <Route path="/upload" element={<Upload />} />
+                      <Route path="/settings" element={<Settings />} />
+                    </Route>
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </PlayerProvider>
+              </FavoritesProvider>
             </AuthProvider>
           </ToastProvider>
         </BrowserRouter>

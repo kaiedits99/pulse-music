@@ -1,18 +1,25 @@
 /* Pulse service worker — makes offline downloads work end-to-end:
-   - /media/** (audio + covers): serve from the offline-download cache first,
-     then a runtime cache (stale-while-revalidate); anything the app cached via
-     the Cache API is instantly available here.
+   - /media/** (audio + covers): serve from the offline-download cache first;
+     anything else goes straight to the network exactly as the page asked for it
+     (same Range header, same request mode). Uploads may live in a bucket on
+     another site, in which case /media answers with a redirect there, and
+     re-issuing the request here with different options would break streaming.
    - App shell (/ navigations + /assets/**): network-first, fall back to the
      last cached copy so the UI itself opens offline and can play downloads.
    - /api/** is NEVER cached — catalog data stays live; the offline UI reads
      its snapshot from localStorage instead. */
 const OFFLINE_CACHE = 'pulse-offline-v1'; // shared with client/src/offline.js
-const RUNTIME_CACHE = 'pulse-runtime-v1';
 const SHELL_CACHE = 'pulse-shell-v1';
 const SHELL_URL = '/index.html';
 
 self.addEventListener('install', (e) => e.waitUntil(self.skipWaiting()));
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  // Older versions kept a copy of every track and cover that was played. That doubled the data used
+  // for each play and is no longer done, so drop what they stored. OFFLINE_CACHE (the user's own
+  // downloads) and SHELL_CACHE are never touched.
+  await Promise.all([caches.delete('pulse-runtime-v1'), caches.delete('pulse-runtime-v2')]);
+  await self.clients.claim();
+})()));
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -26,14 +33,7 @@ self.addEventListener('fetch', (e) => {
       const offline = await caches.open(OFFLINE_CACHE);
       const hit = await offline.match(url);
       if (hit) return hit;
-      const runtime = await caches.open(RUNTIME_CACHE);
-      const stale = await runtime.match(url);
-      const fresh = fetch(url).then((res) => {
-        if (res && res.ok) runtime.put(url, res.clone());
-        return res;
-      }).catch(() => null);
-      if (stale) { fresh.catch(() => {}); return stale; }
-      return (await fresh) || Response.error();
+      return fetch(req);
     })());
     return;
   }

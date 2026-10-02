@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -7,6 +7,12 @@ import { useToast } from '../context/ToastContext.jsx';
 import { initials } from '../format.js';
 import { downloadedPlaylists, downloadedSongs, OFFLINE_EVENT } from '../offline.js';
 import { useInstallPrompt } from '../hooks/useInstallPrompt.js';
+import { useMediaQuery } from '../hooks/useMediaQuery.js';
+
+// Pages that show catalog search results, and how long to wait after the last keystroke
+// before the results page is updated.
+const SEARCH_PATHS = ['/search', '/songs'];
+const SEARCH_DEBOUNCE_MS = 250;
 
 /** Live activity feed built from things the app actually knows about. */
 function useNotifications() {
@@ -70,21 +76,33 @@ export default function Topbar({ onMenu, onAccount }) {
   const { toast } = useToast();
   const { canInstall, installed, promptInstall } = useInstallPrompt();
   const notifications = useNotifications();
+  const compact = useMediaQuery('(max-width: 600px)'); // narrow pill: use the short placeholder
 
-  const [q, setQ] = useState('');
+  const onSearchPage = SEARCH_PATHS.includes(location.pathname);
+  const urlQuery = onSearchPage ? (new URLSearchParams(location.search).get('q') || '') : '';
+
+  const [q, setQ] = useState(urlQuery);
   const [notifOpen, setNotifOpen] = useState(false);
   const [seen, setSeen] = useState(false);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
   const notifRef = useRef(null);
   const inputRef = useRef(null);
+  const timerRef = useRef(null);       // pending (debounced) search navigation
+  const pushedRef = useRef(urlQuery);  // the query this field last wrote to the address bar
+  const latestRef = useRef({ onSearchPage, search: location.search });
+  useEffect(() => { latestRef.current = { onSearchPage, search: location.search }; });
+  useEffect(() => () => window.clearTimeout(timerRef.current), []);
 
-  /* keep the field in sync with ?q= on the search page */
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (location.pathname === '/search' || location.pathname === '/songs') {
-      setQ(params.get('q') || '');
-    }
-  }, [location]);
+  /* The address bar owns ?q= on the search page. A change this field made itself is ignored
+     (so a late echo can never overwrite what has been typed since); anything else — back/forward,
+     a chip's “×”, a link, leaving the search page — replaces the field's text. This is a layout
+     effect so the old text never gets painted for a frame after navigating. */
+  useLayoutEffect(() => {
+    if (urlQuery === pushedRef.current) return;
+    pushedRef.current = urlQuery;
+    window.clearTimeout(timerRef.current);
+    setQ(urlQuery);
+  }, [urlQuery]);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -114,17 +132,38 @@ export default function Topbar({ onMenu, onAccount }) {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const submit = (e) => {
-    e.preventDefault();
-    navigate(q.trim() ? `/search?q=${encodeURIComponent(q.trim())}` : '/search');
-  };
+  /* Show results for `value`. From another page this opens the search page; once there, further
+     keystrokes replace the history entry (so Back leaves search) and keep the page's other filters. */
+  const goSearch = useCallback((value) => {
+    const term = value.trim();
+    const { onSearchPage: onPage, search } = latestRef.current;
+    if (!onPage && !term) return; // nothing to clear
+    const current = new URLSearchParams(onPage ? search : '');
+    const next = new URLSearchParams(current);
+    if (term) next.set('q', term); else next.delete('q');
+    if (onPage && (next.get('q') || '') === (current.get('q') || '')) return; // already showing it
+    pushedRef.current = term;
+    const qs = next.toString();
+    navigate({ pathname: '/search', search: qs ? `?${qs}` : '' }, { replace: onPage });
+  }, [navigate]);
 
   const onSearchChange = (value) => {
     setQ(value);
-    // live search while already on the results page
-    if (location.pathname === '/search') {
-      navigate(value.trim() ? `/search?q=${encodeURIComponent(value.trim())}` : '/search', { replace: true });
-    }
+    window.clearTimeout(timerRef.current);
+    if (!value.trim()) { goSearch(''); return; } // clearing is instant
+    timerRef.current = window.setTimeout(() => goSearch(value), SEARCH_DEBOUNCE_MS);
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    window.clearTimeout(timerRef.current);
+    if (!q.trim() && !onSearchPage) navigate('/search'); // an empty search opens the page, as before
+    else goSearch(q);
+  };
+
+  const onSearchKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    if (q) { e.preventDefault(); onSearchChange(''); } else e.currentTarget.blur();
   };
 
   const handleInstall = async () => {
@@ -154,16 +193,22 @@ export default function Topbar({ onMenu, onAccount }) {
         <Icon name="search" size={17} />
         <input
           ref={inputRef}
+          type="search"
           value={q}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="What do you want to play?"
-          aria-label="Search music"
+          onKeyDown={onSearchKeyDown}
+          placeholder={compact ? 'Artist, track or genre' : 'Search by artist, track or genre'}
+          aria-label="Search the catalog by artist, track title or genre"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="search"
         />
         {q && (
           <button
             type="button"
             className="search-pill-clear"
-            onClick={() => onSearchChange('')}
+            onClick={() => { onSearchChange(''); inputRef.current?.focus(); }}
             aria-label="Clear search"
           >
             <Icon name="close" size={15} />

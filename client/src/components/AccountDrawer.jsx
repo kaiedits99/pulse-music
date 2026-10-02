@@ -40,7 +40,7 @@ export default function AccountDrawer({ open, onClose }) {
   const signOut = () => {
     logout();
     onClose();
-    navigate('/login');
+    navigate('/'); // signed out, so "/" is the landing page
   };
 
   return (

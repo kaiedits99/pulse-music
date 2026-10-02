@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { apiUrl } from '../config.js';
 import { openExternal } from '../native.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { downloadSong as saveOffline, removeSong as removeOffline, isSongDownloaded, hasPlayableAudio, OFFLINE_EVENT } from '../offline.js';
 
@@ -40,28 +41,6 @@ function Dropdown({ open, onClose, items }) {
   );
 }
 
-export function useFavoriteToggle() {
-  const { markFavorite } = usePlayer();
-  const { toast } = useToast();
-
-  const toggleFavorite = async (song) => {
-    const nextVal = song.is_favorite ? 0 : 1;
-    // optimistic update
-    song.is_favorite = nextVal;
-    markFavorite(song.id, nextVal);
-    try {
-      if (nextVal) await api.post(`/api/favorites/${song.id}`);
-      else await api.del(`/api/favorites/${song.id}`);
-      toast(nextVal ? 'Added to favorites' : 'Removed from favorites', nextVal ? 'success' : 'info');
-    } catch {
-      song.is_favorite = nextVal ? 0 : 1;
-      markFavorite(song.id, nextVal ? 0 : 1);
-      toast('Could not update favorite', 'error');
-    }
-  };
-  return toggleFavorite;
-}
-
 export function downloadFile(song, toast) {
   if (!song.file_path) { toast('No audio file for this track', 'error'); return; }
   openExternal(apiUrl(`/api/songs/${song.id}/download`));
@@ -87,7 +66,7 @@ export default function SongTable({
 }) {
   const { play, current, isPlaying, togglePlay } = usePlayer();
   const { toast } = useToast();
-  const toggleFavorite = useFavoriteToggle();
+  const { isLiked, toggleLike } = useFavorites();
   useOfflineTick();
   const [menuFor, setMenuFor] = useState(null);
 
@@ -147,6 +126,7 @@ export default function SongTable({
             const showEdit = onEdit && userCanManage;
             const showDelete = onDelete && userCanManage;
             const isPrivate = song.is_public === 0;
+            const liked = isLiked(song);
 
             return (
               <tr key={song.id} className={isCurrent ? 'row-current' : ''} onDoubleClick={() => handleRowPlay(song, i)}>
@@ -189,13 +169,17 @@ export default function SongTable({
                 <td className="col-dur muted">{formatDuration(song.duration_seconds)}</td>
                 <td className="col-actions">
                   <div className="row-actions">
-                    <button
-                      className={`icon-btn icon-btn-sm fav-btn ${song.is_favorite ? 'active' : ''}`}
-                      onClick={() => toggleFavorite(song)}
-                      aria-label="Favorite"
-                    >
-                      <Icon name={song.is_favorite ? 'heartFill' : 'heart'} size={17} />
-                    </button>
+                    {isLikeable(song) && (
+                      <button
+                        className={`icon-btn icon-btn-sm fav-btn ${liked ? 'active' : ''}`}
+                        onClick={() => toggleLike(song)}
+                        aria-label={`Like ${song.title}`}
+                        aria-pressed={liked}
+                        title={liked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+                      >
+                        <Icon name={liked ? 'heartFill' : 'heart'} size={17} />
+                      </button>
+                    )}
                     <button className="icon-btn icon-btn-sm" onClick={() => downloadFile(song, toast)} aria-label="Download">
                       <Icon name="download" size={17} />
                     </button>

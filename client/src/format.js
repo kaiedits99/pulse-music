@@ -23,6 +23,12 @@ export function formatNumber(n) {
   return String(n);
 }
 
+/** "1 track" / "3 tracks" — counts in a small, real catalog are very often 1. */
+export function plural(n, word) {
+  const count = Number(n) || 0;
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
 /** Byte count → "14.8 GB" / "320 MB". */
 export function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB';

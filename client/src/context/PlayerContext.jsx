@@ -408,10 +408,6 @@ export function PlayerProvider({ children }) {
     setRepeatState(value);
   }, []);
 
-  const markFavorite = useCallback((songId, value) => {
-    updateQueue(queueRef.current.map((song) => song.id === songId ? { ...song, is_favorite: value } : song));
-  }, []);
-
   /** Patch any field of a queued item (used for the episode “Saved” toggle). */
   const patchTrack = useCallback((trackId, patch) => {
     updateQueue(queueRef.current.map((song) => song.id === trackId ? { ...song, ...patch } : song));
@@ -422,7 +418,7 @@ export function PlayerProvider({ children }) {
       current, queue, index, isPlaying, currentTime, duration,
       volume, shuffle, repeat, error,
       play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat,
-      markFavorite, patchTrack
+      patchTrack
     }}>
       {children}
     </PlayerContext.Provider>

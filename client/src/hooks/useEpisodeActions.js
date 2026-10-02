@@ -18,7 +18,7 @@ export function useEpisodeSaveToggle() {
     const trackId = episode.kind === 'episode' ? episode.id : `ep-${episodeId}`;
     const next = !episode.saved;
 
-    episode.saved = next ? 1 : 0; // optimistic, mirrors useFavoriteToggle
+    episode.saved = next ? 1 : 0; // optimistic, same idea as the likes in FavoritesContext
     patchTrack(trackId, { saved: next ? 1 : 0 });
     try {
       await setEpisodeSaved(episodeId, next);

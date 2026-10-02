@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { isPlaylistDownloaded, OFFLINE_EVENT } from '../offline.js';
 
+import { plural } from '../format.js';
 const FILTERS = [
   { id: 'all', label: 'All playlists' },
   { id: 'mine', label: 'Created by you' },
@@ -145,8 +146,8 @@ export default function Playlists() {
                 to={`/playlists/${pl.id}`}
                 cover={pl.cover_url}
                 title={pl.name}
-                subtitle={pl.creator_name ? `By ${pl.creator_name} • ${pl.track_count ?? 0} songs` : `${pl.track_count ?? 0} songs`}
-                meta={isPlaylistDownloaded(pl.id) ? 'Downloaded' : `${pl.track_count ?? 0} tracks`}
+                subtitle={pl.creator_name ? `By ${pl.creator_name} • ${plural(pl.track_count, 'song')}` : plural(pl.track_count, 'song')}
+                meta={isPlaylistDownloaded(pl.id) ? 'Downloaded' : plural(pl.track_count, 'track')}
                 metaTone={isPlaylistDownloaded(pl.id) ? 'green' : ''}
                 onPlay={() => playPlaylist(pl)}
                 actions={canManage(pl) && (

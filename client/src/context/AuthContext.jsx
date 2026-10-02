@@ -22,6 +22,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => readCached(CACHED_USER_KEY));
   const [artist, setArtist] = useState(() => readCached(CACHED_ARTIST_KEY));
   const [loading, setLoading] = useState(true);
+  // True right after someone actually signs in or signs up (not when a saved session is restored on
+  // reload), until they answer the "share your music" prompt.
+  const [sharePrompt, setSharePrompt] = useState(false);
 
   const loadMe = useCallback(async () => {
     if (!getToken()) { setLoading(false); return; }
@@ -55,8 +58,8 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { loadMe(); }, [loadMe]);
 
-  const login = useCallback(async (identifier, password) => {
-    const data = await api.post('/api/auth/login', { identifier, email: identifier, password });
+  // What every way of getting in (password, sign-up, Google) does once the server has said yes.
+  const startSession = useCallback(async (data) => {
     setToken(data.token);
     setUser(data.user);
     cacheSession(data.user, null);
@@ -65,34 +68,26 @@ export function AuthProvider({ children }) {
       setArtist(me.artist);
       cacheSession(me.user || data.user, me.artist);
     } catch { /* ignore */ }
+    setSharePrompt(true);
     return data.user;
   }, []);
 
-  const register = useCallback(async (payload) => {
-    const data = await api.post('/api/auth/register', payload);
-    setToken(data.token);
-    setUser(data.user);
-    cacheSession(data.user, null);
-    try {
-      const me = await api.get('/api/auth/me');
-      setArtist(me.artist);
-      cacheSession(me.user || data.user, me.artist);
-    } catch { /* ignore */ }
-    return data.user;
-  }, []);
+  const login = useCallback(
+    async (identifier, password) => startSession(await api.post('/api/auth/login', { identifier, email: identifier, password })),
+    [startSession]
+  );
 
-  const loginWithGoogle = useCallback(async (credential) => {
-    const data = await api.post('/api/auth/google', { credential });
-    setToken(data.token);
-    setUser(data.user);
-    cacheSession(data.user, null);
-    try {
-      const me = await api.get('/api/auth/me');
-      setArtist(me.artist);
-      cacheSession(me.user || data.user, me.artist);
-    } catch { /* ignore */ }
-    return data.user;
-  }, []);
+  const register = useCallback(
+    async (payload) => startSession(await api.post('/api/auth/register', payload)),
+    [startSession]
+  );
+
+  const loginWithGoogle = useCallback(
+    async (credential) => startSession(await api.post('/api/auth/google', { credential })),
+    [startSession]
+  );
+
+  const dismissSharePrompt = useCallback(() => setSharePrompt(false), []);
 
   const updatePreferences = useCallback(async (payload) => {
     const data = await api.put('/api/auth/preferences', payload);
@@ -106,6 +101,7 @@ export function AuthProvider({ children }) {
     cacheSession(null, null);
     setUser(null);
     setArtist(null);
+    setSharePrompt(false);
   }, []);
 
   const refreshArtist = useCallback(async () => {
@@ -118,7 +114,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, artist, loading, login, loginWithGoogle, register, logout, refreshArtist, updatePreferences }}>
+    <AuthContext.Provider value={{ user, artist, loading, login, loginWithGoogle, register, logout, refreshArtist, updatePreferences, sharePrompt, dismissSharePrompt }}>
       {children}
     </AuthContext.Provider>
   );

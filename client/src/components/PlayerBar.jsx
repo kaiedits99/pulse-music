@@ -7,7 +7,7 @@ import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { useFavoriteToggle } from './SongTable.jsx';
+import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
 import { useAddToPlaylistDialog } from './Forms.jsx';
 import { isEpisode } from '../episodes.js';
 import { useEpisodeSaveToggle } from '../hooks/useEpisodeActions.js';
@@ -34,7 +34,7 @@ export default function PlayerBar() {
   } = usePlayer();
 
   const { toast } = useToast();
-  const toggleFavorite = useFavoriteToggle();
+  const { isLiked, toggleLike } = useFavorites();
   const toggleEpisodeSave = useEpisodeSaveToggle();
   const { open: openAddToPlaylist, dialog: addDialog } = useAddToPlaylistDialog();
 
@@ -43,6 +43,7 @@ export default function PlayerBar() {
 
   const [expanded, setExpanded] = useState(false);
   const [previewTime, setPreviewTime] = useState(null);
+  const [likePop, setLikePop] = useState(false); // one-off "pop" when the person likes a track
   const [, setOfflineTick] = useState(0);
 
   useEffect(() => {
@@ -135,7 +136,7 @@ export default function PlayerBar() {
   if (!current) return <div className="playerbar playerbar--empty" aria-hidden="true" />;
 
   const displayTime = previewTime != null ? previewTime : (Number.isFinite(currentTime) ? currentTime : 0);
-  const isFav = !!current.is_favorite;
+  const isFav = isLiked(current);
   const isEp = isEpisode(current);
   const isLocal = current.kind === 'local';
   const isOfflineOnly = isLocal || !!current.offline_only;
@@ -184,14 +185,19 @@ export default function PlayerBar() {
             </button>
           ) : !isOfflineOnly ? (
             <>
-              <button
-                className={`pl-mini-btn ${isFav ? 'on' : ''}`}
-                onClick={() => toggleFavorite(current)}
-                title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-                aria-label={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-              >
-                <Icon name={isFav ? 'heartFill' : 'heart'} size={18} />
-              </button>
+              {isLikeable(current) && (
+                <button
+                  type="button"
+                  className={`pl-mini-btn pl-like ${isFav ? 'on' : ''} ${likePop ? 'pop' : ''}`}
+                  onClick={() => { if (!isFav) setLikePop(true); toggleLike(current); }}
+                  onAnimationEnd={() => setLikePop(false)}
+                  title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+                  aria-label="Like"
+                  aria-pressed={isFav}
+                >
+                  <Icon name={isFav ? 'heartFill' : 'heart'} size={18} />
+                </button>
+              )}
               <button
                 className="pl-mini-btn mobile-hide"
                 onClick={() => openAddToPlaylist(current)}
