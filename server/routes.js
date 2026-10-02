@@ -147,7 +147,16 @@ function resolveUploadArtist(req, body) {
 // distinguishable from "data is ready", and boot-time maintenance should never
 // be able to make the instance look dead to the platform.
 router.get('/health', (req, res) => {
-  res.json({ status: 'ok', storage: storage.remote ? 'bucket' : 'local', uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    storage: storage.remote ? 'bucket' : 'local',
+    // Which build is this? Render sets RENDER_GIT_COMMIT to the commit it deployed, so a check can
+    // tell a live deployment from an old one. Absent on a machine that isn't a Render build.
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : undefined,
+    node: process.version,
+    uptime: Math.round(process.uptime()),
+    time: new Date().toISOString()
+  });
 });
 
 // ============================== AUTH ==============================

@@ -87,13 +87,20 @@ the [configuration table in the README](README.md#configuration), including `KEE
   npm run health -- https://<your-app>.onrender.com
   ```
 
-  It should say `"storage":"bucket"`. (`"local"` means the bucket settings didn't reach the service —
-  and on a host with a temporary disk, that means uploads are lost on the next restart.) A healthy
-  answer looks like:
+  A healthy answer looks like:
 
   ```json
-  {"status":"ok","storage":"bucket","uptime":42,"time":"2026-10-02T15:04:05.678Z"}
+  {"status":"ok","storage":"bucket","commit":"b8682dc","node":"v24.21.0","uptime":42,"time":"2026-10-02T15:04:05.678Z"}
   ```
+
+  - `"storage":"bucket"` — uploads are in the bucket and survive this machine being wiped.
+    `"local"` means the bucket settings didn't reach the service, and on a host with a temporary disk
+    uploads are lost on the next restart.
+  - `"commit"` — the commit the host deployed (Render reports it). Compare it with `main`; if it is
+    older, the deploy did not go through and the old version is still serving.
+  - **No `"storage"` field at all** — this is a Pulse from before bucket storage existed. Its
+    accounts and uploads are on the instance's own disk and a restart wipes them; deploy the
+    current version.
 - In the Render logs, look for `Uploads are kept on bucket "…"` and Litestream's
   `replicating to` line.
 - Upload a track, then in Render choose **Manual Deploy → Deploy latest commit**. When it is

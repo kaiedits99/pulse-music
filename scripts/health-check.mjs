@@ -119,6 +119,11 @@ if (health.storage === 'bucket') {
   good('The app is running.');
   good('Uploads are kept in the bucket, so a restart, redeploy or sleep does not lose them.');
   if (typeof health.uptime === 'number') note(`It has been up for ${health.uptime}s${health.uptime < 120 ? ' (it was just woken up)' : ''}.`);
+  if (health.commit) {
+    note(`Built from commit ${health.commit}${health.node ? ` on Node ${health.node}` : ''} — check it matches the commit you deployed.`);
+  } else {
+    note(`No commit recorded${health.node ? ` (Node ${health.node})` : ''}, so this is not a Render build — or it is an older version of Pulse that predates this field.`);
+  }
   console.log('\nAll good.\n');
   process.exit(0);
 }
@@ -129,6 +134,14 @@ if (health.storage === 'local') {
   note('Set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY on the service, then redeploy.');
   note('If this app has a real, persistent disk of its own, "local" is fine — that is what a self-hosted Pulse looks like.');
   console.log('\nOne thing to fix.\n');
+  process.exit(1);
+}
+
+if (health.status === 'ok' && health.storage === undefined) {
+  // Exactly what an older Pulse answered before uploads could live in a bucket: {status, uptime, time}.
+  bad('This is an OLD version of Pulse — one that predates bucket storage.');
+  note('Its accounts and uploads sit on the instance\'s own disk, so a sleep, restart or redeploy wipes them.');
+  note('Deploy the current version (see DEPLOY.md) and check again: the answer must include "storage".');
   process.exit(1);
 }
 

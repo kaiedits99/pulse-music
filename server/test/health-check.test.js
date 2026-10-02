@@ -97,3 +97,19 @@ test('a non-Pulse answer is not mistaken for a healthy app', async () => {
   assert.equal(code, 1, output);
   assert.match(output, /does not look like Pulse/);
 });
+
+test('a Pulse from before bucket storage is named as old, not called healthy', async () => {
+  // What an older deployment answers: {status, uptime, time} and nothing else.
+  const app = await listen((_n, res) => json(res, { status: 'ok', uptime: 13670, time: '2026-10-02T16:06:43.248Z' }));
+  const { code, output } = await run([app.url]);
+  assert.equal(code, 1, output);
+  assert.match(output, /OLD version of Pulse/);
+  assert.match(output, /wipes them/);
+});
+
+test('the deployed commit is reported when the host recorded one', async () => {
+  const app = await listen((_n, res) => json(res, { status: 'ok', storage: 'bucket', commit: 'cde6dc8', node: 'v24.21.0', uptime: 900 }));
+  const { code, output } = await run([app.url]);
+  assert.equal(code, 0, output);
+  assert.match(output, /Built from commit cde6dc8 on Node v24\.21\.0/);
+});
