@@ -6,6 +6,7 @@ import Topbar from './Topbar.jsx';
 import PlayerBar from './PlayerBar.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import AccountDrawer from './AccountDrawer.jsx';
+import SharePrompt from './SharePrompt.jsx';
 
 const MOBILE_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
@@ -54,6 +55,7 @@ export default function Layout() {
       </nav>
 
       <AccountDrawer open={accountOpen} onClose={() => setAccountOpen(false)} />
+      <SharePrompt />
     </div>
   );
 }

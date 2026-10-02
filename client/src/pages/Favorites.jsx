@@ -7,6 +7,7 @@ import { PageHero, SectionHead, SortMenu, ViewToggle, EmptyState, RowSkeleton, G
 import { useAddToPlaylistDialog } from '../components/Forms.jsx';
 import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { useFavorites } from '../context/FavoritesContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { formatLongDuration, formatNumber } from '../format.js';
 import { downloadSong as saveOffline, hasPlayableAudio, isSongDownloaded, OFFLINE_EVENT } from '../offline.js';
@@ -22,22 +23,30 @@ export default function Favorites() {
   const { toast } = useToast();
   const { play } = usePlayer();
   const { open: openAdd, dialog: addDialog } = useAddToPlaylistDialog();
+  const { isLiked, revision } = useFavorites();
 
-  const [songs, setSongs] = useState([]);
+  const [fetched, setFetched] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('recent');
   const [view, setView] = useState('list');
   const [downloading, setDownloading] = useState(false);
   const [, setOfflineTick] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setSongs(await api.get('/api/favorites')); }
-    catch (err) { toast(err.message || 'Could not load your liked songs', 'error'); }
-    finally { setLoading(false); }
+  // A background refresh keeps what is on screen if it fails, and never flashes the skeleton.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try { setFetched(await api.get('/api/favorites')); }
+    catch (err) { if (!silent) toast(err.message || 'Could not load your liked songs', 'error'); }
+    finally { if (!silent) setLoading(false); }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Hearts clicked elsewhere (player bar, other pages) change this list: refresh once the server has confirmed.
+  useEffect(() => { if (revision) load(true); }, [revision, load]);
+
+  // What is shown follows the hearts immediately: un-liking a track drops it from the list at once.
+  const songs = useMemo(() => fetched.filter(isLiked), [fetched, isLiked]);
 
   useEffect(() => {
     const cb = () => setOfflineTick((t) => t + 1);

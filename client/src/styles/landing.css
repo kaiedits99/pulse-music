@@ -1,0 +1,123 @@
+/* ==========================================================================
+   Pulse — Landing page (the signed-out front door at "/")
+   Built only from the design tokens in base.css, so both themes work.
+   ========================================================================== */
+
+.landing {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background:
+    radial-gradient(60% 55% at 50% -5%, rgba(139, 92, 246, 0.30) 0%, transparent 70%),
+    radial-gradient(45% 45% at 95% 105%, rgba(168, 85, 247, 0.16) 0%, transparent 70%),
+    radial-gradient(40% 40% at 0% 100%, rgba(99, 102, 241, 0.12) 0%, transparent 70%),
+    var(--bg);
+}
+
+.landing-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px clamp(16px, 4vw, 40px);
+}
+.landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.landing-top-actions { display: flex; align-items: center; gap: 10px; }
+
+.landing-main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  padding: 16px clamp(18px, 5vw, 48px) 72px;
+  text-align: center;
+}
+
+/* equalizer */
+.landing-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  height: 58px;
+}
+.landing-bars span {
+  width: 5px;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--grad-vivid);
+  opacity: 0.92;
+  transform-origin: bottom;
+  transform: scaleY(var(--peak));
+  animation: landing-eq 1.35s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.11s);
+}
+@keyframes landing-eq {
+  0%, 100% { transform: scaleY(0.22); }
+  50% { transform: scaleY(var(--peak)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-bars span { animation: none; }
+}
+
+.landing-title {
+  max-width: 15em;
+  font-size: clamp(34px, 6.4vw, 70px);
+  font-weight: 800;
+  line-height: 1.07;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.landing-title span {
+  display: block;
+  /* The gradient is only painted inside the line box, which cut the tails off g and p.
+     Extra paint room below, cancelled out by the negative margin so nothing moves. */
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.landing-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* the small print: deliberately small, but still comfortably legible */
+.landing-fineprint {
+  max-width: 48ch;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+@media (max-width: 560px) {
+  .landing-main { gap: 24px; padding-bottom: 48px; }
+  .landing-bars { height: 46px; gap: 4px; }
+  .landing-bars span { width: 4px; }
+  .landing-cta { width: 100%; }
+  .landing-cta .btn { flex: 1 1 100%; justify-content: center; }
+}

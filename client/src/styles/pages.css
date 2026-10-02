@@ -128,6 +128,21 @@
 }
 .genre-tile:hover .genre-tile-art { transform: rotate(14deg) scale(1.1); }
 
+/* Home before anything has been uploaded: only the empty state, centred in the page. */
+.home-empty {
+  min-height: min(64vh, 560px);
+  display: grid;
+  place-items: center;
+}
+.home-empty .empty-state { width: min(100%, 560px); padding: 64px 28px; }
+.home-empty .empty-state h3 { font-size: 22px; letter-spacing: -0.02em; }
+.home-empty .empty-state p { font-size: 14.5px; }
+
+/* Search results while a new query loads: the previous rows stay on screen and are only dimmed.
+   The transition delay means a quick response never flickers. */
+.search-results { transition: opacity 0.18s ease 0.12s; }
+.search-results.is-fetching { opacity: 0.55; }
+
 /* =========================================================== NOW PLAYING = */
 .np-overlay {
   position: fixed;

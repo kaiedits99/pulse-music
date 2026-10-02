@@ -27,7 +27,11 @@ export default function Artists() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setArtists(await api.get('/api/artists')); }
+    try {
+      // A profile is created at sign-up; it only belongs on this page once there is music to hear.
+      const all = await api.get('/api/artists');
+      setArtists(all.filter((a) => (a.song_count || 0) > 0));
+    }
     catch (err) { toast(err.message || 'Could not load artists', 'error'); }
     finally { setLoading(false); }
   }, [toast]);

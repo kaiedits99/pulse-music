@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import GoogleAuthButton from '../components/GoogleAuthButton.jsx';
 import { Spinner } from '../components/ui.jsx';
@@ -26,13 +26,18 @@ const STEPS = [
   { id: 3, label: 'Music taste' }
 ];
 
-export default function AuthPage() {
+export default function AuthPage({ initialMode = 'login' }) {
   const { login, register } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Signed-out visitors who followed a link to an inner page are sent back there once they are in
+  // (only in-app paths are accepted; anything else goes Home).
+  const from = location.state?.from;
+  const afterSignIn = typeof from === 'string' && /^\/(?!\/)/.test(from) ? from : '/';
 
-  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [mode, setMode] = useState(initialMode); // 'login' | 'register'
   const [regStep, setRegStep] = useState(1); // 1: account, 2: username, 3: genres
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -130,7 +135,7 @@ export default function AuthPage() {
     try {
       await login(id.trim(), form.password);
       toast('Welcome back!');
-      navigate('/');
+      navigate(afterSignIn, { replace: true });
     } catch (err) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -155,7 +160,7 @@ export default function AuthPage() {
         favoriteGenres: selectedGenres
       });
       toast(`Welcome to Pulse, @${form.username.trim()}!`);
-      navigate('/');
+      navigate(afterSignIn, { replace: true });
     } catch (err) {
       setError(err.message || 'Could not complete registration');
       if (err.message && err.message.toLowerCase().includes('username')) setRegStep(2);
@@ -173,13 +178,6 @@ export default function AuthPage() {
 
   const switchMode = (m) => { setMode(m); setRegStep(1); setError(''); };
   const isDark = theme === 'dark';
-
-  const fillDemo = () => {
-    setMode('login');
-    setForm((f) => ({ ...f, identifier: 'amara@pulse.app', email: 'amara@pulse.app', password: 'demo123' }));
-    setError('');
-    toast('Demo credentials filled — press Sign in', 'info');
-  };
 
   return (
     <div className="auth-screen">
@@ -210,10 +208,15 @@ export default function AuthPage() {
           </div>
         </div>
 
+        {/* Real numbers only — nothing is shown until the first track has been uploaded. */}
         <div className="auth-stats">
-          <div className="auth-stat"><strong>{stats ? formatNumber(stats.songs) : '—'}</strong><small>Tracks</small></div>
-          <div className="auth-stat"><strong>{stats ? formatNumber(stats.artists) : '—'}</strong><small>Artists</small></div>
-          <div className="auth-stat"><strong>{stats ? formatNumber(stats.plays) : '—'}</strong><small>Plays</small></div>
+          {stats?.songs > 0 && (
+            <>
+              <div className="auth-stat"><strong>{formatNumber(stats.songs)}</strong><small>Tracks</small></div>
+              <div className="auth-stat"><strong>{formatNumber(stats.artists)}</strong><small>Artists</small></div>
+              <div className="auth-stat"><strong>{formatNumber(stats.plays)}</strong><small>Plays</small></div>
+            </>
+          )}
         </div>
       </aside>
 
@@ -251,7 +254,7 @@ export default function AuthPage() {
                     type="text"
                     value={form.identifier || form.email}
                     onChange={(e) => { set('identifier', e.target.value); set('email', e.target.value); }}
-                    placeholder="e.g. amara or you@example.com"
+                    placeholder="Username or email"
                     autoFocus
                     required
                   />
@@ -285,8 +288,6 @@ export default function AuthPage() {
 
               <p className="auth-foot">
                 New to Pulse? <button className="link-btn" onClick={() => switchMode('register')}>Create an account</button>
-                {' · '}
-                <button className="link-btn" onClick={fillDemo}>Use demo account</button>
               </p>
 
               <div style={{ marginTop: 18 }}>

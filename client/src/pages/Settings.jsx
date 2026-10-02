@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Spinner, PageHero } from '../components/ui.jsx';
 import { ConfirmDialog } from '../components/Modal.jsx';
@@ -23,6 +23,7 @@ const GENRE_OPTIONS = [
 
 export default function Settings() {
   const { user, artist, refreshArtist, updatePreferences, logout } = useAuth();
+  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { canInstall, installed, promptInstall } = useInstallPrompt();
@@ -358,7 +359,7 @@ export default function Settings() {
       <ConfirmDialog
         open={confirmLogout}
         onClose={() => setConfirmLogout(false)}
-        onConfirm={logout}
+        onConfirm={() => { logout(); navigate('/'); }}
         title="Sign out"
         message="Sign out of Pulse on this device? Your downloads stay cached."
       />

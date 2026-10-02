@@ -7,6 +7,7 @@ import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatBytes } from '../format.js';
+import { AUDIO_ACCEPT, takeFiles } from '../uploadHandoff.js';
 
 const GENRES = ['Afrobeats', 'Afropop', 'R&B / Soul', 'Afro-fusion', 'Indie Rock', 'Indie Pop', 'Indie Folk', 'Synthpop', 'Alt Pop', 'Indie Dance', 'Electronic', 'Hip-Hop', 'Jazz', 'Gospel', 'Other'];
 const AUDIO_RE = /\.(wav|mp3|m4a|ogg|flac|aac)$/i;
@@ -61,6 +62,12 @@ export default function Upload() {
       setForm((f) => ({ ...f, title: files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') }));
     }
   };
+
+  // Files chosen in the "share your music" prompt right after signing in arrive here ready to publish.
+  useEffect(() => {
+    const handedOver = takeFiles();
+    if (handedOver.length) pickAudio(handedOver);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearAudio = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -142,7 +149,7 @@ export default function Upload() {
             <input
               type="file"
               multiple
-              accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.aac"
+              accept={AUDIO_ACCEPT}
               onChange={(e) => pickAudio(e.target.files)}
               style={{ display: 'none' }}
               id="audio-input"

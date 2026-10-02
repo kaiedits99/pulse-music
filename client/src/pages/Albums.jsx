@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 
+import { plural } from '../format.js';
 const SORTS = [
   { id: 'recent', label: 'Newest first' },
   { id: 'alpha', label: 'A–Z' },
@@ -139,7 +140,7 @@ export default function Albums() {
                 cover={al.cover_url}
                 title={al.title}
                 subtitle={`${al.artist_name || 'Unknown artist'} • ${al.release_year || '—'}`}
-                meta={`${al.track_count || 0} tracks`}
+                meta={plural(al.track_count, 'track')}
                 onPlay={() => playAlbum(al)}
                 actions={canManage(al) && (
                   <>

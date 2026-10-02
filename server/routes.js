@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import db, { uploadsDir } from './db.js';
+import { searchClause } from './search.js';
 import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
 
 const router = express.Router();
@@ -139,8 +140,8 @@ function resolveUploadArtist(req, body) {
 // Unauthenticated liveness probe used as the Render health check path
 // (see render.yaml). It deliberately does no database work: on a host that
 // restarts with a wiped filesystem we want "process is up and serving" to be
-// distinguishable from "data is ready", and boot-time seeding/self-healing
-// should never be able to make the instance look dead to the platform.
+// distinguishable from "data is ready", and boot-time maintenance should never
+// be able to make the instance look dead to the platform.
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: Math.round(process.uptime()), time: new Date().toISOString() });
 });
@@ -392,7 +393,8 @@ router.get('/stats', optionalAuth, (req, res) => {
   }
 
   const songs = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(plays),0) plays, COALESCE(SUM(downloads),0) downloads FROM songs ${songCountWhere}`).get(...countParams);
-  const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
+  // Artists that actually have music the caller can see (profiles are created at sign-up).
+  const artists = db.prepare(`SELECT COUNT(DISTINCT artist_id) c FROM songs ${songCountWhere}`).get(...countParams).c;
   const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
   const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
   const podcasts = db.prepare('SELECT COUNT(*) c FROM podcasts').get().c;
@@ -409,7 +411,7 @@ router.get('/stats', optionalAuth, (req, res) => {
     `SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
      FROM songs s JOIN artists a ON a.id = s.artist_id LEFT JOIN albums al ON al.id = s.album_id
      ${songVisibilityWhere}
-     ORDER BY s.created_at DESC LIMIT 8`
+     ORDER BY s.created_at DESC, s.id DESC LIMIT 8`
   ).all(...songParams);
 
   // Recent public uploads (published for everyone)
@@ -420,7 +422,7 @@ router.get('/stats', optionalAuth, (req, res) => {
      LEFT JOIN albums al ON al.id = s.album_id
      LEFT JOIN users u ON u.id = s.uploaded_by
      WHERE s.is_public = 1 AND (s.uploaded_by IS NOT NULL OR s.file_path LIKE '/media/uploads/%')
-     ORDER BY s.created_at DESC LIMIT 10`
+     ORDER BY s.created_at DESC, s.id DESC LIMIT 10`
   ).all();
 
   // Current user's own uploads (both public and private)
@@ -432,7 +434,7 @@ router.get('/stats', optionalAuth, (req, res) => {
        JOIN artists a ON a.id = s.artist_id
        LEFT JOIN albums al ON al.id = s.album_id
        WHERE (s.uploaded_by = ? OR s.artist_id = ?)
-       ORDER BY s.created_at DESC LIMIT 10`
+       ORDER BY s.created_at DESC, s.id DESC LIMIT 10`
     ).all(req.user.id, ownArtistId);
   }
 
@@ -628,15 +630,20 @@ router.get('/songs', optionalAuth, (req, res) => {
     where.push('(s.uploaded_by IS NOT NULL OR s.file_path LIKE \'/media/uploads/%\')');
   }
 
-  if (q) { where.push('(s.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  // Free-text search: every word must match the track title, the artist or the genre.
+  const search = searchClause(['s.title', 'a.name', 's.genre'], q);
+  if (search.sql) { where.push(search.sql); params.push(...search.params); }
   if (artist_id) { where.push('s.artist_id = ?'); params.push(artist_id); }
   if (album_id) { where.push('s.album_id = ?'); params.push(album_id); }
   if (genre) { where.push('s.genre = ?'); params.push(genre); }
 
+  // created_at only has one-second resolution (a bulk import shares it), so every
+  // order falls back to the id to keep "newest first" truly newest first.
   let order = 's.created_at DESC';
-  if (sort === 'plays') order = 's.plays DESC';
-  if (sort === 'downloads') order = 's.downloads DESC';
+  if (sort === 'plays') order = 's.plays DESC, s.created_at DESC';
+  if (sort === 'downloads') order = 's.downloads DESC, s.created_at DESC';
   if (sort === 'title') order = 's.title ASC';
+  order += ', s.id DESC';
 
   const rows = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title, al.cover_url album_cover
@@ -873,13 +880,26 @@ router.get('/favorites', authMiddleware, (req, res) => {
   res.json(rows.map(r => ({ ...r, is_favorite: 1 })));
 });
 
+// A route id must be a plain positive integer ("12"), never "12abc", "1e3" or "-4".
+const parseSongId = (raw) => (/^[1-9]\d{0,14}$/.test(String(raw)) ? Number(raw) : null);
+
+// Liking is idempotent. A song can only be liked by someone who is allowed to see it, and the
+// answer for "does not exist" and "not yours to see" is the same 404, so ids can't be probed.
 router.post('/favorites/:songId', authMiddleware, (req, res) => {
-  db.prepare('INSERT OR IGNORE INTO favorites (user_id, song_id) VALUES (?,?)').run(req.user.id, req.params.songId);
+  const songId = parseSongId(req.params.songId);
+  if (!songId) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT id, is_public, uploaded_by, artist_id FROM songs WHERE id = ?').get(songId);
+  if (!canAccessSong(req, song)) return res.status(404).json({ error: 'Song not found' });
+  db.prepare('INSERT OR IGNORE INTO favorites (user_id, song_id) VALUES (?,?)').run(req.user.id, song.id);
   res.json({ is_favorite: 1 });
 });
 
+// Un-liking only ever touches the caller's own row, so it needs no visibility check
+// (and still works for a track that has since been made private or deleted).
 router.delete('/favorites/:songId', authMiddleware, (req, res) => {
-  db.prepare('DELETE FROM favorites WHERE user_id = ? AND song_id = ?').run(req.user.id, req.params.songId);
+  const songId = parseSongId(req.params.songId);
+  if (!songId) return res.status(400).json({ error: 'Invalid song id' });
+  db.prepare('DELETE FROM favorites WHERE user_id = ? AND song_id = ?').run(req.user.id, songId);
   res.json({ is_favorite: 0 });
 });
 
@@ -892,7 +912,8 @@ router.get('/albums', optionalAuth, (req, res) => {
   const own = req.user ? artistForUser(req.user.id) : null;
   const ownArtistId = own ? own.id : -1;
 
-  if (q) { where.push('(al.title LIKE ? OR a.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  const search = searchClause(['al.title', 'a.name', 'al.genre'], q);
+  if (search.sql) { where.push(search.sql); params.push(...search.params); }
   if (artist_id) { where.push('al.artist_id = ?'); params.push(artist_id); }
 
   let countWhere = 'WHERE s.album_id = al.id AND s.is_public = 1';
@@ -985,8 +1006,9 @@ router.delete('/albums/:id', authMiddleware, (req, res) => {
 // ============================== ARTISTS ==============================
 router.get('/artists', optionalAuth, (req, res) => {
   const { q } = req.query;
-  const where = q ? 'WHERE a.name LIKE ? OR a.genre LIKE ?' : '';
-  const params = q ? [`%${q}%`, `%${q}%`] : [];
+  const search = searchClause(['a.name', 'a.genre'], q);
+  const where = search.sql ? `WHERE ${search.sql}` : '';
+  const params = search.params;
 
   const own = req.user ? artistForUser(req.user.id) : null;
   const ownArtistId = own ? own.id : -1;
@@ -1002,10 +1024,12 @@ router.get('/artists', optionalAuth, (req, res) => {
     }
   }
 
+  // song_count only counts tracks the caller may see, so clients can tell a profile that has
+  // music (worth listing on browse pages) from one that was only created at sign-up.
   const rows = db.prepare(`
     SELECT a.*, (SELECT COUNT(*) FROM songs s ${songCountWhere}) song_count,
            (SELECT COUNT(*) FROM albums al WHERE al.artist_id = a.id) album_count
-    FROM artists a ${where} ORDER BY a.followers DESC
+    FROM artists a ${where} ORDER BY a.followers DESC, song_count DESC, a.id ASC
   `).all(...songCountParams, ...params);
   res.json(rows);
 });

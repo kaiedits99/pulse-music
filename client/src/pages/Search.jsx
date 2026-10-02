@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import SongTable from '../components/SongTable.jsx';
@@ -14,7 +14,8 @@ import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { formatNumber } from '../format.js';
+import { formatNumber, plural } from '../format.js';
+import { matchesQuery } from '../search.js';
 import { episodesToTracks, resumeAt } from '../episodes.js';
 
 const SORTS = [
@@ -52,7 +53,9 @@ export default function Search() {
   const [albums, setAlbums] = useState([]);
   const [genres, setGenres] = useState([]);
   const [podcasts, setPodcasts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);   // first load only — shows the skeleton
+  const [fetching, setFetching] = useState(false);  // any request in flight — just dims the rows
+  const latestRequest = useRef(0);
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; }
   });
@@ -66,7 +69,10 @@ export default function Search() {
   }, [view]);
 
   const loadSongs = useCallback(async () => {
-    setLoading(true);
+    // Typing fires a request per query; only the newest one may update the page,
+    // otherwise a slow early response could overwrite the results of the final text.
+    const request = ++latestRequest.current;
+    setFetching(true);
     try {
       const sp = new URLSearchParams();
       if (q) sp.set('q', q);
@@ -75,11 +81,12 @@ export default function Search() {
       if (sort !== 'recent') sp.set('sort', sort);
       if (mineOnly) sp.set('mine', '1');
       if (visibility) sp.set('visibility', visibility);
-      setSongs(await api.get(`/api/songs?${sp.toString()}`));
+      const rows = await api.get(`/api/songs?${sp.toString()}`);
+      if (request === latestRequest.current) setSongs(rows);
     } catch (err) {
-      toast(err.message || 'Search failed', 'error');
+      if (request === latestRequest.current) toast(err.message || 'Search failed', 'error');
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) { setFetching(false); setLoading(false); }
     }
   }, [q, genre, artistId, sort, mineOnly, visibility, toast]);
 
@@ -125,17 +132,20 @@ export default function Search() {
     setSongs((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
   };
 
-  /* Matching artists / albums shown above the tracks when searching. */
+  /* Matching artists / albums shown above the tracks when searching — by name or genre, with the
+     same rules as the track search. Artists without any music yet are not worth listing. */
   const matchedArtists = useMemo(() => {
     if (!q) return [];
-    const needle = q.toLowerCase();
-    return artists.filter((a) => a.name.toLowerCase().includes(needle)).slice(0, 6);
+    return artists
+      .filter((a) => (a.song_count || 0) > 0 && matchesQuery(q, [a.name, a.genre]))
+      .slice(0, 6);
   }, [q, artists]);
 
   const matchedAlbums = useMemo(() => {
     if (!q) return [];
-    const needle = q.toLowerCase();
-    return albums.filter((a) => a.title.toLowerCase().includes(needle) || (a.artist_name || '').toLowerCase().includes(needle)).slice(0, 6);
+    return albums
+      .filter((a) => (a.track_count || 0) > 0 && matchesQuery(q, [a.title, a.artist_name, a.genre]))
+      .slice(0, 6);
   }, [q, albums]);
 
   const genreOptions = useMemo(() => ([
@@ -170,7 +180,31 @@ export default function Search() {
       ? `${songs.length} track${songs.length === 1 ? '' : 's'} (${publicCount} public, ${privateCount} private)`
       : hasQuery
         ? `${songs.length} track${songs.length === 1 ? '' : 's'}${matchedArtists.length ? ` • ${matchedArtists.length} artist${matchedArtists.length === 1 ? '' : 's'}` : ''}${matchedAlbums.length ? ` • ${matchedAlbums.length} album${matchedAlbums.length === 1 ? '' : 's'}` : ''}`
-        : `Browse ${formatNumber(songs.length)} tracks across ${genres.length} genres — or type in the search bar above.`;
+        : songs.length === 0
+          ? 'Nothing has been uploaded yet — add the first track and it shows up here for everyone.'
+          : `Browse ${formatNumber(songs.length)} track${songs.length === 1 ? '' : 's'} across ${genres.length} genre${genres.length === 1 ? '' : 's'} — or search by artist, track or genre in the bar above.`;
+
+  const clearFilters = () => setParams({}, { replace: true });
+  const resultsEmpty = (
+    <EmptyState
+      icon="music"
+      title={hasQuery ? 'No tracks match' : 'No tracks yet'}
+      description={hasQuery
+        ? 'Nothing in the catalog matches that. Try another artist, track title or genre.'
+        : 'Nothing has been uploaded yet. Upload the first track and it will show up here for everyone.'}
+      action={hasQuery ? (
+        <div className="row">
+          <button className="btn btn-ghost" onClick={clearFilters}>Clear search</button>
+          <Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload a track</Link>
+        </div>
+      ) : (
+        <Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload the first track</Link>
+      )}
+    />
+  );
+
+  // announced to screen readers whenever the result count changes
+  const liveStatus = loading ? '' : `${songs.length} track${songs.length === 1 ? '' : 's'} ${hasQuery ? 'found' : 'in the catalog'}`;
 
   const playAll = () => {
     if (!songs.length) return;
@@ -279,7 +313,7 @@ export default function Search() {
                 round
                 title={a.name}
                 subtitle={`${a.genre || 'Artist'} • ${formatNumber(a.followers)} listeners`}
-                meta={{ icon: 'music', text: `${a.song_count ?? 0} tracks` }}
+                meta={{ icon: 'music', text: plural(a.song_count, 'track') }}
                 onPlay={async () => {
                   const d = await api.get(`/api/artists/${a.id}`).catch(() => null);
                   if (d?.songs?.length) play(d.songs, 0); else toast('No tracks for this artist yet', 'info');
@@ -302,7 +336,7 @@ export default function Search() {
                 cover={a.cover_url}
                 title={a.title}
                 subtitle={`${a.artist_name} • ${a.release_year || ''}`}
-                meta={{ icon: 'disc', text: `${a.track_count || 0} tracks` }}
+                meta={{ icon: 'disc', text: plural(a.track_count, 'track') }}
                 onPlay={async () => {
                   const d = await api.get(`/api/albums/${a.id}`).catch(() => null);
                   if (d?.songs?.length) play(d.songs, 0); else toast('This album has no tracks yet', 'info');
@@ -360,7 +394,7 @@ export default function Search() {
                   style={{ background: `linear-gradient(135deg, ${c[0]} 0%, ${c[1]} 100%)` }}
                 >
                   <span className="genre-tile-name">{g.genre}</span>
-                  <span className="genre-tile-count">{g.c} tracks</span>
+                  <span className="genre-tile-count">{plural(g.c, 'track')}</span>
                   <Icon name="music" size={44} className="genre-tile-art" />
                 </Link>
               );
@@ -370,7 +404,8 @@ export default function Search() {
       )}
 
       {/* ---------------------------- results ---------------------------- */}
-      <section className="section">
+      <section className={`section search-results ${fetching && !loading ? 'is-fetching' : ''}`} aria-busy={fetching}>
+        <p className="sr-only" role="status" aria-live="polite">{liveStatus}</p>
         <SectionHead
           icon="music"
           title={hasQuery ? 'Tracks' : 'All tracks'}
@@ -380,14 +415,7 @@ export default function Search() {
         {loading ? (
           view === 'grid' ? <GridSkeleton count={10} /> : <RowSkeleton count={8} />
         ) : view === 'grid' ? (
-          songs.length === 0 ? (
-            <EmptyState
-              icon="music"
-              title={hasQuery ? 'No tracks match' : 'No tracks yet'}
-              description={hasQuery ? 'Try a different search term, genre or filter.' : 'Upload your first track to get started.'}
-              action={<Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload a track</Link>}
-            />
-          ) : (
+          songs.length === 0 ? resultsEmpty : (
             <div className="collection-grid">
               {songs.map((s, i) => {
                 const isMine = (user && s.uploaded_by === user.id) || (artist && s.artist_id === artist.id);
@@ -399,7 +427,7 @@ export default function Search() {
                     typeTone={isMine ? (isPrivate ? 'accent' : 'green') : ''}
                     cover={s.cover_url || s.album_cover}
                     title={s.title}
-                    subtitle={s.artist_name}
+                    subtitle={[s.artist_name, s.genre].filter(Boolean).join(' • ')}
                     meta={isMine
                       ? { icon: isPrivate ? 'lock' : 'globe', text: isPrivate ? 'Private' : 'Public', tone: isPrivate ? '' : 'green' }
                       : { icon: 'playCircle', text: `${formatNumber(s.plays)} plays` }}
@@ -420,14 +448,7 @@ export default function Search() {
             onAddToPlaylist={openAdd}
             onVisibilityChanged={handleVisibilityChanged}
             canManage={canEdit}
-            emptyFallback={(
-              <EmptyState
-                icon="music"
-                title={hasQuery ? 'No tracks match' : 'No tracks yet'}
-                description={hasQuery ? 'Try a different search term, genre or filter.' : 'Upload your first track to get started.'}
-                action={<Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload a track</Link>}
-              />
-            )}
+            emptyFallback={resultsEmpty}
           />
         )}
       </section>

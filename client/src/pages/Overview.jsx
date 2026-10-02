@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import DiscoverRow from '../components/DiscoverRow.jsx';
@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { formatNumber } from '../format.js';
+import { formatNumber, plural } from '../format.js';
 import { episodesToTracks, resumeAt } from '../episodes.js';
 
 const MOOD_COLORS = [
@@ -28,9 +28,11 @@ export default function Overview() {
   const [playlists, setPlaylists] = useState([]);
   const [podcasts, setPodcasts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     Promise.all([
       api.get('/api/stats').catch(() => null),
       api.get('/api/albums').catch(() => []),
@@ -47,7 +49,7 @@ export default function Overview() {
       setLoading(false);
     });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -63,6 +65,34 @@ export default function Overview() {
   const genres = stats?.genres || [];
   const myUploads = stats?.my_uploads || [];
   const communityUploads = stats?.community_uploads || [];
+
+  // Only things with music in them are worth showing on Home: a sign-up creates an artist
+  // profile, and a user can create an empty album, but neither is something to listen to yet.
+  const albumsWithMusic = useMemo(() => albums.filter((al) => (al.track_count || 0) > 0), [albums]);
+  const artistsWithMusic = useMemo(() => artists.filter((a) => (a.song_count || 0) > 0), [artists]);
+
+  const hasMusic = (stats?.songs ?? 0) > 0;
+  const hasContent = hasMusic || albumsWithMusic.length > 0 || playlists.length > 0 || podcasts.length > 0;
+
+  /* Arrange the track rows. The catalog is shared and starts empty, so early on there are only
+     a handful of tracks — without this the same card would repeat in every row. A row is shown
+     only if it holds at least one track that is not already on the page above it.
+     Order: your uploads → what is new → picked for you → community → popular. */
+  const rows = useMemo(() => {
+    const seen = new Set();
+    const shown = {};
+    const take = (key, songs) => {
+      if (!songs.some((s) => !seen.has(s.id))) return;
+      songs.forEach((s) => seen.add(s.id));
+      shown[key] = songs;
+    };
+    take('mine', myUploads);
+    take('recent', recent);
+    take('recommended', recommended);
+    take('community', communityUploads);
+    take('top', top);
+    return shown;
+  }, [myUploads, recent, recommended, communityUploads, top]);
 
   const shuffleAll = () => {
     const pool = recommended.length ? recommended : top;
@@ -96,6 +126,67 @@ export default function Overview() {
     } catch (err) { toast(err.message || 'Could not play artist', 'error'); }
   };
 
+  const playPodcast = async (show) => {
+    try {
+      const detail = await api.get(`/api/podcasts/${show.id}`);
+      const episodes = detail.episodes || [];
+      if (!episodes.length) { toast('This show has no episodes yet', 'info'); return; }
+      play(episodesToTracks(episodes, detail), 0, resumeAt(episodes[0]));
+      toast(`Playing “${show.title}”`);
+    } catch (err) { toast(err.message || 'Could not play this show', 'error'); }
+  };
+
+  /* ------------------------------------------------------------ states */
+  if (loading) {
+    return (
+      <div className="page">
+        <GridSkeleton count={6} height={210} />
+      </div>
+    );
+  }
+
+  // The request itself failed — say so instead of pretending the catalog is empty.
+  if (!stats) {
+    return (
+      <div className="page">
+        <div className="home-empty">
+          <EmptyState
+            icon="cloud"
+            title="Can’t reach Pulse"
+            description="The catalog could not be loaded. Check your connection and try again — downloaded tracks still play offline."
+            action={(
+              <div className="row">
+                <button className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+                <Link className="btn btn-ghost" to="/offline-player"><Icon name="headphones" size={16} /> Offline player</Link>
+              </div>
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Nothing has been uploaded yet: the page is intentionally blank except for the way forward.
+  // The first public upload lands here for every user who signs in afterwards.
+  if (!hasContent) {
+    return (
+      <div className="page">
+        <div className="home-empty">
+          <EmptyState
+            icon="upload"
+            title="Nothing here yet"
+            description="No music has been uploaded to Pulse yet. Upload the first track and it will show up right here — for you and for everyone who signs in after you."
+            action={(
+              <Link className="btn btn-primary btn-lg btn-pill" to="/upload">
+                <Icon name="upload" size={18} /> Upload the first track
+              </Link>
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       {/* ============================= HERO ============================= */}
@@ -121,28 +212,56 @@ export default function Overview() {
         </div>
       </div>
 
-      {loading && <GridSkeleton count={6} height={210} />}
-
-      {/* ========================== MADE FOR YOU ======================== */}
-      <DiscoverRow
-        title="Made for you"
-        icon="sparkle"
-        songs={recommended}
-        onPlay={play}
-        seeAll="/search"
-        note={stats?.user_genres?.length ? stats.user_genres.join(' · ') : undefined}
-      />
-
       {/* ========================== YOUR UPLOADS ======================== */}
-      {myUploads.length > 0 && (
+      {rows.mine && (
         <DiscoverRow
           title="Your Uploads"
           icon="upload"
-          songs={myUploads}
+          songs={rows.mine}
           onPlay={play}
           seeAll="/library?filter=uploads"
-          note={`${myUploads.length} uploaded track${myUploads.length === 1 ? '' : 's'} · private & public`}
+          note={`${rows.mine.length} uploaded track${rows.mine.length === 1 ? '' : 's'} · private & public`}
         />
+      )}
+
+      {/* ========================= RECENTLY ADDED ======================= */}
+      {rows.recent && (
+        <DiscoverRow
+          title="Recently added"
+          icon="clock"
+          songs={rows.recent}
+          onPlay={play}
+          seeAll="/search"
+          note="Newest uploads first"
+        />
+      )}
+
+      {/* ========================== MADE FOR YOU ======================== */}
+      {rows.recommended && (
+        <DiscoverRow
+          title="Made for you"
+          icon="sparkle"
+          songs={rows.recommended}
+          onPlay={play}
+          seeAll="/search"
+          note={stats?.user_genres?.length ? stats.user_genres.join(' · ') : undefined}
+        />
+      )}
+
+      {/* ===================== COMMUNITY & PUBLIC UPLOADS =============== */}
+      {rows.community && (
+        <DiscoverRow
+          title="Community & Public Uploads"
+          icon="globe"
+          songs={rows.community}
+          onPlay={play}
+          seeAll="/search?visibility=public"
+          note="Published for everyone on Pulse"
+        />
+      )}
+
+      {rows.top && (
+        <DiscoverRow title="Top tracks this week" icon="trending" songs={rows.top} onPlay={play} seeAll="/search?sort=plays" />
       )}
 
       {/* =========================== PLAYLISTS ========================== */}
@@ -162,7 +281,7 @@ export default function Overview() {
                 typeTone="accent"
                 cover={pl.cover_url}
                 title={pl.name}
-                subtitle={`${pl.track_count ?? 0} songs`}
+                subtitle={plural(pl.track_count, 'song')}
                 meta={{ icon: 'clock', text: pl.creator_name ? `By ${pl.creator_name}` : 'Playlist' }}
                 onPlay={() => playPlaylist(pl)}
               />
@@ -186,7 +305,7 @@ export default function Overview() {
                   style={{ background: `linear-gradient(135deg, ${c[0]} 0%, ${c[1]} 100%)` }}
                 >
                   <span className="genre-tile-name">{g.genre}</span>
-                  <span className="genre-tile-count">{g.c} tracks</span>
+                  <span className="genre-tile-count">{g.c} track{g.c === 1 ? '' : 's'}</span>
                   <Icon name="music" size={44} className="genre-tile-art" />
                 </Link>
               );
@@ -195,35 +314,22 @@ export default function Overview() {
         </section>
       )}
 
-      <DiscoverRow title="Recently added" icon="clock" songs={recent} onPlay={play} seeAll="/search" />
-      {communityUploads.length > 0 && (
-        <DiscoverRow
-          title="Community &amp; Public Uploads"
-          icon="globe"
-          songs={communityUploads}
-          onPlay={play}
-          seeAll="/search?visibility=public"
-          note="Published for everyone on Pulse"
-        />
-      )}
-      <DiscoverRow title="Top tracks this week" icon="trending" songs={top} onPlay={play} seeAll="/search?sort=plays" />
-
       {/* ============================ ALBUMS ============================ */}
-      {albums.length > 0 && (
+      {albumsWithMusic.length > 0 && (
         <section className="section">
           <SectionHead icon="album" title="Albums you might like" action={<Link to="/albums" className="see-all">Show all</Link>} />
           <div className="collection-grid">
-            {albums.slice(0, 6).map((al) => <AlbumCard key={al.id} album={al} onPlay={playAlbum} />)}
+            {albumsWithMusic.slice(0, 6).map((al) => <AlbumCard key={al.id} album={al} onPlay={playAlbum} />)}
           </div>
         </section>
       )}
 
       {/* ============================ ARTISTS =========================== */}
-      {artists.length > 0 && (
+      {artistsWithMusic.length > 0 && (
         <section className="section">
           <SectionHead icon="artist" title="Popular artists" action={<Link to="/artists" className="see-all">Show all</Link>} />
           <div className="collection-grid">
-            {artists.slice(0, 6).map((a) => <ArtistCard key={a.id} artist={a} onPlay={playArtist} />)}
+            {artistsWithMusic.slice(0, 6).map((a) => <ArtistCard key={a.id} artist={a} onPlay={playArtist} />)}
           </div>
         </section>
       )}
@@ -260,23 +366,14 @@ export default function Overview() {
       <section className="section">
         <SectionHead icon="trending" title="Platform stats" action={<Link to="/library" className="see-all">Manage library</Link>} />
         <div className="stat-grid">
-          <StatTile icon="music" value={loading ? '—' : stats?.songs ?? 0} label="Tracks" />
-          <StatTile icon="playCircle" value={loading ? '—' : formatNumber(stats?.plays ?? 0)} label="Total plays" tone="c2" />
-          <StatTile icon="download" value={loading ? '—' : formatNumber(stats?.downloads ?? 0)} label="Downloads" tone="c3" />
-          <StatTile icon="artist" value={loading ? '—' : stats?.artists ?? 0} label="Artists" tone="c4" />
-          <StatTile icon="album" value={loading ? '—' : stats?.albums ?? 0} label="Albums" tone="c5" />
-          <StatTile icon="playlist" value={loading ? '—' : stats?.playlists ?? 0} label="Playlists" tone="c6" />
+          <StatTile icon="music" value={stats.songs ?? 0} label="Tracks" />
+          <StatTile icon="playCircle" value={formatNumber(stats.plays ?? 0)} label="Total plays" tone="c2" />
+          <StatTile icon="download" value={formatNumber(stats.downloads ?? 0)} label="Downloads" tone="c3" />
+          <StatTile icon="artist" value={stats.artists ?? 0} label="Artists" tone="c4" />
+          <StatTile icon="album" value={stats.albums ?? 0} label="Albums" tone="c5" />
+          <StatTile icon="playlist" value={stats.playlists ?? 0} label="Playlists" tone="c6" />
         </div>
       </section>
-
-      {!loading && !recommended.length && !top.length && (
-        <EmptyState
-          icon="music"
-          title="Your catalog is empty"
-          description="Upload your first track and Pulse will start building recommendations, stats and mixes around it."
-          action={<Link className="btn btn-primary" to="/upload"><Icon name="upload" size={16} /> Upload music</Link>}
-        />
-      )}
     </div>
   );
 }

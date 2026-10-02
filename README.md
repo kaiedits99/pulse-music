@@ -1,8 +1,12 @@
-# Pulse — Music Streaming Platform for Artists
+# Pulse — the world's first global music sharing app
 
-A full-stack music streaming platform where artists can upload tracks, manage albums and
-playlists, stream their catalog, and download tracks — with a polished dashboard and
-realistic demo data so it feels alive on first load.
+Pulse lets people upload their music for other users to see and listen to. It is a full-stack
+app (React + Express + SQLite) with a polished dashboard, albums and playlists, offline
+downloads and a shared catalog that is built entirely from what people upload.
+
+**Pulse starts empty.** Nothing is seeded, generated or imported: there are no demo accounts,
+sample tracks, albums, playlists or shows, and the first page stays blank until someone uploads
+a song. Everything you will ever see in the app was uploaded by a real user.
 
 ## Tech stack
 
@@ -10,19 +14,70 @@ realistic demo data so it feels alive on first load.
 - **Backend:** Node.js + Express
 - **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`
 - **Auth:** JWT (bearer tokens) + bcrypt password hashing
-- **Uploads:** Multer (audio + cover images), Range-aware streaming via Express static
-- **Seeded audio:** tracks are procedurally synthesized lo-fi loops (real playable WAVs),
-  covers are generated SVG art — no external assets required
+- **Uploads:** Multer (audio + cover images), streamed with HTTP Range support. Only
+  `data/uploads/` is served at `/media/uploads/…` — the database next to it is never exposed.
 
-## Demo accounts
+## Getting in
 
-| Role   | Email             | Password |
-|--------|-------------------|----------|
-| Artist | `amara@pulse.app` | `demo123` |
+- **Landing page.** A signed-out visitor who opens `/` sees *Welcome to Pulse, the world's first
+  global music sharing app*, a line of small print explaining that Pulse allows users to upload
+  their music for other users to see, and **Get started** / **Sign in** buttons. It shows no
+  catalog data. Signed-in users get Home at `/` instead.
+- **Links keep working.** Following a link to an inner page while signed out sends you to sign
+  in first and then to that page.
+- **"Sharing is caring" prompt.** Right after someone signs in or signs up, a dialog invites
+  them to upload their music: *Choose music files* opens the file picker and takes the chosen
+  files to the Upload page, ready to publish. It is only an invitation: *Maybe later* (or Esc,
+  the × button, a click outside) dismisses it, and nothing else changes — everything other users
+  have shared stays fully available. It is not shown again on page reloads, it is skipped when
+  you are already on the Upload page or offline, and it comes back on the next sign-in.
 
-> The admin account is not a demo account. It is only reachable privately from the
-> login screen (credentials intentionally not documented here — see `server/routes.js`).
-> There is no one-click demo login button.
+## How the catalog fills up
+
+Pulse has **one shared catalog** that grows with every upload:
+
+1. **A fresh install is blank.** Home shows a single empty state with an *Upload* button — no
+   stats, no placeholder rows, no sample tracks.
+2. **The first upload becomes the catalog.** The first person to sign up and upload a track
+   fills the app; every user who signs in afterwards sees that track on Home and in search
+   without having to upload anything themselves.
+3. **Every further upload is added** (newest first) — a second user's track joins the first
+   one's, and so on. Home arranges the tracks into *Your uploads*, *Recently added*,
+   *Made for you*, *Community uploads* and *Top tracks*, and skips a row when all of its tracks
+   are already shown above it.
+4. **Uploads are public by default.** A track marked *private* stays visible only to the person
+   who uploaded it (and site admins); it is left out of everyone else's Home, search, genre
+   lists and stats.
+
+## Liking tracks
+
+The **heart in the player bar** (also on the Now Playing screen and on every track row) adds the
+playing track to *Liked Songs* and takes it out again. Every heart shares one source of truth
+(`client/src/context/FavoritesContext.jsx`), so liking a track in the bar immediately updates its
+row in the list you are looking at, the *Liked Songs* page and the *Your Library* card, and the
+other way round. The heart flips straight away and is rolled back with a message if the server
+cannot be reached; quick repeated clicks are sent in order, so the screen and the server always
+end up agreeing. Signing in as someone else never inherits the previous person's hearts.
+
+On the server, `POST /api/favorites/:songId` only accepts tracks the caller is allowed to see: a
+private track of someone else and a track that doesn't exist both answer `404` (so ids can't be
+probed), and an id that is not a plain positive integer answers `400`. Liking and un-liking are
+idempotent.
+
+## Search
+
+The search bar at the top of every page filters the uploaded catalog by **artist**,
+**track title** or **genre** — results update as you type, and Enter, the clear (×) button
+and `Esc` work as you would expect. Press `/` anywhere to jump to it.
+
+- Every word has to match the title, artist or genre of a track, so `luna pop` narrows the
+  results instead of widening them.
+- Matching ignores case, accents and punctuation: `beyonce` finds *Beyoncé*, `kpop` finds *K-Pop*,
+  `hip hop` finds *Hip-Hop*.
+- Matching artists, albums and podcast shows are listed above the tracks.
+- The same search is available from the API: `GET /api/songs?q=…` (tracks by title, artist or
+  genre), `GET /api/albums?q=…` and `GET /api/artists?q=…`. Combine it with `genre=`,
+  `artist_id=`, `sort=` and `visibility=`. Search never reveals another user's private tracks.
 
 ## Google sign-in (optional)
 
@@ -54,52 +109,48 @@ GOOGLE_CLIENT_ID=xxxxxxxxxxxx.apps.googleusercontent.com npm start
 Without the env var the endpoint returns `503` and the button hides itself —
 the app behaves exactly as before.
 
-## Featured artist catalogs
+## Where the data lives
 
-`server/catalog.js` auto-seeds featured artist catalogs (metadata only — titles,
-durations, genre, generated covers) on **every server start**; it is idempotent and
-backfills only what is missing. Featured artists: **Thalia Falcon** (R&B / Soul,
-23 tracks) and **ŻYŃY** (Electronic, 20 tracks — the Polish artist behind
-"Zyny"). No playable audio is attached —
-artists upload real WAV/MP3 files separately through the normal upload flow.
+Everything Pulse stores sits in one directory (default `./data`):
 
-## Self-healing demo data (Render & other ephemeral hosts)
+```
+data/
+├── pulse.db        # SQLite database (users, tracks, albums, playlists, …)
+└── uploads/        # audio and cover files that users uploaded
+```
 
-Container hosts such as **Render's free tier restart with a wiped filesystem**, so
-`data/pulse.db`, the synthesized demo audio and the generated cover art can all
-disappear — and they can disappear *independently* of each other. A redeploy that
-keeps the database but loses `data/audio/` used to leave every seeded track pointing
-at a file that 404s, because seeding only ran when the `users` table was empty.
+Set `PULSE_DATA_DIR` to keep it somewhere else — for example a mounted volume:
 
-`server/index.js` therefore **reconciles data on every boot** instead of seeding once:
+```bash
+PULSE_DATA_DIR=/var/lib/pulse npm start
+```
 
-| State on boot | What happens |
-|---|---|
-| No database | Full demo seed + featured catalogs + generated media |
-| Database present, media intact | Nothing — verified and reported as intact |
-| Database present, media missing | Media is **regenerated byte-identically** from `data/seed-manifest.json` |
-| Database present, no manifest | Manifest is rebuilt from the seeded rows, then media is regenerated |
-| Seeding throws | The error is logged and the server **still starts** — no crash-looping deploy |
+`GET /api/health` is an unauthenticated liveness probe (used as the Render health check); it
+deliberately does no database work.
 
-Regeneration is deterministic: the manifest records each track's synth seed, key,
-tempo and duration, and the cover art is redrawn from the same title/subtitle/seed
-strings the original seeders used, so a repaired deployment is indistinguishable from
-a freshly seeded one. Only files matching the generated naming
-(`/media/audio/track-NN.wav`, `/media/covers/*.svg`) are ever touched — **audio and
-covers an artist uploaded live under `/media/uploads/` and are never regenerated or
-overwritten**. Uploaded content still cannot survive a wiped filesystem; attach a
-Render Disk for that (see `DEPLOY.md`).
+**Ephemeral hosts.** Container hosts such as Render's free tier restart with a wiped
+filesystem, which deletes the database **and** every upload — the catalog then starts blank
+again. Attach a persistent disk (or other durable storage) to keep it; see `DEPLOY.md`.
 
-Set `SEED_DEMO_DATA=false` to boot without the demo users/tracks (featured catalogs
-still seed). `GET /api/health` is an unauthenticated liveness probe used as the Render
-health check; it deliberately does no database work so slow boot-time seeding can never
-make a healthy instance look dead to the platform.
+**Upgrading from a version that shipped demo data.** Earlier versions seeded sample users,
+artists, albums, tracks, playlists and podcast shows (plus generated audio and cover art).
+On boot, `server/legacy-demo-cleanup.js` removes exactly that content from an existing
+database and deletes the generated files, then logs what it removed. Real uploads — and
+everything attached to them, such as an artist profile a real track points at — are never
+touched, and an old demo account that owns real data is kept (with a warning in the log) rather
+than deleted. On a fresh install it does nothing.
+
+Devices clean up after themselves too: the first time the new app starts on a device, it removes
+any demo audio and covers an older version had saved there for offline listening (only the old
+generated `/media/audio/…` and `/media/covers/…` files; real uploads and everything else the
+person saved are left alone), including from saved playlists.
 
 ## Features
 
 - **Authentication** — register (creates an artist profile), login, JWT sessions, sign out
 - **Dashboard layout** — floating two-panel sidebar (nav + playlists + Install App), pill topbar
-  with live search, notifications, theme switch and account drawer, and a 92px "now playing" bar
+  with live catalog search (artist, track or genre), notifications, theme switch and account
+  drawer, and a 92px "now playing" bar
 - **Full CRUD** for the core resources:
   - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
   - **Albums** — create, edit, delete, album detail with tracklist
@@ -133,7 +184,8 @@ make a healthy instance look dead to the platform.
 - **Downloads** — per-track download counter + attachment download
 - **Stats overview** — total plays, downloads, top tracks, recent releases, genre breakdown
 - **Search page** (`/search`) — one place for query, genre chips, artist filter, sort and
-  grid/list views, with matching artists and albums surfaced above the tracks
+  grid/list views, with matching artists and albums surfaced above the tracks; the topbar search
+  box drives it from any page
 - **Your Library** (`/library`) — pinned hubs (Liked Songs, Your Uploads, Your Episodes, Offline Library),
   content-type filter chips, sort menu, grid/list toggle and a live offline-storage summary
 - **Polish** — loading skeletons, empty states, toasts, optimistic favorite toggle,
@@ -145,43 +197,37 @@ make a healthy instance look dead to the platform.
 # 1. backend deps
 npm install
 
-# 2. (optional — `npm start` seeds automatically when the DB is empty, and
-#     repairs missing generated media on every boot) seed demo data now
-npm run seed
-
-# 3. build the client
+# 2. build the client
 cd client && npm install && npm run build && cd ..
 
-# 4. start (serves API + built client on :8080)
+# 3. start (serves API + built client on :8080)
 npm start
 ```
 
-Open http://localhost:8080 and sign up, or use a demo artist account above.
+Open http://localhost:8080, create an account and upload a track — the app is blank until you
+do. Run the server tests with `npm test` (they use throw-away data directories, never `./data`).
 
 ## Project structure
 
 ```
-music-app/
+pulse-music/
 ├── server/
-│   ├── index.js      # Express app: API + static media + SPA serve + boot-time data reconcile
+│   ├── index.js      # Express app: API + /media/uploads + SPA serve + boot-time legacy cleanup
 │   ├── routes.js     # all REST endpoints (health, auth, songs, albums, artists, playlists, stats)
-│   ├── db.js         # SQLite schema + connection (exports dataDir/audioDir/coverDir/uploadsDir)
+│   ├── db.js         # SQLite schema + connection (exports dataDir/uploadsDir; PULSE_DATA_DIR)
 │   ├── auth.js       # JWT + bcrypt helpers, auth middleware
-│   ├── seed.js       # demo data (users, artists, albums, songs, playlists) + media self-heal
-│   ├── podcasts.js   # demo shows/episodes + their synthesized audio & covers (idempotent)
-│   ├── catalog.js    # featured-artist catalogs, auto-seeded every start (metadata only)
-│   ├── import-thalia.js / import-zyny.js  # one-off wrappers around catalog.js
-│   ├── synth.js      # procedural WAV audio generator for seed tracks
-│   └── cover.js      # SVG cover-art generator
+│   ├── search.js     # catalog search: case/accent/punctuation-insensitive matching
+│   ├── legacy-demo-cleanup.js  # removes demo content left by older versions (no-op when fresh)
+│   └── test/         # node:test suite — `npm test`
 ├── client/           # React + Vite SPA
 │   └── src/
-│       ├── pages/        # Overview, Search, Library, Albums, Artists, Playlists, Upload, Settings…
-│       ├── components/   # Sidebar, Topbar, PlayerBar, NowPlaying, Cards, SongTable, Modals, Forms…
-│       ├── styles/       # design system: base.css, shell.css, components.css, pages.css
-│       ├── hooks/        # useInstallPrompt (PWA install)
-│       └── context/      # Auth, Player, Theme, Toast state
-└── data/             # SQLite DB + generated audio/covers/uploads (persisted)
-    └── seed-manifest.json  # how each seeded WAV was synthesized, for media self-heal
+│       ├── pages/        # Landing, Overview, Search, Library, Albums, Artists, Playlists, Upload, Settings…
+│       ├── components/   # Sidebar, Topbar, PlayerBar, NowPlaying, SharePrompt, Cards, SongTable, Modals, Forms…
+│       ├── styles/       # design system: base.css, shell.css, components.css, pages.css (+ landing.css)
+│       ├── hooks/        # useInstallPrompt (PWA install), useMediaQuery
+│       ├── context/      # Auth, Player, Favorites (likes), Theme, Toast state
+│       └── search.js     # browser twin of server/search.js (kept identical by a test)
+└── data/             # created at runtime: pulse.db + uploads/ (git-ignored; see PULSE_DATA_DIR)
 ```
 
 ## API surface
@@ -190,7 +236,7 @@ music-app/
 GET /api/health                                   # unauthenticated liveness probe (Render health check)
 POST /api/auth/register · POST /api/auth/login · GET /api/auth/me
 GET /api/stats
-GET|POST /api/songs · GET|PUT|DELETE /api/songs/:id
+GET|POST /api/songs · GET|PUT|DELETE /api/songs/:id        # GET ?q= searches title, artist and genre
 POST /api/songs/:id/play · GET /api/songs/:id/download
 GET|POST|DELETE /api/favorites · POST|DELETE /api/favorites/:songId
 GET|POST /api/albums · GET|PUT|DELETE /api/albums/:id

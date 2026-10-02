@@ -7,12 +7,18 @@
    - /api/** is NEVER cached — catalog data stays live; the offline UI reads
      its snapshot from localStorage instead. */
 const OFFLINE_CACHE = 'pulse-offline-v1'; // shared with client/src/offline.js
-const RUNTIME_CACHE = 'pulse-runtime-v1';
+const RUNTIME_CACHE = 'pulse-runtime-v2';
 const SHELL_CACHE = 'pulse-shell-v1';
 const SHELL_URL = '/index.html';
 
 self.addEventListener('install', (e) => e.waitUntil(self.skipWaiting()));
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  // The runtime cache is only an accelerator, so it is safe to evict: dropping the previous one
+  // removes media that older versions cached, such as the sample audio and covers they used to serve.
+  // OFFLINE_CACHE (the user's own downloads) and SHELL_CACHE are never touched.
+  await caches.delete('pulse-runtime-v1');
+  await self.clients.claim();
+})()));
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
