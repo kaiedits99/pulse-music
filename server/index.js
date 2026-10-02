@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 import routes from './routes.js';
 import db, { dataDir, uploadsDir } from './db.js';
 import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
+import { storage, redirectToBucket } from './media.js';
+import { keepAwakeTarget, startKeepAwake } from './keepalive.js';
+import { installGracefulShutdown } from './shutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -19,6 +22,9 @@ app.use(express.urlencoded({ extended: true }));
 // folder is exposed — the data directory also holds the SQLite database, which must
 // never be downloadable.
 app.use('/media/uploads', express.static(uploadsDir, { maxAge: '1d' }));
+// With a bucket configured, uploads live there instead: anything not on local disk is sent to the
+// bucket (see media.js), so playback bandwidth never passes through this server.
+if (storage.remote) app.get('/media/uploads/:name', redirectToBucket);
 
 // API
 app.use('/api', routes);
@@ -67,7 +73,22 @@ try {
   console.error('[pulse] Legacy demo cleanup failed — starting anyway:', err.message);
 }
 
+console.log(`[pulse] Uploads are kept on ${storage.describe()}.`);
+if (!storage.remote && process.env.RENDER) {
+  console.warn(
+    '[pulse] WARNING: running on Render without a bucket. The database and every upload live on this '
+    + "instance's temporary disk and are lost on each restart, redeploy or sleep. Set S3_ENDPOINT, S3_BUCKET, "
+    + 'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (see DEPLOY.md), or ignore this if you attached a Render Disk.'
+  );
+}
+
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[pulse] Server running at http://0.0.0.0:${PORT}`);
+  const keepAwake = keepAwakeTarget();
+  if (keepAwake) {
+    startKeepAwake({ url: keepAwake });
+    console.log(`[pulse] Keep-awake ping enabled (${keepAwake}).`);
+  }
 });
+installGracefulShutdown(server, { delaySeconds: process.env.PULSE_SHUTDOWN_DELAY_SECONDS });

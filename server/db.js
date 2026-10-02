@@ -18,6 +18,8 @@ for (const d of [dataDir, uploadsDir]) {
 
 const db = new Database(path.join(dataDir, 'pulse.db'));
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL'); // the usual pairing with WAL: much fewer disk syncs, still crash-safe
+db.pragma('busy_timeout = 5000'); // wait briefly instead of failing if Litestream is mid-checkpoint
 db.pragma('foreign_keys = ON');
 
 // Case-, accent- and punctuation-insensitive text for catalog search (see search.js).

@@ -12,10 +12,14 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 
 - **Frontend:** React 18 + React Router + Vite, custom CSS design system (dark theme)
 - **Backend:** Node.js + Express
-- **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`
-- **Auth:** JWT (bearer tokens) + bcrypt password hashing
+- **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`, optionally copied
+  to a bucket by Litestream so it survives hosts that wipe their disk
+- **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
+  freezes the server
 - **Uploads:** Multer (audio + cover images), streamed with HTTP Range support. Only
-  `data/uploads/` is served at `/media/uploads/…` — the database next to it is never exposed.
+  `data/uploads/` is served at `/media/uploads/…` — the database next to it is never exposed. On hosts
+  with a temporary disk the files live in an S3-compatible bucket (Cloudflare R2) instead, and
+  `/media/uploads/…` sends listeners to a short-lived signed link there.
 
 ## Getting in
 
@@ -126,11 +130,57 @@ PULSE_DATA_DIR=/var/lib/pulse npm start
 ```
 
 `GET /api/health` is an unauthenticated liveness probe (used as the Render health check); it
-deliberately does no database work.
+deliberately does no database work. It also reports where uploads are kept, `"storage":"local"` or
+`"storage":"bucket"`.
 
-**Ephemeral hosts.** Container hosts such as Render's free tier restart with a wiped
-filesystem, which deletes the database **and** every upload — the catalog then starts blank
-again. Attach a persistent disk (or other durable storage) to keep it; see `DEPLOY.md`.
+### Hosts that wipe their disk (Render's free plan)
+
+Container hosts such as Render's free tier restart with a wiped filesystem, which would delete the
+database **and** every upload. Two optional pieces keep the data somewhere else. Both are off
+until you give Pulse a bucket, and `DEPLOY.md` has the step-by-step setup (about 20 minutes, no cost
+for a small community):
+
+- **Uploads go to an S3-compatible bucket** (Cloudflare R2 is the free option it is documented
+  against). Each upload is copied there as it arrives, *before* the track is added to the catalog,
+  so the database never points at a file that wasn't stored. If the bucket can't be reached, the
+  upload fails with a clear message and nothing half-saved is left behind. `/media/uploads/<file>`
+  then redirects to a signed link that lasts 6 hours (or straight to `S3_PUBLIC_BASE_URL`, if you
+  connect a custom domain to the bucket), so playing and seeking happen between the listener
+  and the bucket and never use the app server's bandwidth. Deleting a track, episode, show, album
+  or artist, or replacing a file, deletes the stored copy too, but only once nothing else refers
+  to it. The bucket stays private.
+- **The database is copied to the same bucket by [Litestream](https://litestream.io)** (under
+  `litestream/`). `npm run start:render` restores it on boot if the machine has none, then runs the
+  server under Litestream, which copies every change within about 5 seconds. If the saved copy
+  can't be restored, Pulse refuses to start rather than begin with an empty database that would
+  replace it. When the host asks the app to stop, the app waits 7 seconds before exiting so the
+  last changes are copied first (Litestream copies on a timer only).
+
+Two smaller helpers make the free plan comfortable: `KEEP_AWAKE=true` makes the app request its own
+`/api/health` every 5 minutes so the host doesn't put it to sleep (an outside uptime monitor on the
+same address does the same job and also wakes it), and password hashing runs on a worker thread, so
+a sign-in doesn't hold up everyone else's requests.
+
+`npm run storage:check` tries your bucket settings for real (write, signed read, delete, CORS, and
+Litestream's own connection) and explains anything that is wrong.
+
+### Configuration
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `PORT` | `8080` (Render sets its own) | Port the server listens on |
+| `PULSE_DATA_DIR` | `./data` | Where the database and local uploads live |
+| `JWT_SECRET` | built-in dev value | Signs sign-in tokens. **Set your own in production** (`render.yaml` generates one) |
+| `GOOGLE_CLIENT_ID` | unset | Enables "Continue with Google" |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | unset | Keep uploads (and, with `start:render`, the database copy) in a bucket. **All four or none**: a partial set stops the app from starting |
+| `S3_REGION` | `auto` | Bucket region (`auto` is right for R2) |
+| `S3_PUBLIC_BASE_URL` | unset | Permanent public address of the bucket, for example a custom domain connected to it. Playback then uses it directly instead of signed links |
+| `S3_SIGNED_URL_TTL_SECONDS` | `21600` (6 h) | How long signed links last (60 to 604800) |
+| `KEEP_AWAKE` | unset | `true` makes the app request its own `/api/health` every 5 minutes (needs `RENDER_EXTERNAL_URL`, which Render sets, or `KEEP_AWAKE_URL`) |
+| `KEEP_AWAKE_URL` | `RENDER_EXTERNAL_URL` | Public address of the app, if it isn't on Render |
+| `PULSE_DB_SYNC_SECONDS` | `5` | How often Litestream copies the database (1 to 20). Smaller means less to lose in a crash and more writes to the bucket |
+| `LITESTREAM_DISABLED` | unset | `true` runs without database copies even though a bucket is set |
+| `LITESTREAM_BIN`, `LITESTREAM_CONFIG` | the npm-installed program, `litestream.yml` | Advanced: use a different Litestream program or settings file |
 
 **Upgrading from a version that shipped demo data.** Earlier versions seeded sample users,
 artists, albums, tracks, playlists and podcast shows (plus generated audio and cover art).
@@ -215,10 +265,18 @@ pulse-music/
 │   ├── index.js      # Express app: API + /media/uploads + SPA serve + boot-time legacy cleanup
 │   ├── routes.js     # all REST endpoints (health, auth, songs, albums, artists, playlists, stats)
 │   ├── db.js         # SQLite schema + connection (exports dataDir/uploadsDir; PULSE_DATA_DIR)
-│   ├── auth.js       # JWT + bcrypt helpers, auth middleware
+│   ├── auth.js       # JWT helpers, auth middleware
+│   ├── passwords.js  # bcrypt on a worker thread (password-worker.js) so sign-ins never freeze the server
+│   ├── storage.js    # where uploads live: local disk or an S3-compatible bucket (signed links)
+│   ├── media.js      # keeps uploads in the bucket, redirects /media/uploads to it, cleans up after deletes
+│   ├── keepalive.js  # optional self-ping so a free host doesn't put the app to sleep
+│   ├── shutdown.js   # graceful stop (waits for Litestream's last copy)
 │   ├── search.js     # catalog search: case/accent/punctuation-insensitive matching
 │   ├── legacy-demo-cleanup.js  # removes demo content left by older versions (no-op when fresh)
 │   └── test/         # node:test suite — `npm test`
+├── scripts/          # start-with-litestream.sh (restore + replicate), storage-check.mjs, litestream-path.mjs
+├── litestream.yml    # settings for copying the database to the bucket
+├── docs/r2-cors.json # CORS policy to paste into the bucket (needed for offline downloads)
 ├── client/           # React + Vite SPA
 │   └── src/
 │       ├── pages/        # Landing, Overview, Search, Library, Albums, Artists, Playlists, Upload, Settings…
@@ -233,11 +291,11 @@ pulse-music/
 ## API surface
 
 ```
-GET /api/health                                   # unauthenticated liveness probe (Render health check)
+GET /api/health                                   # unauthenticated liveness probe (Render health check); reports storage: local|bucket
 POST /api/auth/register · POST /api/auth/login · GET /api/auth/me
 GET /api/stats
 GET|POST /api/songs · GET|PUT|DELETE /api/songs/:id        # GET ?q= searches title, artist and genre
-POST /api/songs/:id/play · GET /api/songs/:id/download
+POST /api/songs/:id/play · GET /api/songs/:id/download     # download redirects to a "save as" link when files live in a bucket
 GET|POST|DELETE /api/favorites · POST|DELETE /api/favorites/:songId
 GET|POST /api/albums · GET|PUT|DELETE /api/albums/:id
 GET|POST /api/artists · GET|PUT|DELETE /api/artists/:id

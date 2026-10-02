@@ -6,7 +6,10 @@ services:
     # The client build needs the root lockfile *and* client/'s, so `npm ci` runs in
     # both. The server itself starts from the repo root (see package.json > start).
     buildCommand: "npm ci && cd client && npm ci && npm run build"
-    startCommand: "npm start"
+    # Restores the database from the bucket if this machine doesn't have one, then runs the server
+    # under Litestream, which keeps copying changes back. With no bucket settings it simply starts
+    # the server, exactly like `npm start`. See DEPLOY.md.
+    startCommand: "npm run start:render"
     # Render pings this before routing traffic, so a deploy only goes live once the
     # process is actually serving. It intentionally does no DB work, so boot-time
     # maintenance can never make a healthy instance look dead.
@@ -19,14 +22,28 @@ services:
         generateValue: true
       - key: GOOGLE_CLIENT_ID
         sync: false   # optional: public Google OAuth client ID; set in Render dashboard to enable "Sign in with Google"
-    # NOTE — free-tier storage: Pulse starts empty and its catalog is made only of
-    # what people upload. Render's free instances have an **ephemeral filesystem**,
-    # so data/pulse.db and every upload (data/uploads) are wiped whenever the
-    # instance restarts, redeploys or spins down after being idle — the app is then
-    # blank again until someone uploads.
+      # Where uploads and the database copy are kept. Render asks for these when the Blueprint is
+      # created. Set all four (a Cloudflare R2 bucket is the free choice; DEPLOY.md has the steps).
+      - key: S3_ENDPOINT
+        sync: false   # https://<account-id>.r2.cloudflarestorage.com
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # Free instances fall asleep after ~15 minutes without a visitor. With this on, the app requests
+      # its own /api/health every 5 minutes. An outside monitor on the same address is a good addition.
+      - key: KEEP_AWAKE
+        value: "true"
+    # NOTE — free-tier storage: Render's free instances have an **ephemeral filesystem**, wiped on every
+    # restart, redeploy or sleep. Pulse therefore keeps its uploads in the bucket above and its database
+    # in the same bucket through Litestream, so nothing is lost. Without the S3_* settings, the database
+    # and every upload would vanish with each restart (the app logs a warning).
     #
-    # To keep the catalog, attach a Render Disk (paid plans only) and uncomment the
-    # block below — it mounts over the app's own data/ directory:
+    # Prefer to keep everything on the server instead? Use a paid instance with a Render Disk: uncomment
+    # the block below, set startCommand back to "npm start", and leave the S3_* settings empty. The disk
+    # mounts over the app's own data/ directory:
     #
     # disk:
     #   name: pulse-data
