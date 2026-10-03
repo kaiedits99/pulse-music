@@ -3,6 +3,7 @@ import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
 import { Spinner } from './ui.jsx';
 import ArtistField from './ArtistField.jsx';
+import LinkedTrackField from './LinkedTrackField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 
@@ -11,12 +12,17 @@ const GENRES = ['Afrobeats', 'Afropop', 'R&B / Soul', 'Afro-fusion', 'Indie Rock
 export default function SongFormModal({ open, onClose, onSaved, song, artists, albums, defaultArtistId }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  // A linked track plays through YouTube's player instead of a file we host.
+  const [linked, setLinked] = useState(null);
   const [form, setForm] = useState({
     title: '', artist_id: '', album_id: '', artist_name: '', album_title: '', genre: '', audio: null, source_url: '', cover: null, is_public: 1
   });
 
   useEffect(() => {
     if (open) {
+      setLinked(song?.provider === 'youtube' && song?.external_id
+        ? { provider: 'youtube', external_id: song.external_id, title: song.title, artist: song.artist_name, cover_url: song.cover_url }
+        : null);
       setForm({
         title: song?.title || '',
         artist_id: song?.artist_id || defaultArtistId || '',
@@ -36,11 +42,19 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.title.trim()) { toast('Title is required', 'error'); return; }
-    if (!song && !form.audio && !form.source_url.trim()) { toast('Choose an audio file or provide a licensed HTTPS playback URL', 'error'); return; }
+    if (!form.title.trim() && !linked) { toast('Title is required', 'error'); return; }
+    if (!song && !form.audio && !form.source_url.trim() && !linked) {
+      toast('Choose an audio file, link a YouTube track, or provide a licensed HTTPS playback URL', 'error');
+      return;
+    }
 
     const fd = new FormData();
-    fd.append('title', form.title.trim());
+    fd.append('title', (form.title.trim() || linked?.title || 'Untitled track'));
+    if (linked) {
+      fd.append('provider', linked.provider);
+      fd.append('external_id', linked.external_id);
+      if (linked.cover_url && !form.cover) fd.append('cover_url', linked.cover_url);
+    }
     if (form.artist_id) fd.append('artist_id', form.artist_id);
     if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
     if (form.album_id) fd.append('album_id', form.album_id);
@@ -98,6 +112,24 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
           </select>
         </label>
 
+        <div className="field">
+          <span>Link a YouTube track</span>
+          <LinkedTrackField
+            linked={linked}
+            onClear={() => setLinked(null)}
+            onResolved={(preview) => {
+              setLinked(preview);
+              // Fill in what YouTube knows so the track is playable straight away.
+              setForm((f) => ({
+                ...f,
+                title: f.title || preview.title || '',
+                artist_name: f.artist_name || preview.artist || ''
+              }));
+              toast('Link added — it will play through YouTube 🎥', 'success');
+            }}
+          />
+        </div>
+
         <label className="field">
           <span>Licensed playback URL (optional)</span>
           <input type="url" value={form.source_url} onChange={(e) => set('source_url', e.target.value)} placeholder="https://licensed-provider.example/track" />
@@ -106,7 +138,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
 
         <div className="field-row">
           <label className="field file-field">
-            <span>{song ? 'Replace audio (optional)' : 'Audio file *'}</span>
+            <span>{song ? 'Replace audio (optional)' : linked ? 'Audio file (optional — a link is set)' : 'Audio file *'}</span>
             <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.aac" onChange={(e) => set('audio', e.target.files[0])} />
             {form.audio && <em className="file-note">{form.audio.name}</em>}
           </label>

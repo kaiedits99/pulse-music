@@ -238,6 +238,19 @@
   color: #16a34a;
   border-color: rgba(22, 163, 74, 0.25);
 }
+.tag-visibility.tag-linked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 0, 51, 0.14);
+  color: #ff5c7a;
+  border: 1px solid rgba(255, 0, 51, 0.3);
+}
+[data-theme='light'] .tag-visibility.tag-linked {
+  background: rgba(200, 0, 40, 0.1);
+  color: #c80028;
+  border-color: rgba(200, 0, 40, 0.22);
+}
 
 .row-actions-group {
   display: flex;

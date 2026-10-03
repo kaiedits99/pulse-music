@@ -42,6 +42,7 @@ function Dropdown({ open, onClose, items }) {
 }
 
 export function downloadFile(song, toast) {
+  if (song.provider) { toast('Linked tracks play from YouTube and cannot be downloaded', 'error'); return; }
   if (!song.file_path) { toast('No audio file for this track', 'error'); return; }
   openExternal(apiUrl(`/api/songs/${song.id}/download`));
   song.downloads = (song.downloads || 0) + 1;
@@ -152,6 +153,11 @@ export default function SongTable({
                         {showVisibility && !isPrivate && (
                           <span className="tag-visibility tag-public" title="Public track (published for everyone)">
                             <Icon name="globe" size={11} /> Public
+                          </span>
+                        )}
+                        {song.provider === 'youtube' && (
+                          <span className="tag-visibility tag-linked" title="Linked track — plays through YouTube's embedded player">
+                            <Icon name="external" size={11} /> YouTube
                           </span>
                         )}
                         {showOfflineActions && isSongDownloaded(song.id) && (

@@ -7,6 +7,7 @@ import db, { uploadsDir } from './db.js';
 import { searchClause } from './search.js';
 import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
 import { storage, keepUploads, sendDownload, releaseMedia } from './media.js';
+import { describeLink, readLinkedFields, unsupportedProvider, parseYouTubeId, badRequest } from './youtube.js';
 
 const router = express.Router();
 
@@ -56,19 +57,45 @@ function wavDuration(filePath) {
 // ---------- Helpers ----------
 function sanitizeSourceUrl(value) {
   if (!value) return null;
+  let url;
   try {
-    const url = new URL(String(value).trim());
-    if (url.protocol !== 'https:') throw new Error('Only HTTPS sources are permitted');
-    return url.toString();
+    url = new URL(String(value).trim());
   } catch {
-    const error = new Error('Playback URL must be a valid HTTPS URL from a licensed provider');
-    error.status = 400;
-    throw error;
+    throw badRequest('Playback URL must be a valid HTTPS URL from a licensed provider');
   }
+
+  // A streaming-service page is not a media file: the browser would "play" an HTML
+  // document and fail silently. Say so at save time instead of storing a dead track.
+  const provider = unsupportedProvider(url.toString());
+  if (provider) {
+    throw badRequest(
+      `${provider} links cannot be played or converted by Pulse. Link a YouTube video instead, ` +
+      'or upload an audio file you own.'
+    );
+  }
+  if (parseYouTubeId(url.toString())) {
+    throw badRequest(
+      'That is a YouTube page, not an audio file. Use the “Link a YouTube track” field to add it as an embeddable track.'
+    );
+  }
+
+  if (url.protocol !== 'https:') throw badRequest('Only HTTPS sources are permitted');
+  return url.toString();
 }
 
 function artistForUser(userId) {
   return db.prepare('SELECT * FROM artists WHERE user_id = ?').get(userId);
+}
+
+/** Cover art that lives on a provider's CDN (e.g. a YouTube thumbnail). Never proxied. */
+function sanitizeRemoteImage(value) {
+  try {
+    const url = new URL(String(value).trim());
+    if (url.protocol !== 'https:') throw new Error('bad protocol');
+    return url.toString();
+  } catch {
+    throw badRequest('Cover image must be a valid HTTPS URL');
+  }
 }
 
 function songOwnerIs(req, song) {
@@ -706,6 +733,16 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
   res.json({ ...s, is_favorite: isFavorite });
 });
 
+// Resolve a pasted track link before it is saved: recognises embeddable YouTube videos
+// (and fills in title / channel / artwork from YouTube's keyless oEmbed endpoint) and
+// explains why Spotify, Apple Music and friends cannot be added.
+router.post('/link-preview', authMiddleware, wrap(async (req, res) => {
+  const url = (req.body && req.body.url) || '';
+  if (!String(url).trim()) return res.status(400).json({ error: 'Paste a track link first' });
+  const preview = await describeLink(url);
+  res.json(preview);
+}));
+
 // Bulk import is intentionally limited to ten files per request. Audio stays in Pulse storage;
 // only upload music you own or are authorized to make available.
 router.post('/songs/import', authMiddleware, upload.array('audio', 10), keepUploads, (req, res) => {
@@ -761,14 +798,20 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   const coverFile = req.files && req.files.cover && req.files.cover[0];
   let filePath = null;
   if (audioFile) filePath = '/media/uploads/' + audioFile.filename;
-  const sourceUrl = sanitizeSourceUrl(body.source_url);
-  if (!filePath && !sourceUrl) return res.status(400).json({ error: 'Choose an audio file or provide an approved HTTPS playback URL' });
+  let sourceUrl = sanitizeSourceUrl(body.source_url);
+  const linked = readLinkedFields(body);
+  if (!filePath && !sourceUrl && !linked) {
+    return res.status(400).json({ error: 'Choose an audio file, link a YouTube track, or provide an approved HTTPS playback URL' });
+  }
+  // A linked track owns no media: it plays through the provider's embed player.
+  if (linked) { filePath = null; sourceUrl = null; }
 
   const duration = wavDuration(audioFile ? audioFile.path : '') || parseFloat(body.duration) || 0;
   const albumId = body.album_id ? parseInt(body.album_id, 10) : null;
 
   let coverUrl = null;
   if (coverFile) coverUrl = '/media/uploads/' + coverFile.filename;
+  else if (body.cover_url) coverUrl = sanitizeRemoteImage(body.cover_url);
   else if (albumId) {
     const own = db.prepare('SELECT cover_url FROM albums WHERE id = ?').get(albumId);
     coverUrl = (own && own.cover_url) || null;
@@ -781,9 +824,13 @@ router.post('/songs', authMiddleware, upload.fields([{ name: 'audio', maxCount: 
   }
 
   const info = db.prepare(
-    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, cover_url, uploaded_by, is_public)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).run(title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl, coverUrl, req.user.id, isPublic);
+    `INSERT INTO songs (title, artist_id, album_id, genre, duration_seconds, file_path, source_url, provider, external_id, cover_url, uploaded_by, is_public)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    title, artistId, albumId, body.genre || null, duration, filePath, sourceUrl,
+    linked ? linked.provider : null, linked ? linked.external_id : null,
+    coverUrl, req.user.id, isPublic
+  );
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title
@@ -840,13 +887,26 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
 
   let filePath = existing.file_path;
   if (audioFile) filePath = '/media/uploads/' + audioFile.filename;
-  const sourceUrl = body.source_url !== undefined ? sanitizeSourceUrl(body.source_url) : existing.source_url;
-  if (!filePath && !sourceUrl) return res.status(400).json({ error: 'A playable audio source is required' });
+  let sourceUrl = body.source_url !== undefined ? sanitizeSourceUrl(body.source_url) : existing.source_url;
+
+  // A track plays from exactly one place: an uploaded file, a linked embed, or a
+  // direct licensed URL. Giving it a file or a link clears the others.
+  let linked = existing.provider && existing.external_id
+    ? { provider: existing.provider, external_id: existing.external_id }
+    : null;
+  if (body.provider !== undefined) linked = readLinkedFields(body); // an empty value clears the link
+  if (audioFile) linked = null;
+  if (linked) {
+    filePath = null;
+    if (body.provider !== undefined) sourceUrl = sanitizeSourceUrl(body.source_url);
+  }
+  if (!filePath && !sourceUrl && !linked) return res.status(400).json({ error: 'A playable audio source is required' });
   let duration = existing.duration_seconds;
   if (audioFile) duration = wavDuration(audioFile.path) || parseFloat(body.duration) || duration;
 
   let coverUrl = existing.cover_url;
   if (coverFile) coverUrl = '/media/uploads/' + coverFile.filename;
+  else if (body.cover_url !== undefined && body.cover_url) coverUrl = sanitizeRemoteImage(body.cover_url);
 
   let isPublic = existing.is_public ?? 1;
   if (body.is_public !== undefined) {
@@ -855,9 +915,17 @@ router.put('/songs/:id', authMiddleware, upload.fields([{ name: 'audio', maxCoun
   }
 
   db.prepare(
-    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, cover_url=?, is_public=? WHERE id=?`
-  ).run(title, artistId, albumId, body.genre !== undefined ? (body.genre || null) : existing.genre, duration, filePath, sourceUrl, coverUrl, isPublic, existing.id);
-  releaseMedia([audioFile ? existing.file_path : null, coverFile ? existing.cover_url : null]);
+    `UPDATE songs SET title=?, artist_id=?, album_id=?, genre=?, duration_seconds=?, file_path=?, source_url=?, provider=?, external_id=?, cover_url=?, is_public=? WHERE id=?`
+  ).run(
+    title, artistId, albumId, body.genre !== undefined ? (body.genre || null) : existing.genre, duration,
+    filePath, sourceUrl, linked ? linked.provider : null, linked ? linked.external_id : null,
+    coverUrl, isPublic, existing.id
+  );
+  // Files that this edit replaced: the audio only when it was swapped for a link, the cover when replaced.
+  releaseMedia([
+    (audioFile || linked) && existing.file_path !== filePath ? existing.file_path : null,
+    coverFile && existing.cover_url !== coverUrl ? existing.cover_url : null
+  ]);
 
   const s = db.prepare(`
     SELECT s.*, a.name artist_name, al.title album_title

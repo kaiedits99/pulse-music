@@ -17,7 +17,12 @@ before(() => {
   fs.writeFileSync(fake, `#!/usr/bin/env bash
 echo "$* | db=$PULSE_DB_PATH region=$S3_REGION interval=$PULSE_DB_SYNC_INTERVAL wait=$PULSE_SHUTDOWN_DELAY_SECONDS" >> "${calls}"
 case "$1" in
-  restore) exit "\${FAKE_RESTORE_EXIT:-0}" ;;
+  restore)
+    case "\${@: -1}" in
+      *chat.db) exit "\${FAKE_CHAT_RESTORE_EXIT:-0}" ;;
+      *) exit "\${FAKE_RESTORE_EXIT:-0}" ;;
+    esac
+    ;;
 esac
 exit 0
 `, { mode: 0o755 });
@@ -52,14 +57,17 @@ async function run(env, { until } = {}) {
 test('with a bucket it restores first, then runs the server under Litestream', async () => {
   const { code, output } = await run({ ...BUCKET, LITESTREAM_BIN: fake });
   assert.equal(code, 0, output);
-  const [restore, replicate, ...extra] = callLog();
+  const [restore, chatRestore, replicate, ...extra] = callLog();
   const config = path.join(root, 'litestream.yml');
   const db = path.join(dataDir, 'pulse.db');
+  const chatDb = path.join(dataDir, 'chat.db');
   const settings = `db=${db} region=auto interval=5s wait=7`;
   assert.equal(restore, `restore -config ${config} -if-db-not-exists -if-replica-exists ${db} | ${settings}`);
+  assert.equal(chatRestore, `restore -config ${config} -if-db-not-exists -if-replica-exists ${chatDb} | ${settings}`);
   assert.equal(replicate, `replicate -config ${config} -exec node server/index.js | ${settings}`);
   assert.deepEqual(extra, []);
   assert.match(output, /Restoring the database from the bucket/);
+  assert.match(output, /Restoring messages from the bucket/);
   assert.match(output, /database changes are copied to bucket "pulse"/);
 });
 
@@ -72,7 +80,7 @@ test('the copy interval can be tuned, and the server is told to outlast it when 
   const cases = [['2', '2s', '4'], ['1', '1s', '3'], ['0', '1s', '3'], ['90', '20s', '22'], ['soon', '5s', '7'], ['', '5s', '7']];
   for (const [given, interval, wait] of cases) {
     await run({ ...BUCKET, LITESTREAM_BIN: fake, PULSE_DB_SYNC_SECONDS: given });
-    assert.match(callLog()[1], new RegExp(`interval=${interval} wait=${wait}$`), `PULSE_DB_SYNC_SECONDS="${given}"`);
+    assert.match(callLog()[2], new RegExp(`interval=${interval} wait=${wait}$`), `PULSE_DB_SYNC_SECONDS="${given}"`);
   }
 });
 
@@ -87,6 +95,14 @@ test('if the saved database cannot be restored it refuses to start rather than b
   assert.match(output, /could not restore the database from the bucket, so Pulse is NOT starting/);
   assert.equal(callLog().length, 1, 'only the restore ran; replication and the server never started');
   assert.ok(!/Server running/.test(output));
+});
+
+test('messages failing to restore does not stop the app (they expire within a day anyway)', async () => {
+  const { code, output } = await run({ ...BUCKET, LITESTREAM_BIN: fake, FAKE_CHAT_RESTORE_EXIT: '1' });
+  assert.equal(code, 0, output);
+  assert.match(output, /WARNING: messages could not be restored/);
+  // The catalogue restore is fatal, so reaching replication proves the run continued.
+  assert.match(output, /database changes are copied to bucket "pulse"/);
 });
 
 test('a bucket without the Litestream program is an error, not a silent downgrade', async () => {

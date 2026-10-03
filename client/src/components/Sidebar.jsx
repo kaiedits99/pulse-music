@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { api } from '../api.js';
 import { PlaylistFormModal } from './Forms.jsx';
 import { isPlaylistDownloaded, OFFLINE_EVENT } from '../offline.js';
+import { useChatUnread } from '../chat.jsx';
 import { useInstallPrompt } from '../hooks/useInstallPrompt.js';
 
 const PRIMARY_NAV = [
@@ -14,6 +15,7 @@ const PRIMARY_NAV = [
   { to: '/library', icon: 'library', label: 'Your Library' },
   { to: '/library?filter=uploads', icon: 'upload', label: 'Your Uploads', isUploads: true },
   { to: '/podcasts', icon: 'podcast', label: 'Podcasts' },
+  { to: '/messages', icon: 'mail', label: 'Messages', badge: 'chat' },
   { to: '/offline-player', icon: 'headphones', label: 'Offline Player' }
 ];
 
@@ -22,6 +24,7 @@ export default function Sidebar({ open, onClose }) {
   const { toast } = useToast();
   const location = useLocation();
   const { canInstall, installed, promptInstall } = useInstallPrompt();
+  const { unread: chatUnread } = useChatUnread();
 
   const [playlists, setPlaylists] = useState([]);
   const [newOpen, setNewOpen] = useState(false);
@@ -94,6 +97,9 @@ export default function Sidebar({ open, onClose }) {
                 >
                   <Icon name={item.icon} size={20} />
                   <span>{item.label}</span>
+                  {item.badge === 'chat' && chatUnread > 0 && (
+                    <span className="side-nav-badge" aria-label={`${chatUnread} unread messages`}>{chatUnread}</span>
+                  )}
                 </NavLink>
               );
             })}

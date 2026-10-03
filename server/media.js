@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import db, { uploadsDir } from './db.js';
+import { chatMediaDir } from './chat-db.js';
 import { createStorage, readStorageConfig, mediaName, uploadedFiles, MEDIA_NAME } from './storage.js';
 
 let config = null;
@@ -16,6 +17,17 @@ try {
 }
 
 export const storage = createStorage({ config, uploadsDir });
+
+/**
+ * Ephemeral chat media: a separate folder and bucket prefix, so wiping a conversation can never
+ * touch a track, and so its objects can be swept on their own. Links to it are always short-lived
+ * and no-store — nothing here should end up in a browser cache after the 24 hours are up.
+ */
+export const chatStorage = createStorage({
+  config,
+  uploadsDir: chatMediaDir,
+  prefix: 'chat/'
+});
 
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);

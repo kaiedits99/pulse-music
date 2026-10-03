@@ -53,6 +53,20 @@ export function authMiddleware(req, res, next) {
   }
 }
 
+/**
+ * The user behind a token, or null. Used where a URL cannot carry an Authorization header —
+ * chat media is fetched by <img>/<audio> tags, so the token rides in the query string.
+ */
+export function userFromToken(token) {
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(String(token), JWT_SECRET);
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id) || null;
+  } catch {
+    return null;
+  }
+}
+
 // Optional auth: attaches user if token present, but doesn't block
 export function optionalAuth(req, res, next) {
   const header = req.headers.authorization || '';
