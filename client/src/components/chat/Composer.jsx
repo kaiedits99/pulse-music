@@ -115,7 +115,7 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
 
   useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url); }, [image]);
 
-  const canSend = Boolean(text.trim() || image || recorder.clip || shareCandidate) && !disabled && !sending;
+  const canSend = Boolean(text.trim() || image || recorder.clip || shareCandidate) && !disabled && !sending && canPost;
 
   const submit = async () => {
     if (!canSend) return;
