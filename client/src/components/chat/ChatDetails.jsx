@@ -22,11 +22,18 @@ function linksIn(messages) {
  * The right-hand panel: who you are talking to, what has been shared, and what happens to it.
  * Everything here is derived from the thread itself — nothing is stored twice.
  */
-export default function ChatDetails({ conversation, messages, tracks, onPlayTrack, onBlock, onUnblock, onClose, isBlocked, onMute }) {
+export default function ChatDetails({
+  conversation, messages, tracks, onPlayTrack, onBlock, onUnblock, onClose, isBlocked, onMute,
+  onInvite, onLeave, onUnqueue, onRoomNext, onRoomToggle, onJoinRoom, roomJoined
+}) {
   const [tab, setTab] = useState('Tracks');
   const peer = conversation.kind === 'dm' ? conversation.others?.[0] : null;
+  const channel = conversation.kind === 'channel';
+  const party = conversation.kind === 'party';
   const title = conversation.kind === 'dm' ? (peer?.name || 'Conversation') : (conversation.title || 'Group');
   const handle = peer?.username ? `@${peer.username}` : null;
+  const members = conversation.members || [];
+  const room = conversation.room || null;
 
   const sharedTracks = [...new Set(messages.filter((m) => m.track_id).map((m) => m.track_id))]
     .map((id) => tracks[id]).filter(Boolean);
@@ -46,9 +53,9 @@ export default function ChatDetails({ conversation, messages, tracks, onPlayTrac
         <h3>{title}</h3>
         {handle && <span className="muted">@{peer.username}</span>}
         <p className="cd-note">
-          {conversation.kind === 'dm'
-            ? 'Messages here delete themselves 24 hours after they are read.'
-            : `A group of ${conversation.members?.length || 0}. Messages delete themselves 24 hours after everyone has read them.`}
+          {conversation.kind === 'dm' && 'Messages here delete themselves 24 hours after they are read.'}
+          {party && `A party of ${members.length}. Messages delete themselves 24 hours after everyone has read them.`}
+          {channel && 'A channel: the owner posts, everyone else reads. Posts are deleted after 7 days.'}
         </p>
       </div>
 
@@ -59,6 +66,28 @@ export default function ChatDetails({ conversation, messages, tracks, onPlayTrac
         <button className="cd-action" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/messages`)} title="Copy a link to Pulse messages">
           <Icon name="share" size={18} /><span>Share</span>
         </button>
+        {party && (
+          <button className="cd-action" onClick={onInvite} title="Invite people by artist tag">
+            <Icon name="users" size={18} /><span>Invite</span>
+          </button>
+        )}
+        {party && (
+          <button
+            className="cd-action"
+            onClick={() => {
+              const next = window.prompt('Party name', conversation.title || '');
+              if (next && next.trim()) onRename?.(next.trim());
+            }}
+            title="Rename the party"
+          >
+            <Icon name="edit" size={18} /><span>Rename</span>
+          </button>
+        )}
+        {(party || channel) && (
+          <button className="cd-action cd-action--danger" onClick={onLeave} title={party ? 'Leave the party' : 'Leave the channel'}>
+            <Icon name="logout" size={18} /><span>Leave</span>
+          </button>
+        )}
         {peer && (
           isBlocked ? (
             <button className="cd-action" onClick={() => onUnblock(peer.id)} title="Unblock">
@@ -71,6 +100,71 @@ export default function ChatDetails({ conversation, messages, tracks, onPlayTrac
           )
         )}
       </div>
+
+      {!peer && members.length > 0 && (
+        <div className="cd-members">
+          <span className="cd-label">{channel ? 'Members' : 'In this party'}</span>
+          {members.slice(0, 8).map((person) => (
+            <span key={person.id} className="cd-member">
+              <Cover src={person.avatar_url} alt={person.name} size={26} round />
+              <span className="cd-member-name">{person.name}</span>
+              {person.username && <em>@{person.username}</em>}
+              {conversation.owner?.id === person.id && <span className="cd-owner">owner</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {party && (
+        <div className="cd-room">
+          <span className="cd-label"><Icon name="broadcast" size={12} /> Listening room</span>
+          {room?.playing?.track_id ? (
+            <button className="cd-row" onClick={() => onPlayTrack(tracks[room.playing.track_id])}>
+              <Cover src={tracks[room.playing.track_id]?.cover_url} alt="Now playing" size={34} />
+              <span className="cd-row-meta">
+                <strong>{tracks[room.playing.track_id]?.title || 'Track'}</strong>
+                <em>{room.playing.is_playing ? 'playing now' : 'paused'} · added by a member</em>
+              </span>
+              <Icon name={room.playing.is_playing ? 'pause' : 'play'} size={15} />
+            </button>
+          ) : (
+            <p className="muted pad-sm">{roomJoined ? 'Nothing playing — queue a track below.' : 'Join to listen along.'}</p>
+          )}
+          {!roomJoined && (
+            <button className="btn btn-ghost btn-sm btn-pill" onClick={onJoinRoom}>
+              <Icon name="broadcast" size={14} /> Join the room
+            </button>
+          )}
+          {room?.queue?.length > 0 && (
+            <>
+              <span className="cd-label">Up next · {room.queue.length}</span>
+              {room.queue.map((entry) => (
+                <div key={entry.id} className="cd-row cd-row--queue">
+                  <Cover src={tracks[entry.track_id]?.cover_url} alt="Queued track" size={30} />
+                  <span className="cd-row-meta">
+                    <strong>{tracks[entry.track_id]?.title || 'Track'}</strong>
+                    <em>{tracks[entry.track_id]?.artist_name || 'in the catalogue'}</em>
+                  </span>
+                  <button className="icon-btn" onClick={() => onUnqueue(entry.id)} title="Remove from the queue">
+                    <Icon name="close" size={14} />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {roomJoined && (
+            <div className="cd-room-actions">
+              <button className="btn btn-ghost btn-sm btn-pill" onClick={onRoomToggle}>
+                <Icon name={room?.playing?.is_playing ? 'pause' : 'play'} size={14} />
+                {room?.playing?.is_playing ? 'Pause' : 'Play'}
+              </button>
+              <button className="btn btn-ghost btn-sm btn-pill" onClick={onRoomNext}>
+                <Icon name="next" size={14} /> Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="cd-tabs" role="tablist">
         {TABS.map((name) => (
@@ -134,7 +228,10 @@ export default function ChatDetails({ conversation, messages, tracks, onPlayTrac
       </div>
 
       <p className="cd-foot">
-        <Icon name="info" size={13} /> Attachments are served privately and stop working when the message expires.
+        <Icon name="info" size={13} />{' '}
+        {channel
+          ? 'Posts are deleted 7 days after they go out, whatever happens. Reported posts are kept for review.'
+          : 'Attachments are served privately and stop working when the message expires.'}
       </p>
     </aside>
   );

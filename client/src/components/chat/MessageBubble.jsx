@@ -40,7 +40,7 @@ function TrackCard({ track, onPlay }) {
   );
 }
 
-export default function MessageBubble({ message, track, onPlayTrack, onReact, onUnsend, onReport, onShowTime }) {
+export default function MessageBubble({ message, track, onPlayTrack, onReact, onUnsend, onReport, onShowTime, showSender = false }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const imageRef = useRef(null);
   const mine = message.mine;
@@ -59,7 +59,12 @@ export default function MessageBubble({ message, track, onPlayTrack, onReact, on
       )}
 
       <div className="msg-stack">
-        {!mine && <span className="msg-sender">{message.sender.name}</span>}
+        {!mine && (
+          <span className="msg-sender">
+            {message.sender.name}
+            {showSender && message.sender.username && <em>@{message.sender.username}</em>}
+          </span>
+        )}
 
         <div className={`msg-bubble ${isImage ? 'msg-bubble--media' : ''}`}>
           {isImage && (

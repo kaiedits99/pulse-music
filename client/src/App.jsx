@@ -86,6 +86,8 @@ export default function App() {
                       <Route path="/upload" element={<Upload />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/messages" element={<Messages />} />
+                      {/* /messages/@artisttag opens the chat with that account */}
+                      <Route path="/messages/:handle" element={<Messages />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

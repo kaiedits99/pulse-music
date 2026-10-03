@@ -19,17 +19,45 @@ export const chatApi = {
   messages: (id, { before, limit = 50 } = {}) => api.get(
     `/api/chat/conversations/${id}/messages?limit=${limit}${before ? `&before=${before}` : ''}`
   ),
+  // Address people by id or by artist tag; the tag is what someone can read off a profile.
   openDm: (userId) => api.post('/api/chat/conversations', { user_id: userId }),
+  openDmByHandle: (handle) => api.post('/api/chat/conversations', { handle }),
+  person: (handle) => api.get(`/api/chat/people/${encodeURIComponent(String(handle).replace(/^@+/, ''))}`),
   people: (q = '') => api.get(`/api/chat/people?q=${encodeURIComponent(q)}`),
   unread: () => api.get('/api/chat/unread'),
   read: (id, upTo) => api.post(`/api/chat/conversations/${id}/read`, upTo ? { up_to: upTo } : {}),
   mute: (id, muted) => api.patch(`/api/chat/conversations/${id}`, { muted }),
+  rename: (id, title) => api.patch(`/api/chat/conversations/${id}`, { title }),
   react: (messageId, emoji) => api.post(`/api/chat/messages/${messageId}/react`, { emoji }),
   unsend: (messageId) => api.del(`/api/chat/messages/${messageId}`),
   report: (messageId, reason) => api.post(`/api/chat/messages/${messageId}/report`, { reason }),
   block: (userId) => api.post(`/api/chat/users/${userId}/block`, {}),
   unblock: (userId) => api.del(`/api/chat/users/${userId}/block`),
-  send: (id, form) => api.upload(`/api/chat/conversations/${id}/messages`, form)
+  send: (id, form) => api.upload(`/api/chat/conversations/${id}/messages`, form),
+
+  // Parties
+  createParty: (title, userIds) => api.post('/api/chat/groups', { title, user_ids: userIds }),
+  addMember: (id, { userId, handle } = {}) => api.post(`/api/chat/conversations/${id}/members`, {
+    user_id: userId, handle
+  }),
+  leave: (id) => api.del(`/api/chat/conversations/${id}/members/me`),
+
+  // Channels: the owner posts, everyone else reads.
+  channels: (q = '') => api.get(`/api/chat/channels?q=${encodeURIComponent(q)}`),
+  createChannel: (title) => api.post('/api/chat/channels', { title }),
+  joinChannel: (id) => api.post(`/api/chat/channels/${id}/join`, {}),
+
+  // Notes: a one-day status line, not a message.
+  notes: () => api.get('/api/chat/notes'),
+  postNote: (body, emoji) => api.put('/api/chat/notes', { body, emoji }),
+  clearNote: () => api.del('/api/chat/notes'),
+
+  // Listening rooms: a shared queue of track ids. The audio stays in the catalogue.
+  room: (id) => api.get(`/api/chat/conversations/${id}/room`),
+  queueTrack: (id, trackId) => api.post(`/api/chat/conversations/${id}/room/queue`, { track_id: trackId }),
+  unqueue: (id, entryId) => api.del(`/api/chat/conversations/${id}/room/queue/${entryId}`),
+  roomPlaying: (id, payload) => api.post(`/api/chat/conversations/${id}/room/playing`, payload),
+  roomNext: (id) => api.post(`/api/chat/conversations/${id}/room/next`, {})
 };
 
 /* ------------------------------------------------------------------ unread -- */

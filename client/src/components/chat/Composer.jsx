@@ -91,7 +91,7 @@ function useRecorder() {
   return { recording, peaks, seconds, clip, start, stop, clear };
 }
 
-export default function Composer({ onSend, onShareTrack, disabled, shareCandidate, onClearShare }) {
+export default function Composer({ onSend, onShareTrack, disabled, shareCandidate, onClearShare, canPost = true, party = false, onQueueTrack, lockedNote = null }) {
   const { toast } = useToast();
   const [text, setText] = useState('');
   const [image, setImage] = useState(null);
@@ -214,14 +214,24 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
           <div className="track-picker-list">
             {results.length === 0 && <span className="muted pad">No tracks found</span>}
             {results.map((song) => (
-              <button
-                key={song.id}
-                onClick={() => { onShareTrack(song); setPickerOpen(false); setQuery(''); }}
-                className="track-picker-row"
-              >
-                <Cover src={song.cover_url} alt={song.title} size={32} />
-                <span className="tp-meta"><strong>{song.title}</strong><em>{song.artist_name}</em></span>
-              </button>
+              <div key={song.id} className="track-picker-row">
+                <button
+                  className="tp-main"
+                  onClick={() => { onShareTrack(song); setPickerOpen(false); setQuery(''); }}
+                >
+                  <Cover src={song.cover_url} alt={song.title} size={32} />
+                  <span className="tp-meta"><strong>{song.title}</strong><em>{song.artist_name}</em></span>
+                </button>
+                {party && onQueueTrack && (
+                  <button
+                    className="tp-queue"
+                    title="Add to the listening room queue"
+                    onClick={() => { onQueueTrack(song); setPickerOpen(false); setQuery(''); }}
+                  >
+                    <Icon name="broadcast" size={15} /> Room
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -241,6 +251,7 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
           onClick={() => fileRef.current?.click()}
           title="Attach an image"
           aria-label="Attach an image"
+          disabled={!canPost}
         >
           <Icon name="image" size={19} />
         </button>
@@ -256,6 +267,7 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
           onClick={() => recorder.start(toast)}
           title="Record a voice note"
           aria-label="Record a voice note"
+          disabled={!canPost}
         >
           <Icon name="mic" size={19} />
         </button>
@@ -274,8 +286,8 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={disabled ? 'Choose a conversation' : 'Message'}
-          disabled={disabled}
+          placeholder={!canPost ? 'Only the channel owner can post here' : disabled ? 'Choose a conversation' : 'Message'}
+          disabled={disabled || !canPost}
           aria-label="Message"
         />
 
@@ -288,12 +300,12 @@ export default function Composer({ onSend, onShareTrack, disabled, shareCandidat
           <Icon name="smiley" size={19} />
         </button>
 
-        <button className="composer-send" onClick={submit} disabled={!canSend} title="Send" aria-label="Send">
+        <button className="composer-send" onClick={submit} disabled={!canSend || !canPost} title="Send" aria-label="Send">
           {sending ? <Spinner size={16} /> : <Icon name="send" size={17} />}
         </button>
       </div>
       <p className="composer-note">
-        Messages and attachments are deleted 24 hours after they are read — 30 days if they are never opened.
+        {lockedNote || 'Messages and attachments are deleted 24 hours after they are read — 30 days if they are never opened.'}
       </p>
     </div>
   );

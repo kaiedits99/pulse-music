@@ -15,11 +15,34 @@ what the code does today (see `server/chat.js` and `server/chat-db.js`).
 
 At **read**, not at send. A message becomes readable by the recipient the moment it is sent; the
 24 hours start when the last person in the conversation has opened it. In a 1:1 chat that means
-the first time the other person opens the thread.
+the first time the other person opens the thread. In a party it means the last member to read it —
+one person reading does not start the clock for everyone.
 
 - Sent and read immediately → gone 24 hours later.
 - Sent and read three days later → gone 24 hours after *that*, i.e. 4 days after it was sent.
 - Never opened at all → gone 30 days after it was sent.
+
+## The other three surfaces
+
+| Surface | Lifetime |
+| --- | --- |
+| Direct message | 24 hours after the other person reads it; 30 days if never read |
+| Party (group) | 24 hours after the **last** member reads it; 30 days if never read |
+| Channel post (broadcast) | **7 days** from posting — reading does not change it |
+| Note (status line) | **24 hours** from posting, read or not |
+| Listening room | live state only: it describes what is playing *now* |
+| "N online" | the last two minutes — presence is a moment, not a history |
+
+A **channel** is a broadcast, so "everyone has read it" would be meaningless: the owner posts, the
+members read, and every post has one fixed 7-day life. Only the owner can post; anyone can join.
+
+A **note** is not addressed to anyone, so it follows one clock: 24 hours from posting. It is shown
+only to you and to people you already share a conversation with — never to strangers.
+
+A **listening room** is a shared queue of track ids, not a live audio stream: the room records
+which track the party is on, and each member's own player follows along from Pulse. The queue
+entries expire after 30 days like anything else, and a room that nobody has touched for a day
+stops claiming to be playing something.
 
 ## What "deleted" means here
 
@@ -54,6 +77,13 @@ Storing messages in their own database, separate from the music catalogue, keeps
 touching anything that matters: compaction, secure deletion and short replica retention apply only
 to the message store. The catalogue (accounts, tracks, playlists) is never swept, never compacted
 early, and keeps its own, longer backup history.
+
+## Your artist tag
+
+Every account has one artist tag (`@name`), set in Settings. It is how people find you: searching
+`@timi` — with or without the `@` — puts that account first, and an exact tag always outranks a
+similar name. It is also a link: `/messages/@timi` opens the chat with that person (starting one
+if there is none). A tag is public, like a username anywhere else; messages are not.
 
 ## The numbers
 

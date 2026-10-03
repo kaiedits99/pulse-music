@@ -245,6 +245,22 @@ person saved are left alone), including from saved playlists.
   review; that is the only exception, and the app says so before you confirm. See
   [`docs/chat-retention.md`](docs/chat-retention.md) for exactly what is deleted, when, and what
   cannot be promised.
+- **Artist tags** — every account has one (`@name`, set in Settings). Search `@name` anywhere —
+  the messages list, the new-conversation picker, an invite — and an exact tag always comes first.
+  `/messages/@name` opens that chat directly, starting one if there is none. Anyone signed in can
+  be messaged; blocking and reporting are one tap away.
+- **Notes** — the row of faces above the chat list: a one-day status line with an emoji. It is not
+  a message and not addressed to anyone, so it lives 24 hours from posting and is shown only to
+  you and the people you already talk to.
+- **Parties** — group chats that start with a name and a few `@tags`. The 24-hour clock waits for
+  the *last* member to read, members can invite more people, rename the party, or leave.
+- **Channels** — broadcasts in one direction: the owner posts, everyone else reads and reacts,
+  and posts are deleted **7 days** after they go out (a broadcast has no "everyone has read it").
+  Browse and join from the same picker.
+- **Listening rooms** — a party can listen together: a shared queue of track ids with a
+  "N online" count, join/leave, play, pause and next. Nothing is streamed between browsers — each
+  member's own player follows the room — so it needs no WebRTC server, no TURN relay and no
+  bandwidth the free instance cannot afford.
 - **Podcasts & Shows** (`/podcasts`, `/podcasts/:id`) — a section of its own, not a re-skin of
   uploads. Shows and episodes live in their own tables (`podcasts`, `episodes`,
   `podcast_subscriptions`, `saved_episodes`, `episode_progress`) with their own routes, so an

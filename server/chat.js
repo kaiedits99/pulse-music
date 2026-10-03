@@ -44,19 +44,43 @@ export function profilesFor(ids) {
   return new Map(rows.map((row) => [row.id, row]));
 }
 
-/** People picker: a name or @username match when searching, otherwise recent sign-ups. */
+/**
+ * People picker. A leading "@" means "this is an artist tag", not part of a name, so `@timi` and
+ * `timi` find the same person — and an exact tag always comes first: searching your tag is how
+ * someone finds you, so a perfect match must never be buried under similar names.
+ */
 export function searchPeople(userId, query = '') {
-  if (query) {
-    const like = `%${query.toLowerCase()}%`;
+  const raw = String(query || '').trim();
+  if (!raw) {
     return mainDb.prepare(`
-      SELECT id, name, username, avatar_url FROM users
-      WHERE id != ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(username, '')) LIKE ?)
-      ORDER BY name LIMIT 25
-    `).all(userId, like, like);
+      SELECT id, name, username, avatar_url FROM users WHERE id != ? ORDER BY created_at DESC LIMIT 25
+    `).all(userId);
   }
+  const term = (raw.startsWith('@') ? raw.slice(1) : raw).toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   return mainDb.prepare(`
-    SELECT id, name, username, avatar_url FROM users WHERE id != ? ORDER BY created_at DESC LIMIT 25
-  `).all(userId);
+    SELECT id, name, username, avatar_url FROM users
+    WHERE id != ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(username, '')) LIKE ?)
+    ORDER BY
+      CASE
+        WHEN LOWER(COALESCE(username, '')) = ? THEN 0
+        WHEN LOWER(COALESCE(username, '')) LIKE ? THEN 1
+        WHEN LOWER(COALESCE(username, '')) LIKE ? THEN 2
+        ELSE 3
+      END,
+      name COLLATE NOCASE
+    LIMIT 25
+  `).all(userId, like, like, term, `${term}%`, like);
+}
+
+/** Resolve an artist tag ("timi", "@timi" or "@Timi") to the account behind it. */
+export function profileByHandle(handle) {
+  const clean = String(handle || '').trim().replace(/^@+/, '');
+  if (!clean) return null;
+  return mainDb.prepare(
+    'SELECT id, name, username, avatar_url FROM users WHERE LOWER(COALESCE(username, \'\')) = LOWER(?)'
+  ).get(clean) || null;
 }
 
 /** A message the given user is allowed to act on (they must be in its conversation). */
@@ -132,10 +156,229 @@ export function createGroup(creatorId, userIds, { kind = 'party', title = null }
   return db.transaction(() => {
     const info = db.prepare('INSERT INTO conversations (kind, title, created_by) VALUES (?,?,?)')
       .run(kind, title, creatorId);
-    const add = db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)');
+    const add = db.prepare('INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)');
     for (const id of members) add.run(info.lastInsertRowid, id);
     return info.lastInsertRowid;
   })();
+}
+
+export function conversation(id) {
+  return db.prepare('SELECT * FROM conversations WHERE id = ?').get(parseInt(id, 10) || 0) || null;
+}
+
+export function kindOf(conversationId) {
+  return conversation(conversationId)?.kind || null;
+}
+
+/** Add people to a party or channel. Returns how many were actually new. */
+export function addMembers(conversationId, userIds) {
+  const add = db.prepare('INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)');
+  let added = 0;
+  db.transaction(() => {
+    for (const id of [...new Set(userIds)].filter((value) => Number.isInteger(value) && value > 0)) {
+      added += add.run(conversationId, id).changes;
+    }
+  })();
+  return added;
+}
+
+/** Leaving removes the membership only; the thread is not anyone's to delete. */
+export function removeMember(conversationId, userId) {
+  return db.prepare('DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
+    .run(conversationId, userId).changes;
+}
+
+export function setTitle(conversationId, title) {
+  db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
+}
+
+/* ------------------------------------------------------------------ notes ---- */
+
+export const NOTE_HOURS = 24;
+
+/**
+ * Notes from your own profile and from everyone you already have a conversation with — the row of
+ * faces above the chat list. Blocked pairs are filtered by the caller.
+ */
+export function listNotes(userId) {
+  const rows = db.prepare(`
+    SELECT n.user_id, n.body, n.emoji, ${iso('n.created_at')} created_at, ${iso('n.expires_at')} expires_at
+    FROM notes n
+    WHERE n.expires_at > datetime('now')
+      AND (
+        n.user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM conversation_members mine
+          JOIN conversation_members theirs ON theirs.conversation_id = mine.conversation_id
+          WHERE mine.user_id = ? AND theirs.user_id = n.user_id
+        )
+      )
+    ORDER BY n.user_id = ? DESC, n.created_at DESC
+    LIMIT 40
+  `).all(userId, userId, userId);
+
+  return rows.map((row) => ({
+    user: publicProfile(row.user_id),
+    mine: row.user_id === userId,
+    body: row.body,
+    emoji: row.emoji,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    // Where tapping the note goes: the existing 1:1 chat, if there is one.
+    conversation_id: row.user_id === userId ? null : findDm(userId, row.user_id)
+  })).filter((note) => note.user);
+}
+
+/** Post (or replace) your note. Nobody has to read it for the clock to run. */
+export function setNote(userId, { body = null, emoji = null } = {}) {
+  db.prepare(`
+    INSERT INTO notes (user_id, body, emoji, created_at, expires_at)
+    VALUES (?,?,?, datetime('now'), datetime('now', ?))
+    ON CONFLICT(user_id) DO UPDATE SET
+      body = excluded.body, emoji = excluded.emoji,
+      created_at = datetime('now'), expires_at = excluded.expires_at
+  `).run(userId, body, emoji, `+${NOTE_HOURS} hours`);
+  return db.prepare('SELECT * FROM notes WHERE user_id = ?').get(userId);
+}
+
+export function clearNote(userId) {
+  db.prepare('DELETE FROM notes WHERE user_id = ?').run(userId);
+}
+
+/* --------------------------------------------------------------- channels ---- */
+
+/**
+ * A channel is a broadcast: the owner posts, everyone else reads. "Everyone has read it" is
+ * meaningless for a broadcast, so a post does not wait to be read — it simply lives 7 days.
+ */
+export const CHANNEL_TTL_DAYS = 7;
+
+/** Channels you are in, then channels you could join. Matched on title, so no namespace clashes. */
+export function listChannels(userId, query = '') {
+  const term = String(query || '').trim();
+  const like = `%${term.toLowerCase()}%`;
+  const rows = db.prepare(`
+    SELECT c.id, c.title, c.created_by, ${iso('c.created_at')} created_at,
+           ${iso('c.last_message_at')} last_message_at,
+           (SELECT COUNT(*) FROM conversation_members m WHERE m.conversation_id = c.id) member_count,
+           EXISTS (SELECT 1 FROM conversation_members me WHERE me.conversation_id = c.id AND me.user_id = ?) joined
+    FROM conversations c
+    WHERE c.kind = 'channel'
+      ${term ? 'AND LOWER(COALESCE(c.title, \'\')) LIKE ?' : ''}
+    ORDER BY joined DESC, COALESCE(c.last_message_at, c.created_at) DESC
+    LIMIT 50
+  `).all(...(term ? [userId, like] : [userId]));
+  return rows;
+}
+
+/** Joining a channel is open to anyone: the owner's posts are the whole point of it. */
+export function joinChannel(conversationId, userId) {
+  db.prepare('INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)')
+    .run(conversationId, userId);
+}
+
+export function canPost(conversationId, userId) {
+  const row = conversation(conversationId);
+  if (!row) return false;
+  if (row.kind !== 'channel') return membership(conversationId, userId) !== null;
+  return row.created_by === userId;
+}
+
+/* -------------------------------------------------------- listening rooms ---- */
+
+export const PRESENCE_SECONDS = 120;
+
+/** The poll that fetches messages also says "I am here", so the room can show who is around. */
+export function touchPresence(conversationId, userId) {
+  db.prepare(`
+    INSERT INTO presence (conversation_id, user_id, seen_at) VALUES (?,?, datetime('now'))
+    ON CONFLICT(conversation_id, user_id) DO UPDATE SET seen_at = datetime('now')
+  `).run(conversationId, userId);
+}
+
+export function onlineCount(conversationId) {
+  return db.prepare(`
+    SELECT COUNT(*) c FROM presence p
+    JOIN conversation_members m ON m.conversation_id = p.conversation_id AND m.user_id = p.user_id
+    WHERE p.conversation_id = ? AND p.seen_at > datetime('now', ?)
+  `).get(conversationId, `-${PRESENCE_SECONDS} seconds`).c;
+}
+
+/** What the room is playing, what is queued, and who is in it. Track ids are the catalogue's. */
+export function roomFor(conversationId, userId) {
+  const state = db.prepare('SELECT * FROM room_state WHERE conversation_id = ?').get(conversationId) || null;
+  const queue = db.prepare(`
+    SELECT id, track_id, added_by, ${iso('created_at')} created_at FROM room_queue
+    WHERE conversation_id = ? AND expires_at > datetime('now') ORDER BY id
+  `).all(conversationId);
+  return {
+    conversation_id: conversationId,
+    playing: state && state.track_id
+      ? {
+        track_id: state.track_id,
+        is_playing: Boolean(state.is_playing),
+        started_by: state.updated_by,
+        updated_at: isoNow(state.updated_at)
+      }
+      : null,
+    queue: queue.map((row) => ({ id: row.id, track_id: row.track_id, added_by: row.added_by, created_at: row.created_at })),
+    online: onlineCount(conversationId)
+  };
+}
+
+const isoNow = (value) => (value ? new Date(`${String(value).replace(' ', 'T')}Z`).toISOString() : null);
+
+/** Put a track at the end of the room's queue. */
+export function queueTrack(conversationId, userId, trackId) {
+  const info = db.prepare(`
+    INSERT INTO room_queue (conversation_id, track_id, added_by, expires_at)
+    VALUES (?,?,?, datetime('now', ?))
+  `).run(conversationId, trackId, userId, `+${MAX_AGE_DAYS} days`);
+  return info.lastInsertRowid;
+}
+
+export function removeQueueEntry(conversationId, entryId) {
+  return db.prepare('DELETE FROM room_queue WHERE id = ? AND conversation_id = ?').run(entryId, conversationId).changes;
+}
+
+/** Set (or pause) what the room is playing. Anyone in the room may do it — it is a shared remote. */
+export function setRoomPlaying(conversationId, userId, { trackId = null, isPlaying = true } = {}) {
+  db.prepare(`
+    INSERT INTO room_state (conversation_id, track_id, is_playing, updated_by, updated_at)
+    VALUES (?,?,?,?, datetime('now'))
+    ON CONFLICT(conversation_id) DO UPDATE SET
+      track_id = excluded.track_id, is_playing = excluded.is_playing,
+      updated_by = excluded.updated_by, updated_at = datetime('now')
+  `).run(conversationId, trackId, isPlaying ? 1 : 0, userId);
+  return roomFor(conversationId, userId);
+}
+
+/**
+ * Move the room on: whatever is playing goes, the front of the queue becomes what is playing.
+ * Returns the track id that should now be played, or null when the queue is empty.
+ */
+export function nextInRoom(conversationId, userId) {
+  return db.transaction(() => {
+    const front = db.prepare(
+      'SELECT * FROM room_queue WHERE conversation_id = ? AND expires_at > datetime(\'now\') ORDER BY id LIMIT 1'
+    ).get(conversationId);
+    if (!front) {
+      setRoomPlaying(conversationId, userId, { trackId: null, isPlaying: false });
+      return null;
+    }
+    db.prepare('DELETE FROM room_queue WHERE id = ?').run(front.id);
+    setRoomPlaying(conversationId, userId, { trackId: front.track_id, isPlaying: true });
+    return front.track_id;
+  })();
+}
+
+/** Track ids only — the room says what to play, the catalogue still owns the audio. */
+export function roomTrackIds(conversationId) {
+  const rows = db.prepare(
+    'SELECT track_id FROM room_queue WHERE conversation_id = ? AND expires_at > datetime(\'now\')'
+  ).all(conversationId);
+  const state = db.prepare('SELECT track_id FROM room_state WHERE conversation_id = ?').get(conversationId);
+  return [...new Set([...(state?.track_id ? [state.track_id] : []), ...rows.map((row) => row.track_id)])];
 }
 
 /* --------------------------------------------------------------- messages ---- */
@@ -145,6 +388,9 @@ export function createGroup(creatorId, userIds, { kind = 'party', title = null }
  * Media is registered in chat_media so the cleaner can delete the object too.
  */
 export function insertMessage({ conversationId, senderId, kind = 'text', body = null, media = null, trackId = null, meta = null }) {
+  // A channel post is a broadcast, so it does not wait to be read: it simply lives its 7 days.
+  const channel = kindOf(conversationId) === 'channel';
+  const life = `+${channel ? CHANNEL_TTL_DAYS : MAX_AGE_DAYS} days`;
   return db.transaction(() => {
     const info = db.prepare(`
       INSERT INTO messages (conversation_id, sender_id, kind, body, media_name, media_type, media_meta, track_id, expires_at)
@@ -155,13 +401,13 @@ export function insertMessage({ conversationId, senderId, kind = 'text', body = 
       media ? media.type : null,
       meta ? JSON.stringify(meta) : null,
       trackId,
-      `+${MAX_AGE_DAYS} days`
+      life
     );
     if (media) {
       db.prepare(`
         INSERT INTO chat_media (name, conversation_id, uploaded_by, message_id, expires_at)
         VALUES (?,?,?,?, datetime('now', ?))
-      `).run(media.name, conversationId, senderId, info.lastInsertRowid, `+${MAX_AGE_DAYS} days`);
+      `).run(media.name, conversationId, senderId, info.lastInsertRowid, life);
     }
     db.prepare("UPDATE conversations SET last_message_at = datetime('now') WHERE id = ?").run(conversationId);
     return info.lastInsertRowid;
@@ -183,6 +429,8 @@ export function markRead(conversationId, userId, upToId = null) {
   const recipients = db.prepare(
     'SELECT COUNT(*) c FROM conversation_members WHERE conversation_id = ? AND user_id != ?'
   ).get(conversationId, userId).c;
+  // In a channel the clock is fixed at posting time, so reading changes nothing but the receipt.
+  const pullsInClock = kindOf(conversationId) !== 'channel';
 
   db.transaction(() => {
     for (const { id } of rows) {
@@ -193,17 +441,21 @@ export function markRead(conversationId, userId, upToId = null) {
         WHERE r.message_id = ? AND r.user_id != m.sender_id
       `).get(id).c;
       if (readers >= recipients) {
-        // Last recipient has seen it: this is the 24-hour deadline, unless the 30-day cap is sooner.
-        db.prepare(`
-          UPDATE messages SET read_at = datetime('now'),
-            expires_at = MIN(expires_at, datetime('now', ?))
-          WHERE id = ? AND read_at IS NULL
-        `).run(`+${TTL_HOURS_AFTER_READ} hours`, id);
-        // The attachment goes with its message, so give it the same deadline.
-        db.prepare(`
-          UPDATE chat_media SET expires_at = MIN(expires_at, datetime('now', ?))
-          WHERE message_id = ?
-        `).run(`+${TTL_HOURS_AFTER_READ} hours`, id);
+        if (pullsInClock) {
+          // Last recipient has seen it: this is the 24-hour deadline, unless the 30-day cap is sooner.
+          db.prepare(`
+            UPDATE messages SET read_at = datetime('now'),
+              expires_at = MIN(expires_at, datetime('now', ?))
+            WHERE id = ? AND read_at IS NULL
+          `).run(`+${TTL_HOURS_AFTER_READ} hours`, id);
+          // The attachment goes with its message, so give it the same deadline.
+          db.prepare(`
+            UPDATE chat_media SET expires_at = MIN(expires_at, datetime('now', ?))
+            WHERE message_id = ?
+          `).run(`+${TTL_HOURS_AFTER_READ} hours`, id);
+        } else {
+          db.prepare("UPDATE messages SET read_at = COALESCE(read_at, datetime('now')) WHERE id = ?").run(id);
+        }
       }
     }
     db.prepare("UPDATE conversation_members SET last_read_at = datetime('now') WHERE conversation_id = ? AND user_id = ?")
@@ -409,15 +661,29 @@ export async function sweepChat({ log = console } = {}) {
     files += 1;
   }
 
+  // Notes live exactly one day, read or not.
+  const notes = db.prepare("DELETE FROM notes WHERE expires_at <= datetime('now')").run().changes;
+
+  // A room is a snapshot of "now": expired queue entries go, and a room nobody has touched for a
+  // day stops claiming to be playing something.
+  const queued = db.prepare("DELETE FROM room_queue WHERE expires_at <= datetime('now')").run().changes;
+  db.prepare(`
+    UPDATE room_state SET track_id = NULL, is_playing = 0
+    WHERE track_id IS NOT NULL AND updated_at <= datetime('now', '-1 day')
+  `).run();
+  // Presence is a moment, not a history: forget anyone who has not had the thread open recently.
+  const presence = db.prepare(`DELETE FROM presence WHERE seen_at <= datetime('now', ?)`)
+    .run(`-${PRESENCE_SECONDS} seconds`).changes;
+
   // Deleted rows leave free pages behind: hand the space back to the filesystem now and then.
-  if (messages > 0 || files > 0) {
+  if (messages > 0 || files > 0 || notes > 0 || queued > 0 || presence > 0) {
     try { db.exec('VACUUM'); } catch (err) { log.warn?.(`[pulse] Chat store compaction skipped: ${err.message}`); }
   }
 
-  if (messages || files || staleReports.length) {
-    log.log?.(`[pulse] Chat cleanup: removed ${messages} message(s), ${files} media file(s), ${staleReports.length} expired report(s).`);
+  if (messages || files || staleReports.length || notes || queued) {
+    log.log?.(`[pulse] Chat cleanup: removed ${messages} message(s), ${files} media file(s), ${staleReports.length} expired report(s), ${notes} note(s), ${queued} queued track(s).`);
   }
-  return { messages, files, reports: staleReports.length };
+  return { messages, files, reports: staleReports.length, notes, queued };
 }
 
 /** Sweep on a timer, and once shortly after boot. Never blocks startup. */
@@ -480,7 +746,7 @@ export function unreadCount(userId, conversationId = null) {
 
 export function conversationsFor(userId) {
   return db.prepare(`
-    SELECT c.id, c.kind, c.title, ${iso('c.last_message_at')} last_message_at,
+    SELECT c.id, c.kind, c.title, c.created_by, ${iso('c.last_message_at')} last_message_at,
            cm.last_read_at, cm.muted
     FROM conversations c
     JOIN conversation_members cm ON cm.conversation_id = c.id AND cm.user_id = ?

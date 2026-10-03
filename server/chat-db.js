@@ -122,6 +122,49 @@ CREATE TABLE IF NOT EXISTS chat_media (
   removed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chat_media_expiry ON chat_media(expires_at);
+
+-- Notes: the short status line above the conversation list. A note is not addressed to anyone, so
+-- it follows one clock only — 24 hours from posting, read or not. Same store, same rules: secure
+-- deletion, swept, never cached on a device.
+CREATE TABLE IF NOT EXISTS notes (
+  user_id INTEGER PRIMARY KEY,
+  body TEXT,
+  emoji TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_expiry ON notes(expires_at);
+
+-- Listening rooms. This is a *shared queue*, not a live audio stream: it records what a party is
+-- playing so each member's own player can follow along. No audio passes through this table.
+CREATE TABLE IF NOT EXISTS room_state (
+  conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  track_id INTEGER,
+  is_playing INTEGER NOT NULL DEFAULT 0,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS room_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL,
+  added_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_room_queue_conversation ON room_queue(conversation_id, id);
+CREATE INDEX IF NOT EXISTS idx_room_queue_expiry ON room_queue(expires_at);
+
+-- Who has the thread open right now ("5 online"). Stamped by the ordinary message poll and
+-- forgotten after two minutes: presence is a moment, not a history.
+CREATE TABLE IF NOT EXISTS presence (
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL,
+  seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (conversation_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_presence_seen ON presence(seen_at);
 `);
 
 // Migrations for installations created before a column existed.

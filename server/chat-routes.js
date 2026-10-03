@@ -53,12 +53,18 @@ function presentConversation(userId, row, { withMessages = true } = {}) {
   const others = memberIds.filter((id) => id !== userId).map((id) => profiles.get(id)).filter(Boolean);
   const unread = chat.unreadCount(userId, row.id);
   const last = withMessages ? chat.lastVisibleMessage(row.id) : null;
+  // The creator is always a member, so their profile is already here — no extra query.
+  const owner = row.created_by ? profiles.get(row.created_by) || null : null;
   return {
     id: row.id,
     kind: row.kind,
     title: row.kind === 'dm' ? null : row.title,
     muted: Boolean(row.muted),
     unread,
+    member_count: memberIds.length,
+    owner,
+    // A channel is a broadcast: only its owner posts, and the composer needs to know that.
+    can_post: chat.canPost(row.id, userId),
     members: memberIds.map((id) => profiles.get(id)).filter(Boolean),
     others,
     last_message_at: row.last_message_at,
@@ -109,6 +115,18 @@ router.get('/people', authMiddleware, (req, res) => {
   res.json(chat.searchPeople(req.user.id, query).filter((row) => !blocked.has(row.id)));
 });
 
+// Look someone up by their artist tag — the entry point for "/messages/@timi".
+router.get('/people/:handle', authMiddleware, (req, res) => {
+  const person = chat.profileByHandle(req.params.handle);
+  if (!person) return res.status(404).json({ error: 'No one on Pulse has that artist tag' });
+  if (person.id === req.user.id) return res.json({ ...person, self: true });
+  if (chat.isBlocked(req.user.id, person.id)) {
+    return res.status(403).json({ error: 'You cannot message this person' });
+  }
+  const conversationId = chat.findDm(req.user.id, person.id);
+  res.json({ ...person, conversation_id: conversationId });
+});
+
 /* ------------------------------------------------------------ conversations -- */
 
 router.get('/conversations', authMiddleware, (req, res) => {
@@ -120,9 +138,14 @@ router.get('/unread', authMiddleware, (req, res) => {
   res.json({ unread: chat.unreadCount(req.user.id) });
 });
 
-// Start (or reopen) a 1:1 chat.
+// Start (or reopen) a 1:1 chat — by account id, or by artist tag ("@timi").
 router.post('/conversations', authMiddleware, (req, res) => {
-  const otherId = parseInt(req.body.user_id, 10);
+  let otherId = parseInt(req.body.user_id, 10);
+  if (!Number.isInteger(otherId) && req.body.handle) {
+    const person = chat.profileByHandle(req.body.handle);
+    if (!person) return res.status(404).json({ error: 'No one on Pulse has that artist tag' });
+    otherId = person.id;
+  }
   if (!Number.isInteger(otherId) || otherId === req.user.id) {
     return res.status(400).json({ error: 'Choose someone to message' });
   }
@@ -133,6 +156,68 @@ router.post('/conversations', authMiddleware, (req, res) => {
   const id = chat.createDm(req.user.id, otherId);
   const row = chat.conversationsFor(req.user.id).find((entry) => entry.id === id);
   res.status(201).json(presentConversation(req.user.id, row || { id, kind: 'dm', title: null, muted: 0, last_message_at: null }));
+});
+
+// Start a party: a few people and a name, which is all a group chat needs.
+router.post('/groups', authMiddleware, (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 80) || 'New party';
+  const wanted = Array.isArray(req.body.user_ids) ? req.body.user_ids.map((id) => parseInt(id, 10)) : [];
+  const handles = Array.isArray(req.body.handles) ? req.body.handles : [];
+  const fromHandles = handles.map((handle) => chat.profileByHandle(handle)?.id).filter(Boolean);
+  const blocked = new Set(chat.blockedIds(req.user.id));
+  const members = [...new Set([...wanted, ...fromHandles])].filter(
+    (id) => Number.isInteger(id) && id !== req.user.id && !blocked.has(id) && chat.publicProfile(id)
+  );
+  if (!members.length) return res.status(400).json({ error: 'Add at least one person to the party' });
+  const id = chat.createGroup(req.user.id, members, { kind: 'party', title });
+  const row = chat.conversationsFor(req.user.id).find((entry) => entry.id === id);
+  res.status(201).json(presentConversation(req.user.id, row || { id, kind: 'party', title, muted: 0, last_message_at: null }));
+});
+
+/* ------------------------------------------------------------------ notes --- */
+
+// Your note, plus the notes of people you already talk to.
+router.get('/notes', authMiddleware, (req, res) => {
+  const blocked = new Set(chat.blockedIds(req.user.id));
+  res.json(chat.listNotes(req.user.id).filter((note) => note.mine || !blocked.has(note.user.id)));
+});
+
+// Post or replace your own note. It lives 24 hours, whether or not anyone looks at it.
+router.put('/notes', authMiddleware, (req, res) => {
+  const body = String(req.body.body || '').trim().slice(0, 80);
+  const emoji = String(req.body.emoji || '').trim().slice(0, 8) || null;
+  if (!body && !emoji) return res.status(400).json({ error: 'Write something for your note' });
+  chat.setNote(req.user.id, { body: body || null, emoji });
+  res.status(201).json({ ok: true, hours: chat.NOTE_HOURS });
+});
+
+router.delete('/notes', authMiddleware, (req, res) => {
+  chat.clearNote(req.user.id);
+  res.json({ ok: true });
+});
+
+/* --------------------------------------------------------------- channels --- */
+
+// Channels to join, plus the ones you are already in.
+router.get('/channels', authMiddleware, (req, res) => {
+  const query = String(req.query.q || '').trim().slice(0, 60);
+  res.json(chat.listChannels(req.user.id, query));
+});
+
+router.post('/channels', authMiddleware, (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 80);
+  if (title.length < 2) return res.status(400).json({ error: 'Give the channel a name' });
+  const id = chat.createGroup(req.user.id, [], { kind: 'channel', title });
+  res.status(201).json(presentConversation(req.user.id, { id, kind: 'channel', title, created_by: req.user.id, muted: 0, last_message_at: null }));
+});
+
+router.post('/channels/:id/join', authMiddleware, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const row = chat.conversation(id);
+  if (!row || row.kind !== 'channel') return res.status(404).json({ error: 'Channel not found' });
+  chat.joinChannel(id, req.user.id);
+  const mine = chat.conversationsFor(req.user.id).find((entry) => entry.id === id);
+  res.json(presentConversation(req.user.id, mine || { id, kind: 'channel', title: row.title, created_by: row.created_by, muted: 0, last_message_at: null }));
 });
 
 router.get('/conversations/:id', authMiddleware, requireMember, (req, res) => {
@@ -148,9 +233,15 @@ router.get('/conversations/:id/messages', authMiddleware, requireMember, (req, r
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
   const rows = chat.visibleMessages(req.conversationId, { before, limit });
   const profiles = chat.profilesFor([...new Set(rows.map((row) => row.sender_id))]);
+  // Fetching a thread is also the heartbeat the room uses for "N online" — no separate ping.
+  chat.touchPresence(req.conversationId, req.user.id);
   res.json({
     messages: rows.map((row) => presentMessage(req.user.id, row, profiles)),
-    has_more: rows.length === limit
+    has_more: rows.length === limit,
+    kind: chat.kindOf(req.conversationId),
+    can_post: chat.canPost(req.conversationId, req.user.id),
+    member_count: chat.memberIds(req.conversationId).length,
+    room: chat.kindOf(req.conversationId) === 'party' ? chat.roomFor(req.conversationId, req.user.id) : null
   });
 });
 
@@ -165,6 +256,10 @@ router.post('/conversations/:id/messages', authMiddleware, requireMember,
 
     if (!body && !trackId && !image && !audio) {
       return res.status(400).json({ error: 'Write something or attach a file' });
+    }
+    // A channel is a broadcast: the owner posts, everyone else reads.
+    if (chat.kindOf(req.conversationId) === 'channel' && !chat.canPost(req.conversationId, req.user.id)) {
+      return res.status(403).json({ error: 'Only the channel owner can post here' });
     }
     // In a 1:1 chat, either side blocking ends the conversation.
     const others = chat.memberIds(req.conversationId).filter((id) => id !== req.user.id);
@@ -214,13 +309,104 @@ router.post('/conversations/:id/messages', authMiddleware, requireMember,
     }
   }));
 
-// Mute is a per-member preference; it changes nothing about the message lifecycle.
+// Mute is a per-member preference; it changes nothing about the message lifecycle. A party can
+// also be renamed here — the name is the only thing about a conversation that is not ephemeral.
 router.patch('/conversations/:id', authMiddleware, requireMember, (req, res) => {
   if (req.body.muted !== undefined) {
     chat.setMuted(req.conversationId, req.user.id, Boolean(req.body.muted));
   }
+  if (req.body.title !== undefined) {
+    const kind = chat.kindOf(req.conversationId);
+    if (kind === 'dm') return res.status(400).json({ error: 'A direct message has no name' });
+    const row = chat.conversation(req.conversationId);
+    if (kind === 'channel' && row.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Only the channel owner can rename it' });
+    }
+    const title = String(req.body.title || '').trim().slice(0, 80);
+    if (!title) return res.status(400).json({ error: 'Give the conversation a name' });
+    chat.setTitle(req.conversationId, title);
+  }
   const row = chat.conversationsFor(req.user.id).find((entry) => entry.id === req.conversationId);
   res.json(presentConversation(req.user.id, row || { id: req.conversationId, kind: 'dm', muted: Boolean(req.body.muted) }));
+});
+
+// Invite someone into a party, by id or by artist tag. Members can invite; blocked pairs cannot.
+router.post('/conversations/:id/members', authMiddleware, requireMember, (req, res) => {
+  const kind = chat.kindOf(req.conversationId);
+  if (kind === 'dm') return res.status(400).json({ error: 'A direct message has exactly two people' });
+  let person = null;
+  if (req.body.handle) person = chat.profileByHandle(req.body.handle);
+  else if (req.body.user_id) person = chat.publicProfile(parseInt(req.body.user_id, 10));
+  if (!person) return res.status(404).json({ error: 'No one on Pulse has that artist tag' });
+  if (chat.isBlocked(req.user.id, person.id)) {
+    return res.status(403).json({ error: 'You cannot add this person' });
+  }
+  const added = chat.addMembers(req.conversationId, [person.id]);
+  const row = chat.conversationsFor(req.user.id).find((entry) => entry.id === req.conversationId);
+  res.json({ ok: true, added: added > 0, person, conversation: presentConversation(req.user.id, row) });
+});
+
+// Leave a party or a channel. The thread stays for everyone else.
+router.delete('/conversations/:id/members/me', authMiddleware, requireMember, (req, res) => {
+  const kind = chat.kindOf(req.conversationId);
+  if (kind === 'dm') return res.status(400).json({ error: 'You can block or delete a direct message instead' });
+  chat.removeMember(req.conversationId, req.user.id);
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------- room --- */
+
+// What the room is playing, what is queued, and who is around.
+router.get('/conversations/:id/room', authMiddleware, requireMember, (req, res) => {
+  if (chat.kindOf(req.conversationId) !== 'party') {
+    return res.status(400).json({ error: 'Only a party has a listening room' });
+  }
+  res.json(chat.roomFor(req.conversationId, req.user.id));
+});
+
+// Add a track to the room queue. The audio stays in the catalogue: the room holds track ids only.
+router.post('/conversations/:id/room/queue', authMiddleware, requireMember, (req, res) => {
+  if (chat.kindOf(req.conversationId) !== 'party') {
+    return res.status(400).json({ error: 'Only a party has a listening room' });
+  }
+  const trackId = parseInt(req.body.track_id, 10);
+  if (!Number.isInteger(trackId)) return res.status(400).json({ error: 'Pick a track to queue' });
+  const entry = chat.queueTrack(req.conversationId, req.user.id, trackId);
+  chat.touchPresence(req.conversationId, req.user.id);
+  res.status(201).json({ ...chat.roomFor(req.conversationId, req.user.id), entry });
+});
+
+router.delete('/conversations/:id/room/queue/:entryId', authMiddleware, requireMember, (req, res) => {
+  chat.removeQueueEntry(req.conversationId, parseInt(req.params.entryId, 10));
+  res.json(chat.roomFor(req.conversationId, req.user.id));
+});
+
+// Anyone in the room can press play or pause — it is a shared remote, not a hierarchy.
+router.post('/conversations/:id/room/playing', authMiddleware, requireMember, (req, res) => {
+  if (chat.kindOf(req.conversationId) !== 'party') {
+    return res.status(400).json({ error: 'Only a party has a listening room' });
+  }
+  // Pausing (is_playing: false) keeps whatever is on; only `track_id: null` clears it.
+  const current = chat.roomFor(req.conversationId, req.user.id).playing;
+  const given = req.body.track_id;
+  const trackId = given === undefined
+    ? (current ? current.track_id : null)
+    : (given === null ? null : parseInt(given, 10));
+  if (trackId !== null && !Number.isInteger(trackId)) return res.status(400).json({ error: 'Pick a track to play' });
+  chat.touchPresence(req.conversationId, req.user.id);
+  res.json(chat.setRoomPlaying(req.conversationId, req.user.id, {
+    trackId,
+    isPlaying: req.body.is_playing === undefined ? true : Boolean(req.body.is_playing)
+  }));
+});
+
+// Move the room along: the queue's front becomes what everyone is listening to.
+router.post('/conversations/:id/room/next', authMiddleware, requireMember, (req, res) => {
+  if (chat.kindOf(req.conversationId) !== 'party') {
+    return res.status(400).json({ error: 'Only a party has a listening room' });
+  }
+  const trackId = chat.nextInRoom(req.conversationId, req.user.id);
+  res.json({ ...chat.roomFor(req.conversationId, req.user.id), playing_track_id: trackId });
 });
 
 // "I've read the thread" — starts the 24-hour clock on everything the other side sent.
