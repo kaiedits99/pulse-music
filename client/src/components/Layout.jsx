@@ -26,7 +26,13 @@ export default function Layout() {
   /* Close the mobile drawer on navigation and scroll content back to the top. */
   useEffect(() => {
     setMenuOpen(false);
-    document.querySelector('.content')?.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+    const content = document.querySelector('.content');
+    if (!content) return;
+    // Element.scrollTo is missing on older browsers/webviews. Falling back to scrollTop keeps
+    // that from throwing inside an effect — an exception here would unmount the whole signed-in
+    // app and show nothing but the error boundary.
+    if (typeof content.scrollTo === 'function') content.scrollTo({ top: 0, behavior: 'auto' });
+    else content.scrollTop = 0;
   }, [location.pathname]);
 
   return (
