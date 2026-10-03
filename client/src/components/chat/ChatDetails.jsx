@@ -24,7 +24,7 @@ function linksIn(messages) {
  */
 export default function ChatDetails({
   conversation, messages, tracks, onPlayTrack, onBlock, onUnblock, onClose, isBlocked, onMute,
-  onInvite, onLeave, onUnqueue, onRoomNext, onRoomToggle, onJoinRoom, roomJoined
+  onInvite, onLeave, onRename, onUnqueue, onRoomNext, onRoomToggle, onJoinRoom, roomJoined
 }) {
   const [tab, setTab] = useState('Tracks');
   const peer = conversation.kind === 'dm' ? conversation.others?.[0] : null;
