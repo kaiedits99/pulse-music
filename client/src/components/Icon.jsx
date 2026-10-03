@@ -103,7 +103,6 @@ const paths = {
   image: <><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><circle cx="8.5" cy="10" r="1.6" /><path d="m4 17 5-5 4.5 4.5 3-3L20 17" /></>,
   smiley: <><circle cx="12" cy="12" r="9" /><path d="M8.6 14.4a4.2 4.2 0 0 0 6.8 0" /><circle cx="9.2" cy="9.6" r="1" fill="currentColor" stroke="none" /><circle cx="14.8" cy="9.6" r="1" fill="currentColor" stroke="none" /></>,
   flag: <><path d="M6 21V4" /><path d="M6 5h11.5l-2 3.5 2 3.5H6" /></>,
-  check: <path d="m4.5 12.5 5 5 10-11" />,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="7.8" r="1.1" fill="currentColor" stroke="none" /></>,
   star: <path d="m12 3.5 2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.8l6-.8z" />,
   lossless: <><circle cx="12" cy="12" r="9" /><path d="M7.5 14V9.5M7.5 14h3" /><path d="M13.5 14V9.5l3 4.5V9.5" /></>,

@@ -1045,7 +1045,8 @@ router.get('/albums/:id', optionalAuth, (req, res) => {
     } else {
       const own = artistForUser(req.user.id);
       const ownArtistId = own ? own.id : -1;
-      where = 's.album_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR al.uploaded_by = ?)';
+      // Named for the alias used by the songs query below (the album is joined as al2 there).
+      where = 's.album_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR al2.uploaded_by = ?)';
       params.push(req.user.id, ownArtistId, req.user.id);
     }
   }
@@ -1157,7 +1158,8 @@ router.get('/artists/:id', optionalAuth, (req, res) => {
     if (req.user.role === 'admin') {
       where = 's.artist_id = ?';
     } else {
-      where = 's.artist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR a.user_id = ?)';
+      // Named for the alias used by the songs query below (the artist is joined as a2 there).
+      where = 's.artist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR a2.user_id = ?)';
       params.push(req.user.id, ownArtistId, req.user.id);
     }
   }
@@ -1248,7 +1250,10 @@ router.get('/playlists/:id', optionalAuth, (req, res) => {
     } else {
       const own = artistForUser(req.user.id);
       const ownArtistId = own ? own.id : -1;
-      where = 'ps.playlist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ? OR p.user_id = ?)';
+      // The songs query below joins no playlists row, so the owner is looked up from the
+      // playlist id rather than from an alias that is not in scope.
+      where = 'ps.playlist_id = ? AND (s.is_public = 1 OR s.uploaded_by = ? OR s.artist_id = ?'
+        + ' OR EXISTS (SELECT 1 FROM playlists p WHERE p.id = ps.playlist_id AND p.user_id = ?))';
       params.push(req.user.id, ownArtistId, req.user.id);
     }
   }
