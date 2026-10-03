@@ -30,7 +30,8 @@ export default function PlayerBar() {
   const {
     current, queue, isPlaying, togglePlay, next, prev, seek, seekRelative,
     currentTime, duration, volume, setVolume, shuffle, setShuffle,
-    repeat, setRepeat, error
+    repeat, setRepeat, error,
+    isLinked, videoMode, setVideoMode, attachVideoHost
   } = usePlayer();
 
   const { toast } = useToast();
@@ -52,8 +53,15 @@ export default function PlayerBar() {
     return () => window.removeEventListener(OFFLINE_EVENT, cb);
   }, []);
 
-  const openExpanded = useCallback(() => setExpanded(true), []);
-  const closeExpanded = useCallback(() => setExpanded(false), []);
+  // For a linked track the expand button opens the video, not the artwork sheet.
+  const openExpanded = useCallback(() => {
+    if (isLinked) { setVideoMode('theater'); return; }
+    setExpanded(true);
+  }, [isLinked, setVideoMode]);
+  const closeExpanded = useCallback(() => {
+    setExpanded(false);
+    setVideoMode('bar');
+  }, [setVideoMode]);
 
   /* ------------------------------------------------ keyboard shortcuts -- */
   const onKey = useCallback((e) => {
@@ -73,6 +81,14 @@ export default function PlayerBar() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onKey]);
+
+  // Escape shrinks the full-screen video player (the sheet's own Escape closes the sheet).
+  useEffect(() => {
+    if (videoMode !== 'theater') return undefined;
+    const onEsc = (e) => { if (e.key === 'Escape') setVideoMode('bar'); };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [videoMode, setVideoMode]);
 
   /* ------------------------------------------------------- interactions -- */
   const onBarClick = useCallback((e) => {
@@ -126,6 +142,11 @@ export default function PlayerBar() {
     }
   };
 
+  const openOnYouTube = () => {
+    if (!current?.external_id) return;
+    window.open(`https://www.youtube.com/watch?v=${current.external_id}`, '_blank', 'noopener');
+  };
+
   const toggleMute = () => {
     if (volume > 0) { lastVolume.current = volume; setVolume(0); }
     else setVolume(lastVolume.current || 0.9);
@@ -160,6 +181,7 @@ export default function PlayerBar() {
               {isEp && <span className="pl-kind">Episode</span>}
               {isLocal && <span className="pl-kind pl-kind--local">Device</span>}
               {!isLocal && isOfflineOnly && <span className="pl-kind pl-kind--local">Offline</span>}
+              {isLinked && <span className="pl-kind pl-kind--linked">YouTube</span>}
               {current.title}
             </span>
             {isEp && current.podcast_id ? (
@@ -290,7 +312,16 @@ export default function PlayerBar() {
           >
             <Icon name="queue" size={18} />
           </button>
-          {!isOfflineOnly && (
+          {!isOfflineOnly && (isLinked ? (
+            <button
+              className="pl-mini-btn"
+              onClick={openOnYouTube}
+              title="Linked from YouTube — watch on YouTube"
+              aria-label="Watch on YouTube"
+            >
+              <Icon name="external" size={18} />
+            </button>
+          ) : (
             <button
               className={`pl-mini-btn ${downloaded ? 'on-green' : ''}`}
               onClick={toggleOffline}
@@ -299,7 +330,7 @@ export default function PlayerBar() {
             >
               <Icon name={downloaded ? 'checkCircle' : 'download'} size={18} />
             </button>
-          )}
+          ))}
           {!isOfflineOnly && (
             <button className="pl-mini-btn mobile-hide" onClick={shareTrack} title="Share track" aria-label="Share track">
               <Icon name="share" size={17} />
@@ -330,6 +361,31 @@ export default function PlayerBar() {
       </div>
 
       <NowPlaying open={expanded} onClose={closeExpanded} />
+
+      {/* Linked tracks play in YouTube's own player. The host is a sibling of the bar
+          (not a child) so `theater` mode can cover the viewport: the bar's backdrop
+          filter would otherwise pin a fixed child to the bar itself. */}
+      {isLinked && (
+        <div className={`linked-video linked-video--${videoMode}`} role="region" aria-label="YouTube player">
+          {videoMode === 'theater' && (
+            <div className="linked-video-head">
+              <span className="linked-video-title">
+                <Icon name="external" size={15} /> {current.title}
+              </span>
+              <div className="linked-video-actions">
+                <button className="pl-mini-btn" onClick={openOnYouTube} title="Watch on YouTube" aria-label="Watch on YouTube">
+                  <Icon name="external" size={17} />
+                </button>
+                <button className="pl-mini-btn" onClick={() => setVideoMode('bar')} title="Shrink player" aria-label="Shrink player">
+                  <Icon name="chevronDown" size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="linked-video-frame" ref={attachVideoHost} />
+        </div>
+      )}
+
       {addDialog}
     </>
   );

@@ -45,6 +45,8 @@ function mediaHref(path) {
 }
 
 export function songAudioUrl(song) {
+  // Linked tracks play through someone else's player and have no file to cache.
+  if (song && song.provider) return null;
   const raw = (song && (song.file_path || song.source_url)) || '';
   if (!raw) return null;
   if (/^(https?:|blob:|data:)/.test(raw)) return raw;
@@ -52,6 +54,7 @@ export function songAudioUrl(song) {
 }
 
 export function hasPlayableAudio(song) {
+  if (song && song.provider) return false;
   return Boolean(songAudioUrl(song) && String(song.file_path || '').length > 0);
 }
 

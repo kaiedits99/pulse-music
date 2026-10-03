@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS songs (
   file_path TEXT,
   -- Direct playback URL from a licensed provider. We never proxy or download third-party audio.
   source_url TEXT,
+  -- Linked track: plays through a provider's own embedded player (currently YouTube).
+  -- We store the provider + its id and never copy or proxy the media.
+  provider TEXT,
+  external_id TEXT,
   cover_url TEXT,
   -- User who uploaded the track. Uploads live in the shared catalog, so this is
   -- only used for provenance and the "My music" view, never for access control.
@@ -191,6 +195,9 @@ try {
 // Lightweight migration for installations created before licensed-source support.
 const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);
 if (!songColumns.includes('source_url')) db.exec('ALTER TABLE songs ADD COLUMN source_url TEXT');
+// Migration for installations created before embeddable (linked) tracks.
+if (!songColumns.includes('provider')) db.exec('ALTER TABLE songs ADD COLUMN provider TEXT');
+if (!songColumns.includes('external_id')) db.exec('ALTER TABLE songs ADD COLUMN external_id TEXT');
 // Migration for installations created before upload provenance tracking.
 if (!songColumns.includes('uploaded_by')) {
   db.exec('ALTER TABLE songs ADD COLUMN uploaded_by INTEGER REFERENCES users(id)');

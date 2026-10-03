@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Spinner, PageHero, SectionHead } from '../components/ui.jsx';
 import ArtistField from '../components/ArtistField.jsx';
+import LinkedTrackField from '../components/LinkedTrackField.jsx';
 import { api } from '../api.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -27,6 +28,9 @@ export default function Upload() {
   const [dragging, setDragging] = useState(false);
   const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '', is_public: 1 });
   const [previewUrl, setPreviewUrl] = useState(null);
+  // Adding a YouTube link is a different kind of "upload": no file, no bulk import.
+  const [mode, setMode] = useState('files'); // 'files' | 'link'
+  const [linked, setLinked] = useState(null);
 
   const audio = audioFiles[0] || null;
   const isBulk = audioFiles.length > 1;
@@ -91,23 +95,30 @@ export default function Upload() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
-    if (!isBulk && !form.title.trim()) { toast('Title is required', 'error'); return; }
+    if (mode === 'link' && !linked) { toast('Check a YouTube link first', 'error'); return; }
+    if (mode === 'files' && !audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
+    if (mode === 'files' && !isBulk && !form.title.trim()) { toast('Title is required', 'error'); return; }
+    if (mode === 'link' && !form.title.trim() && !linked.title) { toast('Title is required', 'error'); return; }
 
     const fd = new FormData();
+    fd.append('title', (form.title.trim() || linked?.title || 'Untitled track'));
     if (form.artist_name.trim()) fd.append('artist_name', form.artist_name.trim());
+    else if (mode === 'link' && linked?.artist) fd.append('artist_name', linked.artist);
     if (form.album_id) fd.append('album_id', form.album_id);
     if (form.genre) fd.append('genre', form.genre);
     fd.append('is_public', form.is_public ? '1' : '0');
 
-    if (isBulk) {
+    if (mode === 'link') {
+      fd.append('provider', linked.provider);
+      fd.append('external_id', linked.external_id);
+      if (linked.cover_url) fd.append('cover_url', linked.cover_url);
+    } else if (isBulk) {
       audioFiles.forEach((file) => fd.append('audio', file));
       fd.append('metadata', JSON.stringify(trackMetadata.map((meta) => ({
         ...meta,
         is_public: meta.is_public !== undefined ? meta.is_public : form.is_public
       }))));
     } else {
-      fd.append('title', form.title.trim());
       fd.append('audio', audioFiles[0]);
       if (cover) fd.append('cover', cover);
     }
@@ -132,15 +143,65 @@ export default function Upload() {
       <PageHero
         icon="upload"
         title="Upload Music"
-        chip={audioFiles.length ? `${audioFiles.length} file${audioFiles.length === 1 ? '' : 's'} ready` : 'Lossless friendly'}
-        chipTone={audioFiles.length ? 'green' : ''}
-        subtitle="Drop up to 10 tracks at once — Pulse generates artwork, duration and waveform data automatically."
+        chip={mode === 'link'
+          ? (linked ? 'Link ready' : 'Plays via YouTube')
+          : audioFiles.length ? `${audioFiles.length} file${audioFiles.length === 1 ? '' : 's'} ready` : 'Lossless friendly'}
+        chipTone={(mode === 'link' ? linked : audioFiles.length) ? 'green' : ''}
+        subtitle={mode === 'link'
+          ? 'Link a YouTube video and Pulse plays it in YouTube’s own player — no download, no re-hosting.'
+          : 'Drop up to 10 tracks at once — Pulse generates artwork, duration and waveform data automatically.'}
         actions={<Link className="btn btn-ghost btn-pill" to="/search?mine=1"><Icon name="music" size={16} /> Your uploads</Link>}
       />
 
       <form onSubmit={submit} className="upload-layout">
         <div className="upload-main">
-          <label
+          <div className="upload-modes" role="tablist" aria-label="How to add music">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'files'}
+              className={`upload-mode ${mode === 'files' ? 'active' : ''}`}
+              onClick={() => setMode('files')}
+            >
+              <Icon name="upload" size={16} /> Upload files
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'link'}
+              className={`upload-mode ${mode === 'link' ? 'active' : ''}`}
+              onClick={() => setMode('link')}
+            >
+              <Icon name="playCircle" size={16} /> Link a YouTube track
+            </button>
+          </div>
+
+          {mode === 'link' ? (
+            <section className="panel upload-fields">
+              <div className="panel-head">
+                <h3><Icon name="playCircle" size={17} /> YouTube link</h3>
+                <span className="section-note">Plays in YouTube's player</span>
+              </div>
+              <p className="panel-desc">
+                Paste a YouTube video link. Pulse keeps the link and plays it through YouTube's embedded
+                player — nothing is downloaded or re-hosted. Linked tracks can't be saved for offline listening.
+              </p>
+              <LinkedTrackField
+                linked={linked}
+                onClear={() => setLinked(null)}
+                onResolved={(preview) => {
+                  setLinked(preview);
+                  setForm((f) => ({
+                    ...f,
+                    title: f.title || preview.title || '',
+                    artist_name: f.artist_name || preview.artist || ''
+                  }));
+                  toast('Link added — ready to publish 🎥', 'success');
+                }}
+              />
+            </section>
+          ) : (
+            <label
             className={`dropzone ${dragging ? 'dragging' : ''} ${audio ? 'has-file' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
@@ -183,9 +244,10 @@ export default function Upload() {
                 <span className="btn btn-primary btn-sm btn-pill"><Icon name="folder" size={15} /> Browse files</span>
               </div>
             )}
-          </label>
+            </label>
+          )}
 
-          {isBulk && (
+          {mode === 'files' && isBulk && (
             <section className="panel upload-fields bulk-metadata">
               <div className="panel-head">
                 <h3><Icon name="list" size={17} /> Track metadata &amp; visibility</h3>
@@ -361,9 +423,12 @@ export default function Upload() {
           <div className="panel muted-panel">
             <h3 className="panel-title-sm">Ready to publish</h3>
             <div className="stack">
-              <div className="spread"><span className="muted">Files</span><strong>{audioFiles.length || '—'}</strong></div>
-              <div className="spread"><span className="muted">Total size</span><strong>{totalSize ? formatBytes(totalSize) : '—'}</strong></div>
-              <div className="spread"><span className="muted">Mode</span><strong>{isBulk ? 'Bulk import' : 'Single track'}</strong></div>
+              <div className="spread">
+                <span className="muted">{mode === 'link' ? 'Source' : 'Files'}</span>
+                <strong>{mode === 'link' ? (linked ? 'YouTube link' : '—') : (audioFiles.length || '—')}</strong>
+              </div>
+              <div className="spread"><span className="muted">Total size</span><strong>{mode === 'link' ? '—' : totalSize ? formatBytes(totalSize) : '—'}</strong></div>
+              <div className="spread"><span className="muted">Mode</span><strong>{mode === 'link' ? 'Embedded track' : isBulk ? 'Bulk import' : 'Single track'}</strong></div>
               <div className="spread">
                 <span className="muted">Visibility</span>
                 <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -374,19 +439,25 @@ export default function Upload() {
             </div>
           </div>
 
-          <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={saving || !audio}>
+          <button
+            type="submit"
+            className="btn btn-primary btn-block btn-lg"
+            disabled={saving || (mode === 'link' ? !linked : !audio)}
+          >
             {saving ? (
               <><Spinner size={18} /> {form.is_public ? 'Publishing…' : 'Saving…'}</>
             ) : (
               <>
                 <Icon name={form.is_public ? 'globe' : 'lock'} size={17} />
-                {isBulk
-                  ? `Import ${audioFiles.length} tracks (${form.is_public ? 'Public' : 'Private'})`
-                  : form.is_public ? 'Publish public track' : 'Save private track'}
+                {mode === 'link'
+                  ? form.is_public ? 'Publish linked track' : 'Save linked track privately'
+                  : isBulk
+                    ? `Import ${audioFiles.length} tracks (${form.is_public ? 'Public' : 'Private'})`
+                    : form.is_public ? 'Publish public track' : 'Save private track'}
               </>
             )}
           </button>
-          {audio && (
+          {mode === 'files' && audio && (
             <button type="button" className="btn btn-ghost btn-block" onClick={clearAudio} disabled={saving}>
               Reset selection
             </button>

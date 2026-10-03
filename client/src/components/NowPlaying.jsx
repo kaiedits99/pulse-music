@@ -22,6 +22,7 @@ import {
 export default function NowPlaying({ open, onClose }) {
   const {
     current, queue, index, isPlaying, togglePlay, next, prev, seek, seekRelative,
+    isLinked, videoMode, setVideoMode,
     currentTime, duration, shuffle, setShuffle, repeat, setRepeat, play, error
   } = usePlayer();
 
@@ -103,9 +104,26 @@ export default function NowPlaying({ open, onClose }) {
       </header>
 
       <div className="np-body">
-        <div className="np-art">
-          <Cover src={current.cover_url || current.album_cover} alt={current.title} size="100%" />
-        </div>
+        {/* A linked track has no artwork of ours to show: the video is the artwork.
+            Its player floats above this sheet (see PlayerBar), so leave room for it. */}
+        {isLinked ? (
+          <div className="np-art np-art--linked">
+            <div className="np-linked-inner">
+              <Icon name="external" size={30} />
+              <strong>Playing from YouTube</strong>
+              <span>This track is linked, not uploaded. It plays in YouTube's own player and can't be downloaded for offline listening.</span>
+              {videoMode !== 'theater' && (
+                <button className="btn btn-primary btn-pill" onClick={() => setVideoMode('theater')}>
+                  <Icon name="expand" size={16} /> Open the video
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="np-art">
+            <Cover src={current.cover_url || current.album_cover} alt={current.title} size="100%" />
+          </div>
+        )}
 
         <div className="np-meta">
           <h2>{current.title}</h2>
@@ -178,10 +196,21 @@ export default function NowPlaying({ open, onClose }) {
                   {isFav ? 'Liked' : 'Like'}
                 </button>
               )}
-              <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
-                <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
-                {downloaded ? 'Downloaded' : 'Download'}
-              </button>
+              {isLinked ? (
+                <a
+                  className="btn btn-sm btn-ghost"
+                  href={`https://www.youtube.com/watch?v=${current.external_id}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  <Icon name="external" size={16} /> Watch on YouTube
+                </a>
+              ) : (
+                <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
+                  <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
+                  {downloaded ? 'Downloaded' : 'Download'}
+                </button>
+              )}
             </>
           )}
           {current.album_title && <span className="tag">{current.album_title}</span>}

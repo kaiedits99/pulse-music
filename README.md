@@ -210,6 +210,13 @@ person saved are left alone), including from saved playlists.
   drawer, and a 92px "now playing" bar
 - **Full CRUD** for the core resources:
   - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
+  - **Linked tracks** — paste a YouTube link (Upload page → *Link a YouTube track*, or the
+    track dialog) and Pulse stores only the video id: the track plays through YouTube's own
+    embeddable player, with title, channel and artwork filled in from YouTube's public oEmbed
+    endpoint. Nothing is downloaded, ripped or re-hosted, so linked tracks have no offline
+    download and no waveform of their own. Pasting a Spotify, Apple Music, Audiomack or other
+    streaming page asks you to upload the file instead — a stored link like that would only
+    ever fail to play.
   - **Albums** — create, edit, delete, album detail with tracklist
   - **Artists** — profiles with bio, genre, followers, popular tracks
   - **Playlists** — every signed-in user can create/edit/delete their own lists (creator- or

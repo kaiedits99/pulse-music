@@ -34,6 +34,8 @@ function normaliseSong(song) {
     duration_seconds: Number.isFinite(song.duration_seconds) ? song.duration_seconds : 0,
     file_path: song.file_path || null,
     source_url: song.source_url || null,
+    provider: song.provider || null,
+    external_id: song.external_id || null,
     is_favorite: song.is_favorite ? 1 : 0,
     plays: song.plays ?? 0,
     downloads: song.downloads ?? 0,
@@ -68,6 +70,47 @@ export function PlayerProvider({ children }) {
   // Resume positions for podcast episodes: { episodeId, last, ready }
   const progressRef = useRef({ episodeId: null, last: 0, ready: false });
 
+  // Linked tracks play through YouTube's own iframe player instead of <audio>.
+  const videoHostRef = useRef(null);      // the div React keeps mounted for the iframe
+  const ytEngineRef = useRef(null);       // the controller, created on first use
+  const ytLoadedRef = useRef(null);       // video id currently handed to the engine
+  const ytHandlersRef = useRef({});
+  const isPlayingRef = useRef(false);
+  const advanceRef = useRef(null);
+  const currentTimeRef = useRef(0);
+  const [videoMode, setVideoMode] = useState('bar'); // 'bar' (mini) | 'theater' (full screen)
+
+  const getEngine = useCallback(() => {
+    if (!ytEngineRef.current) {
+      const dispatch = (name) => (...args) => ytHandlersRef.current[name]?.(...args);
+      ytEngineRef.current = createYouTubeEngine({
+        onReady: dispatch('ready'),
+        onState: dispatch('state'),
+        onProgress: dispatch('progress'),
+        onDuration: dispatch('duration'),
+        onEnded: dispatch('ended'),
+        onError: dispatch('error')
+      });
+    }
+    return ytEngineRef.current;
+  }, []);
+
+  /** Hand the engine an element to live in, loading the current linked track if there is one. */
+  const attachVideoHost = useCallback((element) => {
+    videoHostRef.current = element;
+    if (!element) {
+      ytLoadedRef.current = null;
+      if (ytEngineRef.current) ytEngineRef.current.stop();
+      return;
+    }
+    const song = currentRef.current;
+    if (isLinkedTrack(song)) {
+      getEngine().attach(element);
+      ytLoadedRef.current = song.external_id;
+      getEngine().load(song.external_id, currentTimeRef.current || 0);
+    }
+  }, [getEngine]);
+
   const [queue, setQueue] = useState([]);
   const [index, setIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -92,6 +135,75 @@ export function PlayerProvider({ children }) {
     setQueue(value);
   };
 
+  /* ---- Linked (embedded) tracks ------------------------------------------------
+     YouTube drives its own playback, so instead of an audio element the player bar
+     hosts an iframe. These handlers translate YouTube's events into the same state
+     the rest of the app already renders (isPlaying / currentTime / duration / error). */
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    ytHandlersRef.current = {
+      ready: () => {
+        const song = currentRef.current;
+        if (!isLinkedTrack(song)) return;
+        getEngine().setVolume(volumeRef.current);
+      },
+      state: (state) => {
+        const song = currentRef.current;
+        if (!isLinkedTrack(song)) return;
+        if (state === 1) { setIsPlaying(true); setError(''); }
+        else if (state === 2) setIsPlaying(false); // paused by the user or by us
+      },
+      progress: (time, length) => {
+        const song = currentRef.current;
+        if (!isLinkedTrack(song)) return;
+        currentTimeRef.current = time;
+        setCurrentTime(time);
+        if (length > 0) {
+          durationRef.current = length;
+          setDuration(length);
+        }
+      },
+      duration: (length) => {
+        if (!isLinkedTrack(currentRef.current)) return;
+        durationRef.current = length;
+        setDuration(length);
+      },
+      ended: () => { advanceRef.current?.(); },
+      error: (code, message) => {
+        if (!isLinkedTrack(currentRef.current)) return;
+        setIsPlaying(false);
+        setError(message || youtubeErrorMessage(code));
+      }
+    };
+  });
+
+  /** Load a linked track into the player, creating the iframe on first use. */
+  const loadLinked = useCallback((song, startAtTime) => {
+    const engine = getEngine();
+    const element = videoHostRef.current;
+    if (element) engine.attach(element); // a no-op once this element already hosts it
+    const startTime = Number.isFinite(startAtTime) && startAtTime > 0 ? startAtTime : 0;
+    if (ytLoadedRef.current !== song.external_id || !element) {
+      ytLoadedRef.current = song.external_id;
+      engine.load(song.external_id, startTime);
+    }
+    engine.setVolume(volumeRef.current);
+    engine.play();
+    setIsPlaying(true);
+    setError('');
+  }, [getEngine]);
+
+  /** Silence and remove the iframe when the queue moves on to a normal track. */
+  const unloadLinked = useCallback(() => {
+    if (!ytLoadedRef.current) return;
+    ytLoadedRef.current = null;
+    if (ytEngineRef.current) ytEngineRef.current.stop();
+    setIsPlaying(false);
+  }, []);
+
   /* ---- Episode resume positions ----
      Only episodes report progress, only while signed in, and only once the new
      source is actually loaded (so a track switch never writes the outgoing
@@ -114,6 +226,26 @@ export function PlayerProvider({ children }) {
   const loadSong = useCallback((song, startAtTime = 0) => {
     try {
       const audio = audioRef.current;
+
+      // Linked tracks never touch the audio element — YouTube's player owns them.
+      if (isLinkedTrack(song)) {
+        pushProgress(true);
+        progressRef.current = { episodeId: null, last: 0, ready: false };
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+        const startTime = Number.isFinite(startAtTime) && startAtTime > 0 ? startAtTime : 0;
+        const initialDuration = Number.isFinite(song.duration_seconds) && song.duration_seconds > 0 ? song.duration_seconds : 0;
+        durationRef.current = initialDuration;
+        currentTimeRef.current = startTime;
+        setDuration(initialDuration);
+        setCurrentTime(startTime);
+        loadLinked(song, startTime);
+        if (song.id) api.post(`/api/songs/${song.id}/play`).catch(() => {});
+        return;
+      }
+      unloadLinked();
+
       const isLocal = song?.kind === 'local' || Boolean(song?.local_id);
       const offlineOnly = isLocal || Boolean(song?.offline_only);
       const source = resolveSource(song);
@@ -131,6 +263,7 @@ export function PlayerProvider({ children }) {
       setDuration(initialDuration);
 
       const startTime = Number.isFinite(startAtTime) && startAtTime > 0 ? startAtTime : 0;
+      currentTimeRef.current = startTime;
       setCurrentTime(startTime);
       pendingSeekRef.current = startTime > 0 ? startTime : null;
 
@@ -195,12 +328,18 @@ export function PlayerProvider({ children }) {
       setError('An unexpected error occurred while loading this track.');
       if (import.meta.env.DEV) console.error('[PlayerContext] loadSong error:', err);
     }
-  }, [pushProgress]);
+  }, [pushProgress, loadLinked, unloadLinked]);
 
   const advance = useCallback(() => {
     const items = queueRef.current;
     if (!items.length) return;
     if (repeatRef.current) {
+      if (isLinkedTrack(currentRef.current)) {
+        getEngine().seekTo(0);
+        getEngine().play();
+        setCurrentTime(0);
+        return;
+      }
       const audio = audioRef.current;
       if (audio) {
         audio.currentTime = 0;
@@ -218,7 +357,15 @@ export function PlayerProvider({ children }) {
     }
     updateIndex(nextIndex);
     loadSong(items[nextIndex]);
-  }, [loadSong]);
+  }, [loadSong, getEngine]);
+
+  // The YouTube engine's "video ended" callback needs the latest advance().
+  useEffect(() => { advanceRef.current = advance; }, [advance]);
+
+  // Tear the iframe down when the player unmounts (sign-out, error boundary, …).
+  useEffect(() => () => {
+    if (ytEngineRef.current) ytEngineRef.current.detach();
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -227,7 +374,9 @@ export function PlayerProvider({ children }) {
 
     const onTime = () => {
       if (!mountedRef.current) return;
-      setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+      const time = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      currentTimeRef.current = time;
+      setCurrentTime(time);
       pushProgress(false);
     };
 
@@ -318,6 +467,11 @@ export function PlayerProvider({ children }) {
 
   const togglePlay = useCallback(() => {
     try {
+      if (isLinkedTrack(currentRef.current)) {
+        if (isPlayingRef.current) getEngine().pause();
+        else getEngine().play();
+        return;
+      }
       const audio = audioRef.current;
       if (!audio) return;
       if (!currentRef.current && queueRef.current.length) {
@@ -338,14 +492,22 @@ export function PlayerProvider({ children }) {
       setError('Playback error.');
       if (import.meta.env.DEV) console.error('[PlayerContext] togglePlay error:', err);
     }
-  }, [loadSong]);
+  }, [loadSong, getEngine]);
 
   const next = useCallback(() => advance(), [advance]);
 
   const seek = useCallback((time) => {
     try {
+      if (!Number.isFinite(time)) return;
+      if (isLinkedTrack(currentRef.current)) {
+        const target = Math.max(0, time);
+        currentTimeRef.current = target;
+        setCurrentTime(target);
+        getEngine().seekTo(target);
+        return;
+      }
       const audio = audioRef.current;
-      if (!audio || !Number.isFinite(time)) return;
+      if (!audio) return;
       const targetTime = Math.max(0, time);
       const audioDur = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
       const songDur = durationRef.current > 0 ? durationRef.current : (currentRef.current?.duration_seconds ?? 0);
@@ -353,6 +515,7 @@ export function PlayerProvider({ children }) {
       const clampedTime = effectiveDur > 0 ? Math.min(targetTime, effectiveDur) : targetTime;
 
       // Update state immediately for instant feedback
+      currentTimeRef.current = clampedTime;
       setCurrentTime(clampedTime);
 
       if (audio.readyState >= 1 || (audio.seekable && audio.seekable.length > 0)) {
@@ -366,20 +529,28 @@ export function PlayerProvider({ children }) {
     } catch (err) {
       if (import.meta.env.DEV) console.error('[PlayerContext] seek error:', err);
     }
-  }, []);
+  }, [getEngine]);
 
   const seekRelative = useCallback((delta) => {
+    if (isLinkedTrack(currentRef.current)) {
+      seek(getEngine().currentTime() + delta);
+      return;
+    }
     const audio = audioRef.current;
     const curr = Number.isFinite(audio?.currentTime) ? audio.currentTime : currentTime;
     seek(curr + delta);
-  }, [currentTime, seek]);
+  }, [currentTime, seek, getEngine]);
 
   const prev = useCallback(() => {
     try {
       const items = queueRef.current;
       const audio = audioRef.current;
       if (!items.length) return;
-      if (audio && Number.isFinite(audio.currentTime) && audio.currentTime > 3) {
+      const position = isLinkedTrack(currentRef.current)
+
+        ? getEngine().currentTime()
+        : (audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+      if (position > 3) {
         seek(0);
         return;
       }
@@ -396,6 +567,7 @@ export function PlayerProvider({ children }) {
     volumeRef.current = safe;
     setVolumeState(safe);
     if (audioRef.current) audioRef.current.volume = safe;
+    if (ytLoadedRef.current && ytEngineRef.current) ytEngineRef.current.setVolume(safe);
   }, []);
 
   const setShuffle = useCallback((value) => {
@@ -417,6 +589,8 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       current, queue, index, isPlaying, currentTime, duration,
       volume, shuffle, repeat, error,
+      isLinked: isLinkedTrack(current),
+      videoMode, setVideoMode, attachVideoHost,
       play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat,
       patchTrack
     }}>
