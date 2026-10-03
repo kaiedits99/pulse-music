@@ -13,6 +13,7 @@ const MOBILE_NAV = [
   { to: '/search', icon: 'search', label: 'Search' },
   { to: '/library', icon: 'library', label: 'Library' },
   { to: '/podcasts', icon: 'podcast', label: 'Podcasts' },
+  { to: '/messages', icon: 'mail', label: 'Messages' },
   { to: '/upload', icon: 'upload', label: 'Upload' },
   { to: '/offline-player', icon: 'headphones', label: 'Offline' }
 ];

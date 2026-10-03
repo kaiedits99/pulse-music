@@ -4,6 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
+import chatRoutes from './chat-routes.js';
+import { startChatCleanup } from './chat.js';
 import db, { dataDir, uploadsDir } from './db.js';
 import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
 import { storage, redirectToBucket } from './media.js';
@@ -25,6 +27,9 @@ app.use('/media/uploads', express.static(uploadsDir, { maxAge: '1d' }));
 // With a bucket configured, uploads live there instead: anything not on local disk is sent to the
 // bucket (see media.js), so playback bandwidth never passes through this server.
 if (storage.remote) app.get('/media/uploads/:name', redirectToBucket);
+
+// Messaging: its own store and its own cleanup clock (see server/chat.js).
+app.use('/api/chat', chatRoutes);
 
 // API
 app.use('/api', routes);
@@ -81,6 +86,10 @@ if (!storage.remote && process.env.RENDER) {
     + 'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (see DEPLOY.md), or ignore this if you attached a Render Disk.'
   );
 }
+
+// Everything with a deadline: expired messages, their attachments, and old report copies.
+// Reads already hide lapsed messages, so this only reclaims space — it never gates access.
+startChatCleanup();
 
 const PORT = process.env.PORT || 8080;
 const server = app.listen(PORT, '0.0.0.0', () => {

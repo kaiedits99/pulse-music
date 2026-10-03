@@ -19,6 +19,9 @@ export PULSE_DATA_DIR="${PULSE_DATA_DIR:-$PWD/data}"
 mkdir -p "$PULSE_DATA_DIR"
 PULSE_DATA_DIR="$(cd "$PULSE_DATA_DIR" && pwd)"
 export PULSE_DB_PATH="$PULSE_DATA_DIR/pulse.db"
+# Messages live in their own file (see server/chat-db.js) so the catalogue is never touched by
+# their much shorter lifecycle. Same folder, so both survive together on a host with a disk.
+export PULSE_CHAT_DB_PATH="${PULSE_CHAT_DB_PATH:-$PULSE_DATA_DIR/chat.db}"
 
 if [ "${LITESTREAM_DISABLED:-}" = "true" ]; then
   say "Litestream is turned off (LITESTREAM_DISABLED=true): the database is NOT being copied anywhere."
@@ -67,6 +70,13 @@ if ! "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" -if-db-not-exists -i
   say "Check the S3_* settings and that the bucket is reachable, then restart or redeploy."
   exit 1
 fi
+
+# Messages are restored too, but a failure here is not fatal: every conversation in that file is
+# deleted within a day of being read anyway, so starting empty is survivable where losing the
+# catalogue would not be.
+say "Restoring messages from the bucket, if a saved copy exists..."
+"$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" -if-db-not-exists -if-replica-exists "$PULSE_CHAT_DB_PATH" \
+  || say "WARNING: messages could not be restored; starting with an empty message store."
 
 say "Starting Pulse under Litestream; database changes are copied to bucket \"$S3_BUCKET\"."
 exec "$LITESTREAM_BIN" replicate -config "$LITESTREAM_CONFIG" -exec "node server/index.js"

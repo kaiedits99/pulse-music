@@ -235,6 +235,16 @@ person saved are left alone), including from saved playlists.
   audio is stored locally in IndexedDB, never uploaded, and playback never falls back to streaming.
   Folder selection depends on browser support; on phones, selecting multiple audio files is the
   most reliable option.
+- **Messages** (`/messages`) — a Snapchat-style 24-hour inbox, not a permanent one. Every
+  message is deleted **24 hours after it is read** (30 days if nobody ever opens it), and
+  attachments go with it: photos and voice notes (with waveform and playback speed), reactions,
+  shared tracks that play straight into the Pulse player, read receipts, unread badges in the
+  sidebar, blocking and reporting. Messages live in their **own database** (`chat.db`) with secure
+  deletion, no-store attachment links, a 6-hour replica history and a cleaner that reclaims the
+  space — so the ephemerality can never touch the catalogue. Anything reported keeps a copy for
+  review; that is the only exception, and the app says so before you confirm. See
+  [`docs/chat-retention.md`](docs/chat-retention.md) for exactly what is deleted, when, and what
+  cannot be promised.
 - **Podcasts & Shows** (`/podcasts`, `/podcasts/:id`) — a section of its own, not a re-skin of
   uploads. Shows and episodes live in their own tables (`podcasts`, `episodes`,
   `podcast_subscriptions`, `saved_episodes`, `episode_progress`) with their own routes, so an

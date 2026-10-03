@@ -91,9 +91,9 @@ export function attachmentHeader(name) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function createStorage({ config, uploadsDir, client: injectedClient, log = console }) {
+export function createStorage({ config, uploadsDir, client: injectedClient, log = console, prefix = KEY_PREFIX }) {
   const remote = Boolean(config);
-  const keyFor = (name) => KEY_PREFIX + name;
+  const keyFor = (name) => prefix + name;
   const localPath = (name) => path.join(uploadsDir, name);
 
   const client = remote
@@ -157,15 +157,21 @@ export function createStorage({ config, uploadsDir, client: injectedClient, log 
     /**
      * Where a browser should fetch `name` from. Downloads always use a signed link so the response can
      * carry a "save as" file name; plain playback uses the public address when one is configured.
+     *
+     * `noStore` is for content that must not linger anywhere — ephemeral chat media. It skips the
+     * permanent public address (which is not ours to expire) and asks the bucket to send no-store with
+     * a short-lived signature instead.
      */
-    async urlFor(name, { downloadAs } = {}) {
+    async urlFor(name, { downloadAs, expiresIn, noStore } = {}) {
       if (!remote) throw new Error('urlFor needs a bucket');
-      if (config.publicBaseUrl && !downloadAs) return `${config.publicBaseUrl}/${keyFor(name)}`;
+      if (config.publicBaseUrl && !downloadAs && !noStore) return `${config.publicBaseUrl}/${keyFor(name)}`;
+      const ttl = Number.isFinite(expiresIn) && expiresIn >= 60 ? Math.min(expiresIn, config.signedUrlTtl) : config.signedUrlTtl;
       return getSignedUrl(client, new GetObjectCommand({
         Bucket: config.bucket,
         Key: keyFor(name),
-        ...(downloadAs ? { ResponseContentDisposition: attachmentHeader(downloadAs) } : {})
-      }), { expiresIn: config.signedUrlTtl });
+        ...(downloadAs ? { ResponseContentDisposition: attachmentHeader(downloadAs) } : {}),
+        ...(noStore ? { ResponseCacheControl: 'no-store' } : {})
+      }), { expiresIn: ttl });
     },
 
     /** Round-trips a small object (write, signed read, delete). Used by `npm run storage:check`. */

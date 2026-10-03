@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { PlayerProvider } from './context/PlayerContext.jsx';
 import { FavoritesProvider } from './context/FavoritesContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
+import { ChatUnreadProvider } from './chat.jsx';
 import Layout from './components/Layout.jsx';
 import OfflineRouteManager from './components/OfflineRouteManager.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -27,6 +28,7 @@ import Downloads from './pages/Downloads.jsx';
 import Upload from './pages/Upload.jsx';
 import Settings from './pages/Settings.jsx';
 import OfflinePlayer from './pages/OfflinePlayer.jsx';
+import Messages from './pages/Messages.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -56,6 +58,7 @@ export default function App() {
         <BrowserRouter>
           <ToastProvider>
             <AuthProvider>
+              <ChatUnreadProvider>
               <FavoritesProvider>
                 <PlayerProvider>
                   <OfflineRouteManager />
@@ -82,11 +85,13 @@ export default function App() {
                       <Route path="/offline-player" element={<OfflinePlayer />} />
                       <Route path="/upload" element={<Upload />} />
                       <Route path="/settings" element={<Settings />} />
+                      <Route path="/messages" element={<Messages />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </PlayerProvider>
               </FavoritesProvider>
+              </ChatUnreadProvider>
             </AuthProvider>
           </ToastProvider>
         </BrowserRouter>
