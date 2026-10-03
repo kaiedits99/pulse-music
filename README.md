@@ -293,11 +293,17 @@ an `EBADENGINE` warning from npm).
 # 1. backend deps
 npm install
 
-# 2. build the client
-cd client && npm install && npm run build && cd ..
-
-# 3. start (serves API + built client on :8080)
+# 2. start (serves API + built client on :8080)
 npm start
+```
+
+Step 2 builds the web app the first time if it hasn't been built on this machine (it runs
+`npm install && npm run build` inside `client/`), so `npm start` on a fresh checkout gives you the
+site rather than a 404. To build it yourself — or to rebuild after changing the client while the
+server keeps running — do it explicitly:
+
+```bash
+cd client && npm install && npm run build && cd ..
 ```
 
 Open http://localhost:8080, create an account and upload a track — the app is blank until you
