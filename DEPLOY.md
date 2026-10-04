@@ -271,23 +271,17 @@ SQLite database. To use Netlify you split the app:
 
 ---
 
-## What about an APK (Android) or EXE (Windows)?
+## Android APK
 
-Both are possible in principle, but they're **native wrappers**, not simple exports, and they
-need toolchains this environment doesn't have:
+The frontend is wrapped with Capacitor, and `.github/workflows/android.yml` builds a debug APK
+on pushes and pull requests. Download it from the workflow run's **`pulse-apk`** artifact. See
+[`ANDROID-BUILD.md`](ANDROID-BUILD.md) for installation, local builds, and the optional backend
+URL setting. The backend must still be deployed separately and configured in the app.
 
-- **APK** — needs the Android SDK + Gradle + Java and a web-container like **Capacitor**, plus
-  code-signing. Your backend also can't live inside an APK easily (no phone runs a SQLite
-  Node server for a shared app) — you'd need to host the backend and point the app at it.
-- **EXE** — needs **Electron** (bundles Chromium + Node, ~100MB+) and a Windows build
-  environment (or Wine) to produce a signed installer.
+## Windows desktop app
 
-If you want, I can:
-- **Convert this to a Capacitor project** so you can build an APK locally with Android Studio, or
-- **Wrap it in Electron** so you can build a Windows/macOS/Linux desktop app locally.
-
-Just say which and I'll scaffold it (you'd run the final native build on your own machine,
-since app-store signing and OS toolchains can't run here).
+A Windows installer would need a separate **Electron** wrapper and Windows build environment;
+that is not currently configured.
 
 ---
 
@@ -305,5 +299,5 @@ since app-store signing and OS toolchains can't run here).
 | Keep everything on the server instead | Render Disk mounted on `data/` (or `PULSE_DATA_DIR` on a volume) | `render.yaml` (commented `disk:` block), `server/db.js` |
 | Start from a blank catalog | Nothing to do — Pulse never seeds data | `server/index.js` |
 | Frontend on Netlify | Static build + redirects | `netlify.toml`, `client/public/_redirects` |
-| Android app | Capacitor + Android Studio | ask me to scaffold |
-| Desktop app | Electron | ask me to scaffold |
+| Android APK | Capacitor build in GitHub Actions | `.github/workflows/android.yml`, `ANDROID-BUILD.md` |
+| Desktop app | Electron | not configured |
