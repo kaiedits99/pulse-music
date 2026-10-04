@@ -8,6 +8,7 @@
   padding: var(--gap);
   height: 100vh;
   height: 100dvh;
+  min-height: 0;
   background: var(--bg);
   overflow: hidden;
 }
@@ -15,6 +16,7 @@
 .app-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--gap);
@@ -429,6 +431,9 @@
 .content {
   flex: 1;
   min-height: 0;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   overflow-y: auto;
   overflow-x: hidden;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 340px, var(--panel-2) 100%);

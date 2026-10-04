@@ -110,8 +110,11 @@ Setup:
 GOOGLE_CLIENT_ID=xxxxxxxxxxxx.apps.googleusercontent.com npm start
 ```
 
-Without the env var the endpoint returns `503` and the button hides itself —
-the app behaves exactly as before.
+Without the env var, password login still works and the sign-in screen explains
+that Google sign-in has not been enabled for this deployment. The backend also
+needs to be reachable from the app, and the app's exact origin must be listed in
+Google Cloud under **Authorized JavaScript origins**. If Google sign-in is shown
+but fails, check both settings first.
 
 ## Where the data lives
 
