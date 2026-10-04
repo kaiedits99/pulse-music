@@ -65,8 +65,12 @@ words. It never prints your keys.
      traffic once the instance answers).
 3. Open the `.onrender.com` URL and sign up. A new deployment is **blank**: there is no sample
    data. The first track anyone uploads becomes the shared catalog that every later user sees.
-4. *(Optional)* To enable "Continue with Google", set the `GOOGLE_CLIENT_ID`
-   env var in the Render dashboard (public OAuth client ID — see README).
+4. To enable "Continue with Google", create a **Web application** OAuth client
+   in Google Cloud, add the deployed app's exact origin under **Authorized JavaScript
+   origins**, then set `GOOGLE_CLIENT_ID` to that public client ID in the Render
+   dashboard. The sign-in screen now explains when this backend setting is missing;
+   no client secret or redirect URI is used. See [Google sign-in](README.md#google-sign-in-optional)
+   for the full setup steps.
 
 > **Upgrading an older deployment?** Earlier versions seeded demo users, tracks, albums,
 > playlists and shows, and read a `SEED_DEMO_DATA` env var. That variable no longer does

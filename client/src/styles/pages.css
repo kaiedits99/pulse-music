@@ -658,12 +658,19 @@
 
 /* ================================================================== AUTH = */
 .auth-screen {
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* Keep the form inside a real viewport-sized scroll container. A min-height-only
+     wrapper grows past the viewport on phones, while body scrolling is intentionally
+     locked for the fixed music app shell. */
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1.05fr 1fr;
   background: var(--bg);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .auth-visual {
   position: relative;
@@ -792,7 +799,24 @@
 .password-wrap { position: relative; display: flex; align-items: center; }
 .password-wrap input { padding-right: 42px; }
 
-.google-btn-wrap { display: flex; justify-content: center; min-height: 44px; }
+.google-btn-wrap { display: flex; justify-content: center; width: 100%; min-height: 44px; }
+.auth-provider-note,
+.auth-provider-error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 18px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+.auth-provider-note strong { color: var(--text-dim); font-weight: 700; }
+.auth-provider-error { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 
 .genre-pick-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .genre-pick {
