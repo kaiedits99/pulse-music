@@ -7,7 +7,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { api } from '../api.js';
-import { getRuntimeUrl, setRuntimeUrl } from '../config.js';
+import { API_URL, getRuntimeUrl, setRuntimeUrl } from '../config.js';
+import { isNative } from '../native.js';
 import { formatNumber } from '../format.js';
 
 const GENRE_OPTIONS = [
@@ -42,7 +43,9 @@ export default function AuthPage({ initialMode = 'login' }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [showServer, setShowServer] = useState(false);
+  // Inside the Android app the website address is the first thing a new install needs: without it
+  // there is nothing to sign in to. Open the setting by itself when the app has no backend yet.
+  const [showServer, setShowServer] = useState(() => isNative() && !getRuntimeUrl() && !API_URL);
   const [serverUrl, setServerUrl] = useState(getRuntimeUrl() || '');
   const [stats, setStats] = useState(null);
 
@@ -171,9 +174,14 @@ export default function AuthPage({ initialMode = 'login' }) {
   };
 
   const saveServer = () => {
-    setRuntimeUrl(serverUrl);
-    toast('Backend URL saved');
+    const clean = serverUrl.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/\S+$/i.test(clean)) {
+      return toast('Paste the full address of the website, starting with https://', 'error');
+    }
+    setRuntimeUrl(clean);
+    toast('Connected to that website — reloading…');
     setTimeout(() => window.location.reload(), 600);
+    return undefined;
   };
 
   const switchMode = (m) => { setMode(m); setRegStep(1); setError(''); };
@@ -296,7 +304,11 @@ export default function AuthPage({ initialMode = 'login' }) {
                 </button>
                 {showServer && (
                   <div className="stack" style={{ marginTop: 10 }}>
-                    <p className="auth-note">The mobile app connects to your hosted backend. Paste its URL (e.g. <code>https://your-project.glitch.me</code>) then save.</p>
+                    <p className="auth-note">
+                      Pulse is one service: the website hosts the catalog, the accounts and the messages.
+                      {isNative() ? ' In the app, paste the address of your Pulse website' : ' The app connects to the same address'}
+                      {' '}(e.g. <code>https://pulse-music.onrender.com</code>), then save — the app remembers it.
+                    </p>
                     <div className="row">
                       <input
                         className="input grow"

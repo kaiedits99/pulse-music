@@ -14,11 +14,13 @@ and the backend stays hosted (Glitch/Render/etc.) — the app talks to it over t
 
 The Android app needs to know where your backend lives. There are two ways:
 
-1. **At runtime (easiest, no rebuild):** open the app → on the login screen tap
-   **"Backend server URL"** → paste your backend URL (e.g. `https://your-project.glitch.me`)
-   → Save. The app remembers it.
+1. **At runtime (easiest, no rebuild):** open the app → the **Backend server URL** setting opens
+   by itself on first launch when no address is saved → paste the address of your Pulse website
+   (e.g. `https://pulse-music.onrender.com`) → Save. The app remembers it, and from then on it is
+   the same Pulse as the website: the same catalog, the same accounts, the same messages.
+   The setting stays available on the login screen if you ever need to change it.
 2. **At build time:** set the `VITE_API_URL` variable (GitHub Actions variable, or a `.env`
-   file for local builds).
+   file for local builds) to that same website address, so a fresh install is already connected.
 
 > The backend must be deployed first. Use the Render Blueprint (`render.yaml`) or Glitch —
 > see `DEPLOY.md`. Then copy its public URL into the app.
@@ -29,8 +31,9 @@ The Android app needs to know where your backend lives. There are two ways:
 
 1. Push this project to GitHub. The **Build Android APK** workflow runs automatically on
    pushes and pull requests; you can also start it from **Actions → Build Android APK → Run workflow**.
-2. When the run finishes, open it and download the **`pulse-apk`** artifact. Unzip it to get
-   `app-debug.apk`.
+2. When the run finishes (about two minutes), open it and download the **`pulse-apk`** artifact
+   from the **Artifacts** section at the bottom of the run page. Unzip it to get `app-debug.apk`.
+   Every push to the repo builds a new one; the artifact is kept for 14 days.
 3. Copy the APK to your phone and tap it to install (you may need to allow "install unknown
    apps" for your file manager).
 
