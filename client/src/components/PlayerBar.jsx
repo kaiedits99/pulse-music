@@ -31,7 +31,8 @@ export default function PlayerBar() {
     current, queue, isPlaying, togglePlay, next, prev, seek, seekRelative,
     currentTime, duration, volume, setVolume, shuffle, setShuffle,
     repeat, setRepeat, error,
-    isLinked, videoMode, setVideoMode, attachVideoHost
+    isLinked, videoMode, setVideoMode, attachVideoHost,
+    barHidden, hideBar, showBar
   } = usePlayer();
 
   const { toast } = useToast();
@@ -155,6 +156,52 @@ export default function PlayerBar() {
   const cycleRepeat = () => setRepeat(!repeat);
 
   if (!current) return <div className="playerbar playerbar--empty" aria-hidden="true" />;
+
+  // Hiding the bar is about screen room, not about stopping the music: the audio keeps playing and
+  // a compact pill stays within reach, so the player is never more than one tap away.
+  const hidePlayer = () => {
+    setExpanded(false);
+    if (isLinked) setVideoMode('bar');
+    hideBar();
+    toast('Player hidden — tap the pill to bring it back', 'info');
+  };
+
+  if (barHidden) {
+    return (
+      <>
+      <div className="player-restore" role="region" aria-label="Player hidden">
+        <button type="button" className="pr-main" onClick={showBar} title="Show the player" aria-label="Show the player">
+          <Cover src={current.cover_url || current.album_cover} alt={current.title} size={34} className="pr-art" />
+          <span className="pr-meta">
+            <strong>{current.title}</strong>
+            <span>{current.artist_name}</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="pr-btn"
+          onClick={togglePlay}
+          title={isPlaying ? 'Pause' : 'Play'}
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+        >
+          <Icon name={isPlaying ? 'pause' : 'play'} size={16} />
+        </button>
+        <button type="button" className="pr-btn" onClick={showBar} title="Show the player" aria-label="Show the player">
+          <Icon name="chevronUp" size={17} />
+        </button>
+      </div>
+
+      {/* A linked track is a YouTube iframe, not an <audio> element: the host has to stay mounted or
+          hiding the bar would silence it. It keeps playing in its docked position. */}
+      {isLinked && (
+        <div className={`linked-video linked-video--${videoMode}`} role="region" aria-label="YouTube player">
+          <div className="linked-video-frame" ref={attachVideoHost} />
+        </div>
+      )}
+      </>
+    );
+  }
+
 
   const displayTime = previewTime != null ? previewTime : (Number.isFinite(currentTime) ? currentTime : 0);
   const isFav = isLiked(current);
@@ -356,6 +403,16 @@ export default function PlayerBar() {
 
           <button className="pl-mini-btn" onClick={openExpanded} title="Full screen player" aria-label="Full screen player">
             <Icon name="expand" size={17} />
+          </button>
+
+          {/* Dismiss the bar: playback carries on and a pill at the corner brings it back. */}
+          <button
+            className="pl-mini-btn pl-hide"
+            onClick={hidePlayer}
+            title="Hide the player bar"
+            aria-label="Hide the player bar"
+          >
+            <Icon name="close" size={17} />
           </button>
         </div>
       </div>

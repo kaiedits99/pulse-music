@@ -213,7 +213,9 @@ person saved are left alone), including from saved playlists.
 - **Authentication** — register (creates an artist profile), login, JWT sessions, sign out
 - **Dashboard layout** — floating two-panel sidebar (nav + playlists + Install App), pill topbar
   with live catalog search (artist, track or genre), notifications, theme switch and account
-  drawer, and a 92px "now playing" bar
+  drawer, and a 92px "now playing" bar. The bar can be dismissed with the × next to the volume
+  control — playback carries on and a compact pill in the corner (track, play/pause, restore)
+  brings it back — which is handy on a phone, where it overlaps the bottom navigation
 - **Full CRUD** for the core resources:
   - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
   - **Linked tracks** — paste a YouTube link (Upload page → *Link a YouTube track*, or the

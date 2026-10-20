@@ -1,3 +1,5 @@
+import { resolveMediaUrl } from './media-url.js';
+
 // API base URL. Defaults to same-origin (single-origin web deployment).
 // For the Android app (or split deployments), set VITE_API_URL at build time,
 // OR — better — point the app at your backend at runtime from the login screen,
@@ -15,7 +17,9 @@ export function setRuntimeUrl(v) {
   } catch { /* ignore */ }
 }
 
-const buildUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+// `import.meta.env` exists under Vite (the shipped app) and is absent in plain Node, where the
+// tests import this module to check media URLs.
+const buildUrl = String((import.meta.env && import.meta.env.VITE_API_URL) || '').replace(/\/+$/, '');
 
 export const API_URL = (getRuntimeUrl() || buildUrl).replace(/\/+$/, '');
 
@@ -23,9 +27,9 @@ export function apiUrl(path) {
   return API_URL + path;
 }
 
-// Resolve media/cover paths returned by the API (which are relative, e.g. "/media/audio/x.wav").
+// Resolve media/cover paths returned by the API (which are relative, e.g. "/media/uploads/x.wav").
+// Absolute URLs pass through untouched; the API base is what a relative path is joined to, so the
+// Android app (page on https://localhost, API elsewhere) asks the right host.
 export function mediaUrl(path) {
-  if (!path) return path;
-  if (/^(https?:|blob:|data:)/.test(path)) return path;
-  return API_URL + path;
+  return resolveMediaUrl(path, API_URL);
 }

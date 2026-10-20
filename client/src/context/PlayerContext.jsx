@@ -6,6 +6,13 @@ import { createYouTubeEngine, isLinkedTrack, youtubeErrorMessage } from '../yout
 
 const PlayerContext = createContext(null);
 
+// Whether the bar is showing. Kept on the device (not the account) because it is about how much
+// room this screen has — a phone tucked behind the bottom nav, a desktop with a tall window.
+const BAR_HIDDEN_KEY = 'pulse_player_bar_hidden';
+function readBarHidden() {
+  try { return localStorage.getItem(BAR_HIDDEN_KEY) === '1'; } catch { return false; }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
@@ -80,6 +87,7 @@ export function PlayerProvider({ children }) {
   const advanceRef = useRef(null);
   const currentTimeRef = useRef(0);
   const [videoMode, setVideoMode] = useState('bar'); // 'bar' (mini) | 'theater' (full screen)
+  const [barHidden, setBarHidden] = useState(readBarHidden);
 
   const getEngine = useCallback(() => {
     if (!ytEngineRef.current) {
@@ -586,12 +594,24 @@ export function PlayerProvider({ children }) {
     updateQueue(queueRef.current.map((song) => song.id === trackId ? { ...song, ...patch } : song));
   }, []);
 
+  /** Hide the bar without touching playback: the music keeps going, a small pill brings it back. */
+  const hideBar = useCallback(() => {
+    setBarHidden(true);
+    try { localStorage.setItem(BAR_HIDDEN_KEY, '1'); } catch { /* private mode — session only */ }
+  }, []);
+
+  const showBar = useCallback(() => {
+    setBarHidden(false);
+    try { localStorage.removeItem(BAR_HIDDEN_KEY); } catch { /* ignore */ }
+  }, []);
+
   return (
     <PlayerContext.Provider value={{
       current, queue, index, isPlaying, currentTime, duration,
       volume, shuffle, repeat, error,
       isLinked: isLinkedTrack(current),
       videoMode, setVideoMode, attachVideoHost,
+      barHidden, hideBar, showBar,
       play, togglePlay, next, prev, seek, seekRelative, setVolume, setShuffle, setRepeat,
       patchTrack
     }}>
