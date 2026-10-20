@@ -5,6 +5,7 @@ import NowPlaying from './NowPlaying.jsx';
 import WaveformSeekbar from './WaveformSeekbar.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
+import { API_URL } from '../config.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
@@ -30,7 +31,7 @@ export default function PlayerBar() {
   const {
     current, queue, isPlaying, togglePlay, next, prev, seek, seekRelative,
     currentTime, duration, volume, setVolume, shuffle, setShuffle,
-    repeat, setRepeat, error,
+    repeat, setRepeat, error, errorDetail,
     isLinked, videoMode, setVideoMode, attachVideoHost,
     barHidden, hideBar, showBar
   } = usePlayer();
@@ -326,7 +327,35 @@ export default function PlayerBar() {
             </button>
           </div>
 
-          {error && <div className="player-error" role="status">{error}</div>}
+          {error && (
+            <div className="player-error" role="status">
+              <span>{error}</span>
+              {errorDetail?.url && (
+                <button
+                  type="button"
+                  className="player-error-why"
+                  title="Copy the details so the problem can be reported"
+                  onClick={async () => {
+                    const detail = [
+                      error,
+                      `url: ${errorDetail.url}`,
+                      `code: ${errorDetail.code ?? 'n/a'} ${errorDetail.media_error || ''}`.trim(),
+                      `api: ${API_URL || '(same origin)'}`,
+                      `page: ${window.location.origin}`
+                    ].join('\n');
+                    try {
+                      await navigator.clipboard?.writeText(detail);
+                      toast('Playback details copied', 'info');
+                    } catch {
+                      toast(detail, 'info');
+                    }
+                  }}
+                >
+                  why?
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="progress-row" onClick={(e) => e.stopPropagation()}>
             <span className="progress-time">{formatDuration(displayTime)}</span>

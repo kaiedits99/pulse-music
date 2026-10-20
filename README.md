@@ -253,6 +253,11 @@ person saved are left alone), including from saved playlists.
   review; that is the only exception, and the app says so before you confirm. See
   [`docs/chat-retention.md`](docs/chat-retention.md) for exactly what is deleted, when, and what
   cannot be promised.
+- **App updates** — the website and the Windows app always show the newest build because they load
+  the live site. The Android app can do the same (**live mode**, set `PULSE_APP_URL` and every
+  deploy updates installed phones); built without an address it carries its own copy and needs a new
+  APK, so it shows a "Pulse x.y.z is ready" banner and a **Check for updates** button in
+  **Settings → About Pulse**. See [`ANDROID-BUILD.md`](ANDROID-BUILD.md).
 - **Pulse for Windows** (`.exe`) — an Electron window onto the same website: installer and portable
   build from GitHub Actions, first-run **Connect to your Pulse website**, a readable page when the
   site is unreachable (retry / change website / open in browser), links and Google sign-in handed to

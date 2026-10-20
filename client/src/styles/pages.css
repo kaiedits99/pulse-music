@@ -1248,3 +1248,42 @@
   .ep-progress { width: 72px; }
   .ep-actions { margin-left: auto; }
 }
+
+/* ------------------------------------------------------------- UPDATE NOTICE -- */
+/* Only appears inside the installed Android app, and only when a newer APK exists. It sits at the
+   top of the page like a piece of news, not over the music. */
+.update-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.14), rgba(109, 40, 217, 0.1));
+  animation: fadeUp 0.24s ease both;
+}
+[data-theme='light'] .update-notice {
+  border-color: rgba(124, 58, 237, 0.25);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(109, 40, 217, 0.06));
+}
+.un-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.18);
+  color: var(--accent-3, #a855f7);
+}
+.un-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.35; }
+.un-copy strong { font-size: 13.5px; }
+.un-copy span { font-size: 12px; color: var(--text-dim); }
+.un-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+@media (max-width: 560px) {
+  .update-notice { flex-wrap: wrap; }
+  .un-copy span { font-size: 11.5px; }
+  .un-actions { width: 100%; justify-content: flex-end; }
+}

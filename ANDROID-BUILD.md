@@ -10,6 +10,39 @@ and the backend stays hosted (Glitch/Render/etc.) — the app talks to it over t
 
 ---
 
+## How updates work (important)
+
+Pulse has one server and three doors, and they update in different ways:
+
+| Where | What you see | How it updates |
+|-------|--------------|----------------|
+| **Website** | the live app | automatically, on every deploy |
+| **Windows app** | the live website in a window | automatically, on every deploy |
+| **Android app** | see below | depends on the build |
+
+For the Android app there are two modes, chosen by whether `PULSE_APP_URL` (or `VITE_API_URL`)
+is set when it is built:
+
+- **Live mode (recommended).** The app opens your website directly. Every fix to the site reaches
+  installed phones on the next deploy — no new APK. If the site can't be reached, the app shows a
+  bundled "can't reach Pulse" page with a retry button. The *Backend server URL* setting disappears,
+  because the site's own address is the server.
+- **Bundled mode (no address set).** The app carries its own copy of the interface and asks for the
+  backend address on first launch. It works offline out of the box, but **a new APK is needed for
+  every interface change**.
+
+In both modes, **Settings → About Pulse** shows the version and a *Check for updates* button, and
+when a newer release exists the app shows a "Pulse x.y.z is ready" banner inside the app. Android
+only lets the Play Store install silently, so that button opens the APK download and the system
+installer asks you to confirm — about three taps, no GitHub account needed.
+
+**Why did my fix not show up?** If the phone runs bundled mode, the APK you installed has the code
+it was built with. Install the newest APK from
+[Releases](https://github.com/kaiedits99/pulse-music/releases), or switch to live mode by setting
+`PULSE_APP_URL` so future fixes arrive by themselves.
+
+---
+
 ## How the app connects to your backend
 
 The Android app needs to know where your backend lives. There are two ways:

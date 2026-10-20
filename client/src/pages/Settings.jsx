@@ -10,6 +10,8 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { useInstallPrompt } from '../hooks/useInstallPrompt.js';
 import { initials, formatBytes } from '../format.js';
 import { clearAllDownloads, downloadedSongs, downloadedPlaylists, OFFLINE_EVENT } from '../offline.js';
+import { APP_VERSION, checkForUpdate, RELEASES_PAGE } from '../appVersion.js';
+import { isNative, openExternal } from '../native.js';
 
 const GENRE_OPTIONS = [
   { id: 'Pop', name: 'Pop', desc: 'Vocal anthems & modern hooks', icon: 'music' },
@@ -35,6 +37,7 @@ export default function Settings() {
   const [usernameVal, setUsernameVal] = useState(user?.username || '');
   const [selectedGenres, setSelectedGenres] = useState(user?.favorite_genres || []);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [unameStatus, setUnameStatus] = useState({ checking: false, available: null, reason: '' });
   const checkTimerRef = useRef(null);
 
@@ -342,10 +345,42 @@ export default function Settings() {
       </section>
 
       <section className="panel muted-panel">
-        <div className="panel-head"><h3><Icon name="info" size={17} /> About Pulse</h3></div>
+        <div className="panel-head">
+          <h3><Icon name="info" size={17} /> About Pulse</h3>
+          <span className="muted" style={{ fontSize: 12.5 }}>Version {APP_VERSION}</span>
+        </div>
         <p className="muted">
           Pulse is a full-stack music platform for artists — upload tracks, manage albums and playlists, stream your catalog,
           and download tracks for offline listening. Built with React, Node.js, Express and SQLite.
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={checkingUpdate}
+            onClick={async () => {
+              setCheckingUpdate(true);
+              const found = await checkForUpdate({ force: true });
+              setCheckingUpdate(false);
+              if (found) {
+                toast(`Pulse ${found.version} is available — opening the download`, 'info');
+                await openExternal(found.url);
+              } else {
+                toast(`You are on the newest version (${APP_VERSION})`);
+              }
+            }}
+          >
+            {checkingUpdate ? <><Spinner size={14} /> Checking…</> : <><Icon name="download" size={15} /> Check for updates</>}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openExternal(RELEASES_PAGE)}>
+            <Icon name="external" size={15} /> All releases
+          </button>
+        </div>
+        <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
+          {isNative()
+            ? 'This app carries its own copy of the interface, so updates are installed from a new APK. '
+              + 'Your account, catalog and messages always come from the server.'
+            : 'The website is always the newest version — it is served straight from your Pulse server.'}
         </p>
       </section>
 

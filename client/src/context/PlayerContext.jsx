@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, getToken } from '../api.js';
-import { mediaUrl } from '../config.js';
+import { mediaUrl, API_URL } from '../config.js';
+import { mediaUrlCandidates } from '../media-url.js';
 import { resolvePlayableUrl } from '../offline.js';
 import { createYouTubeEngine, isLinkedTrack, youtubeErrorMessage } from '../youtube.js';
 
@@ -75,6 +76,10 @@ export function PlayerProvider({ children }) {
   const volumeRef = useRef(0.9);
   const mountedRef = useRef(true);
   const loadSeqRef = useRef(0); // guards async loads against fast track switching
+  // Fallback URLs for the track being loaded: if one host cannot serve it, the next is tried before
+  // the listener sees an error. Empty when there is only one sensible address (the normal case).
+  const candidatesRef = useRef([]);
+  const attemptRef = useRef(0);
   // Resume positions for podcast episodes: { episodeId, last, ready }
   const progressRef = useRef({ episodeId: null, last: 0, ready: false });
 
@@ -88,6 +93,8 @@ export function PlayerProvider({ children }) {
   const currentTimeRef = useRef(0);
   const [videoMode, setVideoMode] = useState('bar'); // 'bar' (mini) | 'theater' (full screen)
   const [barHidden, setBarHidden] = useState(readBarHidden);
+  // What actually went wrong, for the "why?" in the player bar — never shown unless playback fails.
+  const [errorDetail, setErrorDetail] = useState(null);
 
   const getEngine = useCallback(() => {
     if (!ytEngineRef.current) {
@@ -263,6 +270,7 @@ export function PlayerProvider({ children }) {
         return;
       }
       setError('');
+      setErrorDetail(null);
 
       // Preload initial duration from song metadata if available
       const initialDuration = Number.isFinite(song.duration_seconds) && song.duration_seconds > 0
@@ -305,7 +313,10 @@ export function PlayerProvider({ children }) {
               : 'This saved copy is missing. Reconnect and download the track again.');
             return;
           }
-          audio.src = url;
+          // One host normally; a same-origin deployment is the backup when no API address is set.
+          candidatesRef.current = mediaUrlCandidates(source, API_URL, window.location.origin);
+          attemptRef.current = 0;
+          audio.src = candidatesRef.current[0] || url;
           audio.volume = volumeRef.current;
           audio.load();
 
@@ -413,6 +424,7 @@ export function PlayerProvider({ children }) {
       if (!mountedRef.current) return;
       setIsPlaying(true);
       setError('');
+      setErrorDetail(null);
     };
 
     const onPause = () => {
@@ -423,7 +435,33 @@ export function PlayerProvider({ children }) {
 
     const onError = () => {
       if (!mountedRef.current) return;
-      setError('We could not load this audio source.');
+      // A second address is worth trying before giving up: this is exactly the case where the app
+      // had the track listed but the audio URL pointed somewhere that could not serve it.
+      const next = attemptRef.current + 1;
+      if (next < candidatesRef.current.length) {
+        attemptRef.current = next;
+        const url = candidatesRef.current[next];
+        try {
+          audio.src = url;
+          audio.load();
+          audio.play().catch(() => {});
+          return;
+        } catch { /* fall through to the error below */ }
+      }
+      const code = audio.error?.code;
+      const REASONS = {
+        1: 'the download was aborted',
+        2: 'the network dropped',
+        3: 'the file could not be decoded',
+        4: 'this file is missing or not playable'
+      };
+      setError(`We could not play this track — ${REASONS[code] || 'the audio source did not respond'}.`);
+      setErrorDetail({
+        url: candidatesRef.current[attemptRef.current] || audio.currentSrc || '',
+        code: code ?? null,
+        message: audio.error?.message || '',
+        media_error: typeof MediaError !== 'undefined' && code ? MediaError[code] || '' : ''
+      });
     };
 
     audio.addEventListener('timeupdate', onTime);
@@ -608,7 +646,7 @@ export function PlayerProvider({ children }) {
   return (
     <PlayerContext.Provider value={{
       current, queue, index, isPlaying, currentTime, duration,
-      volume, shuffle, repeat, error,
+      volume, shuffle, repeat, error, errorDetail,
       isLinked: isLinkedTrack(current),
       videoMode, setVideoMode, attachVideoHost,
       barHidden, hideBar, showBar,

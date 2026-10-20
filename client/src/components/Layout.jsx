@@ -7,6 +7,7 @@ import PlayerBar from './PlayerBar.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import AccountDrawer from './AccountDrawer.jsx';
 import SharePrompt from './SharePrompt.jsx';
+import UpdateNotice from './UpdateNotice.jsx';
 
 const MOBILE_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
@@ -42,6 +43,7 @@ export default function Layout() {
         <Topbar onMenu={() => setMenuOpen(true)} onAccount={() => setAccountOpen(true)} />
         <main className="content">
           <ErrorBoundary>
+            <UpdateNotice />
             <Outlet />
           </ErrorBoundary>
         </main>
