@@ -101,7 +101,7 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Pulse for Windows — the same catalog, accounts and messages as the Pulse website.
 
-          **Download and run**
+          **Windows**
           1. `Pulse-Setup-VERSION.exe` installs Pulse (desktop and Start Menu shortcuts).
              `Pulse-Portable-VERSION.exe` runs without installing.
           2. Windows may warn that the app is unrecognised because the build is unsigned:
@@ -109,11 +109,15 @@ jobs:
           3. On first launch, enter the address of your Pulse website (for example
              `https://pulse-music.onrender.com`) and press **Connect**. The app remembers it.
 
-          Building it yourself: see DESKTOP-BUILD.md in the repository.
+          **Android**
+          `Pulse-VERSION-android.apk` (attached by the Android build) installs the phone app.
+          Allow "install unknown apps" for your file manager if Android asks.
+
+          Building it yourself: see DESKTOP-BUILD.md and ANDROID-BUILD.md in the repository.
           NOTES
           sed -i "s/VERSION/$VERSION/g" release-notes.md
 
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse for Windows $VERSION" --notes-file release-notes.md
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse $VERSION" --notes-file release-notes.md
           gh release upload "$TAG" desktop/release/*.exe --clobber
           echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
