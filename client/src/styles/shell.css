@@ -831,10 +831,28 @@ a.pl-artist:hover { color: var(--text); text-decoration: underline; }
 [data-theme='light'] .volume-slider::-webkit-slider-thumb { background: var(--accent); }
 
 .player-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 11.5px;
   color: var(--danger);
   text-align: center;
+  max-width: 100%;
 }
+.player-error-why {
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.player-error-why:hover { opacity: 1; }
 .player-error-msg { font-size: 13px; color: var(--text-dim); }
 
 /* ------------------------------------------------------------ MOBILE NAV -- */

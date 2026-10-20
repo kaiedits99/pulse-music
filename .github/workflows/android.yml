@@ -47,10 +47,21 @@ jobs:
         working-directory: client
         run: npm ci
 
+      # The same variable points the app at the site. With it set, the app opens the live
+      # website (so web fixes arrive with every deploy instead of needing a new APK); without it,
+      # the app bundles its own copy and asks for an address on first launch.
+      - name: Choose how the app loads Pulse
+        working-directory: client
+        env:
+          PULSE_APP_URL: ${{ vars.PULSE_APP_URL }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: node scripts/capacitor-config.mjs
+
       - name: Build web app
         working-directory: client
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: npm run build
 
       - name: Generate Capacitor Android project
