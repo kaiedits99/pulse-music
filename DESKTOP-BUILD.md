@@ -13,17 +13,24 @@ Windows  ─┘
 
 ## Get the .exe
 
-1. Push this repository to GitHub.
-2. Open **Actions → Build Windows app**. It runs on every push (and can be started by hand from
-   **Run workflow**).
-3. When the run finishes — about three to five minutes — download the **`pulse-windows`** artifact
-   from the bottom of the run page. It contains:
+**The easy way — a download link, no GitHub login:**
+
+1. Open **<https://github.com/kaiedits99/pulse-music/releases>**.
+2. Under the newest **Pulse for Windows** release, download:
    - `Pulse-Setup-1.0.0.exe` — the installer (Start Menu and desktop shortcuts)
    - `Pulse-Portable-1.0.0.exe` — one file, runs without installing (good for a USB stick)
+3. Run it. Windows may say *“Windows protected your PC”* because the build is unsigned:
+   **More info → Run anyway**.
+4. Enter your Pulse website address on the first screen and press **Connect**.
 
-Both are **unsigned**. Windows SmartScreen shows “Windows protected your PC” the first time:
-choose **More info → Run anyway**. Signing it properly needs a paid code-signing certificate; see
-[Signing](#signing-optional) below.
+Releases are published by the workflow when it is run with **publish_release** ticked
+(*Actions → Build Windows app → Run workflow*), or by pushing a tag that starts with `v`.
+
+**The build-artifact way** (needs a GitHub login, kept for 14 days): open
+**Actions → Build Windows app**, pick a green run, and download the **`pulse-windows`** artifact at
+the bottom of the run page. It contains the same two files.
+
+Signing it properly needs a paid code-signing certificate; see [Signing](#signing-optional) below.
 
 ## Tell the app which website to open
 

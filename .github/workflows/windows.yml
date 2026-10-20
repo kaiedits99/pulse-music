@@ -7,9 +7,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a GitHub Release with the .exe files (a permanent download link)'
+        type: boolean
+        default: false
 
+# The build only reads the repository; the release step writes a Release and its assets.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -72,3 +78,41 @@ jobs:
             desktop/release/*.blockmap
           if-no-files-found: error
           retention-days: 14
+
+      # An Actions artifact needs a GitHub login and expires after 14 days. A Release is a plain,
+      # public download link that works for anyone: run this workflow with "publish_release"
+      # ticked, or push a tag starting with v.
+      - name: Publish a GitHub Release
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release) || startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="desktop-v$(node -p "require('./desktop/package.json').version")"
+          fi
+          VERSION="${TAG#desktop-v}"
+          echo "Publishing $TAG"
+
+          cat > release-notes.md <<'NOTES'
+          Pulse for Windows — the same catalog, accounts and messages as the Pulse website.
+
+          **Download and run**
+          1. `Pulse-Setup-VERSION.exe` installs Pulse (desktop and Start Menu shortcuts).
+             `Pulse-Portable-VERSION.exe` runs without installing.
+          2. Windows may warn that the app is unrecognised because the build is unsigned:
+             choose **More info → Run anyway**.
+          3. On first launch, enter the address of your Pulse website (for example
+             `https://pulse-music.onrender.com`) and press **Connect**. The app remembers it.
+
+          Building it yourself: see DESKTOP-BUILD.md in the repository.
+          NOTES
+          sed -i "s/VERSION/$VERSION/g" release-notes.md
+
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse for Windows $VERSION" --notes-file release-notes.md
+          gh release upload "$TAG" desktop/release/*.exe --clobber
+          echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
