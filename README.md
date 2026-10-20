@@ -252,6 +252,10 @@ person saved are left alone), including from saved playlists.
   the messages list, the new-conversation picker, an invite — and an exact tag always comes first.
   `/messages/@name` opens that chat directly, starting one if there is none. Anyone signed in can
   be messaged; blocking and reporting are one tap away.
+- **Message yourself** — a private thread with your own account (the *New message* dialog, or
+  `/messages/@your-tag`). It is one conversation stored on the server, so a link or a note written
+  on the website is waiting in the Android app and the other way round; nobody else can open it.
+  Your own notes follow the same 24-hour clock as any message: reading them starts it.
 - **Notes** — the row of faces above the chat list: a one-day status line with an emoji. It is not
   a message and not addressed to anyone, so it lives 24 hours from posting and is shown only to
   you and the people you already talk to.
@@ -296,11 +300,17 @@ an `EBADENGINE` warning from npm).
 # 1. backend deps
 npm install
 
-# 2. build the client
-cd client && npm install && npm run build && cd ..
-
-# 3. start (serves API + built client on :8080)
+# 2. start (serves API + built client on :8080)
 npm start
+```
+
+Step 2 builds the web app the first time if it hasn't been built on this machine (it runs
+`npm install && npm run build` inside `client/`), so `npm start` on a fresh checkout gives you the
+site rather than a 404. To build it yourself — or to rebuild after changing the client while the
+server keeps running — do it explicitly:
+
+```bash
+cd client && npm install && npm run build && cd ..
 ```
 
 Open http://localhost:8080, create an account and upload a track — the app is blank until you

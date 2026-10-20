@@ -31,7 +31,16 @@ export async function startServer(dataDir, env = {}) {
   const port = await freePort();
   const child = spawn(process.execPath, ['server/index.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), PULSE_DATA_DIR: dataDir, JWT_SECRET: 'test-secret', ...env }
+    // Tests never build the web app: that is a deploy concern, and a real Vite build per test
+    // process would dwarf the suite. A test that cares points PULSE_CLIENT_DIR at its own folder.
+    env: {
+      ...process.env,
+      PORT: String(port),
+      PULSE_DATA_DIR: dataDir,
+      JWT_SECRET: 'test-secret',
+      PULSE_SKIP_CLIENT_BUILD: 'true',
+      ...env
+    }
   });
   let log = '';
   child.stdout.on('data', (chunk) => { log += chunk; });

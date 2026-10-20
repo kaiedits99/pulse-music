@@ -11,6 +11,7 @@ import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
 import { storage, redirectToBucket } from './media.js';
 import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js';
 import { installGracefulShutdown } from './shutdown.js';
+import { ensureClientBuild, isClientBuilt, clientDir, missingBuildPage } from '../scripts/ensure-client-build.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -34,13 +35,26 @@ app.use('/api/chat', chatRoutes);
 // API
 app.use('/api', routes);
 
-// Serve built client if present
-const dist = path.join(root, 'client', 'dist');
-if (fs.existsSync(dist)) {
+// Serve the built web app — the same service that serves the API, so the website and the mobile
+// app read and write exactly the same data. A fresh checkout has no build yet: build it now
+// rather than answering every page with a bare "Cannot GET /". PULSE_SKIP_CLIENT_BUILD turns
+// this off for hosts that build the client themselves, and for the test suite.
+const build = ensureClientBuild();
+const dist = clientDir();
+
+if (isClientBuilt()) {
+  console.log(`[pulse] Serving the web app from ${dist}`);
   app.use(express.static(dist));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
     res.sendFile(path.join(dist, 'index.html'));
+  });
+} else {
+  console.warn(`[pulse] No web app to serve: ${build.reason || 'client/dist/index.html is missing'}. `
+    + 'The API still works; / explains how to build the site.');
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
+    res.status(503).type('html').send(missingBuildPage(build.reason));
   });
 }
 
