@@ -29,7 +29,7 @@ function normaliseSong(song) {
     artist_name: song.artist_name || 'Unknown Artist',
     artist_id: song.artist_id ?? null,
     album_title: song.album_title || '',
-    album_cover: song.album_album || song.album_cover || null,
+    album_cover: song.album_cover || null,
     cover_url: song.cover_url || null,
     genre: song.genre || '',
     duration_seconds: Number.isFinite(song.duration_seconds) ? song.duration_seconds : 0,

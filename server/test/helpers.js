@@ -31,7 +31,17 @@ export async function startServer(dataDir, env = {}) {
   const port = await freePort();
   const child = spawn(process.execPath, ['server/index.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), PULSE_DATA_DIR: dataDir, JWT_SECRET: 'test-secret', ...env }
+    env: {
+      ...process.env,
+      PORT: String(port),
+      PULSE_DATA_DIR: dataDir,
+      JWT_SECRET: 'test-secret',
+      // Tests never build the web app: they exercise the API, and a build here would make every
+      // boot slow and dependent on the network. Tests that are about serving the app point
+      // PULSE_CLIENT_DIR at a throw-away folder instead (see client-serve.test.js).
+      PULSE_SKIP_CLIENT_BUILD: 'true',
+      ...env
+    }
   });
   let log = '';
   child.stdout.on('data', (chunk) => { log += chunk; });

@@ -11,6 +11,7 @@ import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
 import { storage, redirectToBucket } from './media.js';
 import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js';
 import { installGracefulShutdown } from './shutdown.js';
+import { ensureClientBuild, clientDir, isClientBuilt } from '../scripts/ensure-client-build.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -34,13 +35,48 @@ app.use('/api/chat', chatRoutes);
 // API
 app.use('/api', routes);
 
-// Serve built client if present
-const dist = path.join(root, 'client', 'dist');
-if (fs.existsSync(dist)) {
+// Serve the web app. The build (client/dist) is generated, not committed, so it is made here if
+// this machine has never built it — otherwise the server would answer every page with a bare 404
+// and look exactly like the site being down. See scripts/ensure-client-build.mjs.
+const dist = clientDir();
+const build = ensureClientBuild();
+
+if (isClientBuilt()) {
   app.use(express.static(dist));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
     res.sendFile(path.join(dist, 'index.html'));
+  });
+  console.log(`[pulse] Serving the web app from ${path.relative(root, dist)}.`);
+} else {
+  // The API still works; only the pages are missing. Say exactly what to do instead of
+  // "Cannot GET /".
+  console.warn(
+    `[pulse] The web app is NOT built${build.reason ? ` (${build.reason})` : ''}, so pages cannot be served yet. `
+    + 'Build it with: cd client && npm install && npm run build — then restart. Requests to /api and /media work meanwhile.'
+  );
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
+    res.status(503).type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — the web app has not been built yet</title>
+<style>
+  body { margin: 0; background: #08080a; color: #f4f4f5; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 620px; margin: 12vh auto; padding: 0 24px; }
+  h1 { font-size: 26px; margin: 0 0 12px; }
+  p { color: #d4d4d8; }
+  code { background: #1a1a20; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 2px 7px; }
+  pre { background: #141418; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 14px 16px; overflow-x: auto; }
+</style></head>
+<body><main>
+  <h1>The API is running — the web app just hasn’t been built yet.</h1>
+  <p>Pulse serves its React front end from <code>client/dist</code>, which is generated on this machine.
+  Build it once and reload this page:</p>
+  <pre>cd client &amp;&amp; npm install &amp;&amp; npm run build</pre>
+  <p>Or just run <code>npm start</code> from the project root, which builds it automatically the first time.</p>
+  <p>The API is available meanwhile: <a style="color:#a78bfa" href="/api/health">/api/health</a>.</p>
+</main></body></html>`);
   });
 }
 
