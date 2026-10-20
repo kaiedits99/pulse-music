@@ -1,9 +1,9 @@
 {
   "name": "pulse-desktop",
   "productName": "Pulse",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "description": "Pulse for Windows — the same catalog, account and messages as the Pulse website",
+  "description": "Pulse for Windows \u2014 the same catalog, account and messages as the Pulse website",
   "author": "Pulse",
   "license": "UNLICENSED",
   "main": "main.js",
@@ -21,13 +21,34 @@
     "appId": "com.pulse.music.desktop",
     "productName": "Pulse",
     "copyright": "Pulse",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["main.js", "preload.js", "url.js", "setup.html", "offline.html", "config.json", "build/icon.ico"],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "url.js",
+      "setup.html",
+      "offline.html",
+      "config.json",
+      "build/icon.ico"
+    ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -39,6 +60,8 @@
       "shortcutName": "Pulse",
       "artifactName": "Pulse-Setup-${version}.${ext}"
     },
-    "portable": { "artifactName": "Pulse-Portable-${version}.${ext}" }
+    "portable": {
+      "artifactName": "Pulse-Portable-${version}.${ext}"
+    }
   }
 }

@@ -96,14 +96,16 @@ jobs:
           fi
           VERSION="${TAG#desktop-v}"
           VERSION="${VERSION#v}"
-          echo "Publishing $TAG"
+          # electron-builder names the installers after desktop/package.json, which can lag the tag.
+          DESKTOP_VERSION="$(node -p "require('./desktop/package.json').version")"
+          echo "Publishing $TAG (desktop $DESKTOP_VERSION)"
 
           cat > release-notes.md <<'NOTES'
           Pulse for Windows — the same catalog, accounts and messages as the Pulse website.
 
           **Windows**
-          1. `Pulse-Setup-VERSION.exe` installs Pulse (desktop and Start Menu shortcuts).
-             `Pulse-Portable-VERSION.exe` runs without installing.
+          1. `Pulse-Setup-DESKTOP_VERSION.exe` installs Pulse (desktop and Start Menu shortcuts).
+             `Pulse-Portable-DESKTOP_VERSION.exe` runs without installing.
           2. Windows may warn that the app is unrecognised because the build is unsigned:
              choose **More info → Run anyway**.
           3. On first launch, enter the address of your Pulse website (for example
@@ -115,7 +117,7 @@ jobs:
 
           Building it yourself: see DESKTOP-BUILD.md and ANDROID-BUILD.md in the repository.
           NOTES
-          sed -i "s/VERSION/$VERSION/g" release-notes.md
+          sed -i "s/DESKTOP_VERSION/$DESKTOP_VERSION/g; s/VERSION/$VERSION/g" release-notes.md
 
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse $VERSION" --notes-file release-notes.md
