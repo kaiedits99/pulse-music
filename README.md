@@ -14,6 +14,9 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 - **Backend:** Node.js 24 (LTS) + Express
 - **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`, optionally copied
   to a bucket by Litestream so it survives hosts that wipe their disk
+- **Apps:** one server, three doors — the website, an Android app (Capacitor, `ANDROID-BUILD.md`) and a
+  Windows app (Electron, `DESKTOP-BUILD.md`). Both apps are thin shells around the same website, so
+  the catalog, accounts and messages are identical everywhere with no syncing layer.
 - **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
   freezes the server
 - **Uploads:** Multer (audio + cover images), streamed with HTTP Range support. Only
@@ -248,6 +251,11 @@ person saved are left alone), including from saved playlists.
   review; that is the only exception, and the app says so before you confirm. See
   [`docs/chat-retention.md`](docs/chat-retention.md) for exactly what is deleted, when, and what
   cannot be promised.
+- **Pulse for Windows** (`.exe`) — an Electron window onto the same website: installer and portable
+  build from GitHub Actions, first-run **Connect to your Pulse website**, a readable page when the
+  site is unreachable (retry / change website / open in browser), links and Google sign-in handed to
+  the real browser, microphone permission for voice notes, and downloads through the normal save
+  dialog. See [`DESKTOP-BUILD.md`](DESKTOP-BUILD.md).
 - **Artist tags** — every account has one (`@name`, set in Settings). Search `@name` anywhere —
   the messages list, the new-conversation picker, an invite — and an exact tag always comes first.
   `/messages/@name` opens that chat directly, starting one if there is none. Anyone signed in can

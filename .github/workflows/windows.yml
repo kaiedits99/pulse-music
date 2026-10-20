@@ -1,0 +1,74 @@
+name: Build Windows app
+
+# Produces Pulse for Windows: an installer (.exe) and a portable .exe that runs without installing.
+# The app is the same Pulse as the website — same catalog, accounts and messages — so the one build
+# input that matters is the website address it opens.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows .exe
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # The address the app opens on first launch. Set it once under
+      # Settings → Secrets and variables → Actions → Variables as PULSE_APP_URL
+      # (VITE_API_URL is accepted too, so one variable configures both apps).
+      # Without it, the app asks for the address the first time it runs.
+      - name: Bake in the website address
+        shell: bash
+        env:
+          WEBSITE: ${{ vars.PULSE_APP_URL || vars.VITE_API_URL }}
+        run: |
+          if [ -n "$WEBSITE" ]; then
+            node -e "const fs=require('fs');fs.writeFileSync('desktop/config.json', JSON.stringify({url: process.argv[1]}, null, 2))" "$WEBSITE"
+            echo "Building with website: $WEBSITE"
+          else
+            echo "No PULSE_APP_URL/VITE_API_URL variable set — the app will ask for the address on first launch."
+          fi
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Test the address handling
+        working-directory: desktop
+        run: npm test
+
+      # Unsigned is expected here: signing needs a paid certificate. Windows SmartScreen will warn
+      # the first time the .exe runs ("More info → Run anyway").
+      - name: Build the installer and portable app
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist
+
+      - name: List what was built
+        working-directory: desktop
+        shell: bash
+        run: ls -lh release/*.exe
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v7
+        with:
+          name: pulse-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
