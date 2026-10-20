@@ -22,6 +22,8 @@ export const chatApi = {
   // Address people by id or by artist tag; the tag is what someone can read off a profile.
   openDm: (userId) => api.post('/api/chat/conversations', { user_id: userId }),
   openDmByHandle: (handle) => api.post('/api/chat/conversations', { handle }),
+  // "Message yourself": one private thread per account, shared by every device and platform.
+  openSelf: () => api.post('/api/chat/conversations', { self: true }),
   person: (handle) => api.get(`/api/chat/people/${encodeURIComponent(String(handle).replace(/^@+/, ''))}`),
   people: (q = '') => api.get(`/api/chat/people?q=${encodeURIComponent(q)}`),
   unread: () => api.get('/api/chat/unread'),

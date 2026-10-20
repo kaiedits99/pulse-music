@@ -30,7 +30,9 @@ export default function ChatDetails({
   const peer = conversation.kind === 'dm' ? conversation.others?.[0] : null;
   const channel = conversation.kind === 'channel';
   const party = conversation.kind === 'party';
-  const title = conversation.kind === 'dm' ? (peer?.name || 'Conversation') : (conversation.title || 'Group');
+  const self = conversation.kind === 'self';
+  const title = self ? 'Message yourself'
+    : conversation.kind === 'dm' ? (peer?.name || 'Conversation') : (conversation.title || 'Group');
   const handle = peer?.username ? `@${peer.username}` : null;
   const members = conversation.members || [];
   const room = conversation.room || null;
@@ -54,6 +56,7 @@ export default function ChatDetails({
         {handle && <span className="muted">@{peer.username}</span>}
         <p className="cd-note">
           {conversation.kind === 'dm' && 'Messages here delete themselves 24 hours after they are read.'}
+          {self && 'Your own thread: notes written here appear on the website and in the app, and delete 24 hours after you read them.'}
           {party && `A party of ${members.length}. Messages delete themselves 24 hours after everyone has read them.`}
           {channel && 'A channel: the owner posts, everyone else reads. Posts are deleted after 7 days.'}
         </p>
