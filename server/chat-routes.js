@@ -138,15 +138,23 @@ router.get('/unread', authMiddleware, (req, res) => {
   res.json({ unread: chat.unreadCount(req.user.id) });
 });
 
-// Start (or reopen) a 1:1 chat — by account id, or by artist tag ("@timi").
+// Start (or reopen) a 1:1 chat — by account id, or by artist tag ("@timi"). Asking for your own
+// account opens "message yourself": one private thread that follows you between the website and
+// the app, because it lives on the shared backend rather than on a device.
 router.post('/conversations', authMiddleware, (req, res) => {
+  const wantsSelf = req.body.self === true;
   let otherId = parseInt(req.body.user_id, 10);
   if (!Number.isInteger(otherId) && req.body.handle) {
     const person = chat.profileByHandle(req.body.handle);
     if (!person) return res.status(404).json({ error: 'No one on Pulse has that artist tag' });
     otherId = person.id;
   }
-  if (!Number.isInteger(otherId) || otherId === req.user.id) {
+  if (wantsSelf || otherId === req.user.id) {
+    const id = chat.selfConversation(req.user.id);
+    const row = chat.conversationsFor(req.user.id).find((entry) => entry.id === id);
+    return res.status(201).json(presentConversation(req.user.id, row || { id, kind: 'self', title: null, muted: 0, last_message_at: null }));
+  }
+  if (!Number.isInteger(otherId)) {
     return res.status(400).json({ error: 'Choose someone to message' });
   }
   if (!chat.publicProfile(otherId)) return res.status(404).json({ error: 'That account no longer exists' });

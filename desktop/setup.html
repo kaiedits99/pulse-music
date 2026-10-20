@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connect Pulse</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 28px;
+      background: radial-gradient(1000px 600px at 50% -10%, #201536 0%, #0b0a10 55%, #08080a 100%);
+      color: #eceaf5; font: 15px/1.55 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    main { width: 100%; max-width: 470px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; justify-content: center; }
+    .logo {
+      width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center;
+      background: linear-gradient(135deg, #a855f7, #7c3aed 55%, #6d28d9);
+      box-shadow: 0 10px 30px rgba(124, 58, 237, .35);
+    }
+    .logo svg { display: block; }
+    .brand strong { font-size: 20px; letter-spacing: .2px; }
+    h1 { font-size: 24px; line-height: 1.25; margin: 0 0 8px; text-align: center; }
+    p.lead { margin: 0 0 24px; text-align: center; color: #a9a3bf; }
+    .card {
+      background: rgba(20, 19, 30, .82); border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: 18px; padding: 22px; backdrop-filter: blur(12px);
+    }
+    label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .09em; color: #8f89a8; margin-bottom: 8px; }
+    input {
+      width: 100%; padding: 13px 14px; font: inherit; color: #f2f0fa;
+      background: #0e0d16; border: 1px solid #2a2739; border-radius: 12px; outline: none;
+      -webkit-user-select: text; user-select: text;
+    }
+    input:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139, 92, 246, .18); }
+    input.invalid { border-color: #f0616d; }
+    .hint { font-size: 12.5px; color: #8b85a3; margin: 10px 0 0; }
+    .error {
+      display: none; margin: 14px 0 0; padding: 11px 13px; border-radius: 11px; font-size: 13.5px;
+      background: rgba(240, 97, 109, .12); border: 1px solid rgba(240, 97, 109, .35); color: #ffb9bf;
+    }
+    .error.show { display: block; }
+    .actions { display: flex; gap: 10px; margin-top: 20px; }
+    button {
+      font: inherit; font-weight: 600; cursor: pointer; border-radius: 12px; padding: 12px 18px;
+      border: 1px solid transparent; transition: transform .06s ease, filter .15s ease;
+    }
+    button:active { transform: translateY(1px); }
+    button.primary {
+      flex: 1; color: white; background: linear-gradient(135deg, #a855f7, #7c3aed 60%, #6d28d9);
+      box-shadow: 0 10px 26px rgba(124, 58, 237, .32);
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    button.ghost { background: #17151f; border-color: #2a2739; color: #cfc9e2; }
+    button.ghost:hover { background: #1d1a29; }
+    button:disabled { opacity: .6; cursor: default; }
+    .note {
+      margin: 18px 0 0; font-size: 12.5px; color: #7f7a95; text-align: center;
+    }
+    .note code { background: #17151f; border: 1px solid #2a2739; padding: 1px 6px; border-radius: 6px; }
+    .brandrow { display: flex; align-items: center; gap: 9px; justify-content: center; margin-top: 20px; font-size: 12px; color: #6f6a86; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 512 512" fill="none">
+          <g stroke="#fff" stroke-width="34" stroke-linecap="round">
+            <path d="M131 256h13" /><path d="M186 208v96" /><path d="M254 152v208" />
+            <path d="M322 196v120" /><path d="M390 232v48" />
+          </g>
+        </svg>
+      </div>
+      <strong>Pulse</strong>
+    </div>
+
+    <h1>Connect to your Pulse website</h1>
+    <p class="lead">Same catalog, same account, same messages — this app is a window onto the site you already have.</p>
+
+    <form class="card" id="form" novalidate>
+      <label for="url">Website address</label>
+      <input id="url" name="url" type="text" spellcheck="false" autocomplete="off"
+             placeholder="https://pulse-music.onrender.com" aria-describedby="hint" />
+      <p class="hint" id="hint">Paste the address you use in a browser. Working on this computer? Use
+        <code>http://localhost:8080</code>.</p>
+      <div class="error" id="error" role="alert"></div>
+      <div class="actions">
+        <button class="primary" type="submit" id="connect">Connect</button>
+        <button class="ghost" type="button" id="quit">Quit</button>
+      </div>
+    </form>
+
+    <p class="note">You can change this later from <strong>File → Change Pulse website</strong>.</p>
+    <div class="brandrow" id="version"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById('form');
+    const input = document.getElementById('url');
+    const error = document.getElementById('error');
+    const connect = document.getElementById('connect');
+    const api = window.pulseDesktop;
+
+    const showError = (message) => {
+      error.textContent = message;
+      error.classList.add('show');
+      input.classList.add('invalid');
+    };
+
+    (async () => {
+      try {
+        const state = await api.getState();
+        if (state.url) input.value = state.url;
+        document.getElementById('version').textContent = `Pulse ${state.version} · Windows`;
+      } catch { /* the page still works without it */ }
+      input.focus();
+      input.select();
+    })();
+
+    input.addEventListener('input', () => {
+      error.classList.remove('show');
+      input.classList.remove('invalid');
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const value = input.value.trim();
+      if (!value) return showError('Enter the address of your Pulse website.');
+      connect.disabled = true;
+      connect.textContent = 'Connecting…';
+      try {
+        const result = await api.saveUrl(value);
+        if (!result.ok) {
+          showError(result.error || 'That address could not be used.');
+          connect.disabled = false;
+          connect.textContent = 'Connect';
+          return;
+        }
+        // The main window opens itself; this one closes.
+      } catch (err) {
+        showError('Could not save that address. Try again.');
+        connect.disabled = false;
+        connect.textContent = 'Connect';
+      }
+    });
+
+    document.getElementById('quit').addEventListener('click', () => api.quit());
+  </script>
+</body>
+</html>

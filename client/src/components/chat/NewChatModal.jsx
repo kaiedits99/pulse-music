@@ -70,6 +70,18 @@ export default function NewChatModal({ open, onClose, onPick }) {
     }
   };
 
+  // A thread with yourself: notes that follow you from the website to the app and back.
+  const startSelf = async () => {
+    setBusy('self');
+    try {
+      finish(await chatApi.openSelf());
+    } catch (err) {
+      toast(err.message || 'Could not open your own thread', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const startParty = async () => {
     if (!picked.length) return toast('Add at least one person to the party', 'error');
     setBusy('party');
@@ -176,6 +188,22 @@ export default function NewChatModal({ open, onClose, onPick }) {
 
         {tab !== 'channel' && (
           <div className="new-chat-list">
+            {tab === 'dm' && (
+              // One thread per account: notes to yourself that follow you between the website and
+              // the app, because they live on the shared backend rather than on a device.
+              <button
+                className="new-chat-row new-chat-row--self"
+                onClick={startSelf}
+                disabled={busy === 'self'}
+              >
+                <span className="chat-row-icon chat-row-icon--self"><Icon name="mail" size={18} /></span>
+                <span className="cd-row-meta">
+                  <strong>Message yourself</strong>
+                  <em>Your own thread — on the website and in the app</em>
+                </span>
+                {busy === 'self' ? <Spinner size={16} /> : <Icon name="arrowRight" size={17} />}
+              </button>
+            )}
             {loading && <div className="pad"><Spinner size={18} /></div>}
             {!loading && people.length === 0 && (
               <p className="muted pad">{query ? 'Nobody matches that' : 'No other accounts yet'}</p>

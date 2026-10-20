@@ -121,6 +121,39 @@ test('reading a message starts the 24-hour clock and shows the read receipt', as
   assert.deepEqual(message.read_by, [(await api('GET', '/api/auth/me', as('bode'))).body.user.id]);
 });
 
+test('message yourself: one private thread, the same on every device', async () => {
+  const me = (await api('GET', '/api/auth/me', as('ada'))).body.user;
+  const first = await api('POST', '/api/chat/conversations', { ...as('ada'), json: { self: true } });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(first.body.kind, 'self');
+  assert.equal(first.body.member_count, 1, 'a self thread has exactly one member');
+
+  // Asked for again — by the flag or by your own account id — it is the same thread, not a second one.
+  const again = await api('POST', '/api/chat/conversations', { ...as('ada'), json: { self: true } });
+  const byOwnId = await api('POST', '/api/chat/conversations', { ...as('ada'), json: { user_id: me.id } });
+  assert.equal(again.body.id, first.body.id);
+  assert.equal(byOwnId.body.id, first.body.id);
+
+  const sent = await send('ada', first.body.id, { body: 'note to self' });
+  assert.equal(sent.status, 201);
+  const list = await api('GET', '/api/chat/conversations', as('ada'));
+  assert.ok(list.body.some((row) => row.id === first.body.id && row.kind === 'self'), 'it appears in the inbox');
+
+  // Opening your own thread counts as reading it, so the usual 24-hour clock starts.
+  const read = await api('POST', `/api/chat/conversations/${first.body.id}/read`, { ...as('ada'), json: {} });
+  assert.equal(read.status, 200);
+  const thread = await api('GET', `/api/chat/conversations/${first.body.id}/messages`, as('ada'));
+  const note = thread.body.messages.at(-1);
+  const hours = (new Date(note.expires_at) - new Date(note.created_at)) / (1000 * 60 * 60);
+  assert.ok(Math.abs(hours - 24) < 0.05, `expected 24 hours after reading, got ${hours}`);
+});
+
+test('a self thread is nobody else\'s to read', async () => {
+  const mine = await api('POST', '/api/chat/conversations', { ...as('ada'), json: { self: true } });
+  const stranger = await api('GET', `/api/chat/conversations/${mine.body.id}/messages`, as('bode'));
+  assert.equal(stranger.status, 404, 'another account cannot see your own thread');
+});
+
 test('an expired message disappears from the thread before the cleaner even runs', async () => {
   const { a, b, conversation } = await pair();
   await send(a, conversation, { body: 'here and then gone' });

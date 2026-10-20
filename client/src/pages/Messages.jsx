@@ -139,7 +139,12 @@ export default function Messages() {
         const person = await chatApi.person(handle);
         if (cancelled) return;
         if (person.self) {
-          toast(`That is your artist tag — share @${person.username} so people can find you`);
+          // Your own tag opens your own thread: the place notes to yourself live, on every device.
+          const conversation = await chatApi.openSelf();
+          if (cancelled) return;
+          await loadConversations();
+          setActiveId(conversation.id);
+          toast(`That is your artist tag — this is your own thread`);
         } else {
           const conversation = await chatApi.openDm(person.id);
           if (cancelled) return;
@@ -464,11 +469,15 @@ export default function Messages() {
               )}
 
               {visible.map((row) => {
+                const self = row.kind === 'self';
                 const person = row.kind === 'dm' ? row.others?.[0] : null;
-                const title = row.kind === 'dm' ? (person?.name || 'Conversation') : (row.title || 'Group');
+                const title = self
+                  ? 'Message yourself'
+                  : row.kind === 'dm' ? (person?.name || 'Conversation') : (row.title || 'Group');
                 const preview = row.last_message
                   ? `${row.last_message.mine ? 'You: ' : ''}${previewText(row.last_message)}`
-                  : row.kind === 'channel' ? 'Channel — the owner posts' : 'No messages yet';
+                  : row.kind === 'channel' ? 'Channel — the owner posts'
+                    : self ? 'Notes to yourself — the same thread on every device' : 'No messages yet';
                 return (
                   <button
                     key={row.id}
@@ -479,7 +488,7 @@ export default function Messages() {
                       <Cover src={person?.avatar_url} alt={title} size={48} round className="chat-row-avatar" />
                     ) : (
                       <span className={`chat-row-icon chat-row-icon--${row.kind}`}>
-                        <Icon name={row.kind === 'channel' ? 'broadcast' : 'users'} size={20} />
+                        <Icon name={self ? 'mail' : row.kind === 'channel' ? 'broadcast' : 'users'} size={20} />
                       </span>
                     )}
                     <span className="chat-row-meta">
@@ -524,13 +533,19 @@ export default function Messages() {
                       <Cover src={peer.avatar_url} alt={peer.name || 'Conversation'} size={40} round />
                     ) : (
                       <span className={`chat-row-icon chat-row-icon--${active.kind}`}>
-                        <Icon name={active.kind === 'channel' ? 'broadcast' : 'users'} size={17} />
+                        <Icon
+                          name={active.kind === 'self' ? 'mail' : active.kind === 'channel' ? 'broadcast' : 'users'}
+                          size={17}
+                        />
                       </span>
                     )}
                     <div className="cth-meta">
-                      <strong>{peer?.name || active.title || 'Conversation'}</strong>
+                      <strong>
+                        {active.kind === 'self' ? 'Message yourself' : (peer?.name || active.title || 'Conversation')}
+                      </strong>
                       <span className="muted">
-                        {peer?.username && `@${peer.username}`}
+                        {active.kind === 'self' && `${myTag ? `${myTag} · ` : ''}your own thread · same on every device`}
+                        {active.kind === 'dm' && peer?.username && `@${peer.username}`}
                         {active.kind === 'party' && `${active.member_count || active.members?.length || 0} members · ${active.online ?? room?.online ?? 0} online`}
                         {active.kind === 'channel' && `Channel${active.owner?.username ? ` · @${active.owner.username}` : ''}`}
                         {' · '}
@@ -563,7 +578,9 @@ export default function Messages() {
                       <span>
                         {active.kind === 'channel' && !active.can_post
                           ? 'When the owner posts, it appears here — and is deleted after 7 days.'
-                          : 'Say something — it will be here for a day after it is read.'}
+                          : active.kind === 'self'
+                            ? 'Write yourself a note — it follows you to the website, the app and any other device.'
+                            : 'Say something — it will be here for a day after it is read.'}
                       </span>
                     </div>
                   )}
@@ -588,7 +605,7 @@ export default function Messages() {
                         <MessageBubble
                           message={message}
                           track={message.track_id ? tracks[message.track_id] : null}
-                          showSender={active.kind !== 'dm'}
+                          showSender={active.kind !== 'dm' && active.kind !== 'self'}
                           onPlayTrack={playTrack}
                           onReact={react}
                           onUnsend={unsend}

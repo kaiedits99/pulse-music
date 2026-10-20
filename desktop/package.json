@@ -1,0 +1,44 @@
+{
+  "name": "pulse-desktop",
+  "productName": "Pulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pulse for Windows — the same catalog, account and messages as the Pulse website",
+  "author": "Pulse",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable --x64",
+    "dist:dir": "electron-builder --dir",
+    "test": "node --test url.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.9.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.pulse.music.desktop",
+    "productName": "Pulse",
+    "copyright": "Pulse",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "url.js", "setup.html", "offline.html", "config.json", "build/icon.ico"],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pulse",
+      "artifactName": "Pulse-Setup-${version}.${ext}"
+    },
+    "portable": { "artifactName": "Pulse-Portable-${version}.${ext}" }
+  }
+}

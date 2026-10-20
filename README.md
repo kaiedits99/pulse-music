@@ -14,6 +14,9 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 - **Backend:** Node.js 24 (LTS) + Express
 - **Database:** SQLite (`better-sqlite3`) — persistent storage in `data/pulse.db`, optionally copied
   to a bucket by Litestream so it survives hosts that wipe their disk
+- **Apps:** one server, three doors — the website, an Android app (Capacitor, `ANDROID-BUILD.md`) and a
+  Windows app (Electron, `DESKTOP-BUILD.md`). Both apps are thin shells around the same website, so
+  the catalog, accounts and messages are identical everywhere with no syncing layer.
 - **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
   freezes the server
 - **Uploads:** Multer (audio + cover images), streamed with HTTP Range support. Only
@@ -248,10 +251,19 @@ person saved are left alone), including from saved playlists.
   review; that is the only exception, and the app says so before you confirm. See
   [`docs/chat-retention.md`](docs/chat-retention.md) for exactly what is deleted, when, and what
   cannot be promised.
+- **Pulse for Windows** (`.exe`) — an Electron window onto the same website: installer and portable
+  build from GitHub Actions, first-run **Connect to your Pulse website**, a readable page when the
+  site is unreachable (retry / change website / open in browser), links and Google sign-in handed to
+  the real browser, microphone permission for voice notes, and downloads through the normal save
+  dialog. See [`DESKTOP-BUILD.md`](DESKTOP-BUILD.md).
 - **Artist tags** — every account has one (`@name`, set in Settings). Search `@name` anywhere —
   the messages list, the new-conversation picker, an invite — and an exact tag always comes first.
   `/messages/@name` opens that chat directly, starting one if there is none. Anyone signed in can
   be messaged; blocking and reporting are one tap away.
+- **Message yourself** — a private thread with your own account (the *New message* dialog, or
+  `/messages/@your-tag`). It is one conversation stored on the server, so a link or a note written
+  on the website is waiting in the Android app and the other way round; nobody else can open it.
+  Your own notes follow the same 24-hour clock as any message: reading them starts it.
 - **Notes** — the row of faces above the chat list: a one-day status line with an emoji. It is not
   a message and not addressed to anyone, so it lives 24 hours from posting and is shown only to
   you and the people you already talk to.
@@ -296,11 +308,17 @@ an `EBADENGINE` warning from npm).
 # 1. backend deps
 npm install
 
-# 2. build the client
-cd client && npm install && npm run build && cd ..
-
-# 3. start (serves API + built client on :8080)
+# 2. start (serves API + built client on :8080)
 npm start
+```
+
+Step 2 builds the web app the first time if it hasn't been built on this machine (it runs
+`npm install && npm run build` inside `client/`), so `npm start` on a fresh checkout gives you the
+site rather than a 404. To build it yourself — or to rebuild after changing the client while the
+server keeps running — do it explicitly:
+
+```bash
+cd client && npm install && npm run build && cd ..
 ```
 
 Open http://localhost:8080, create an account and upload a track — the app is blank until you

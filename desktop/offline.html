@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulse — can’t reach the site</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 30px;
+      background: radial-gradient(1000px 620px at 50% -10%, #1d1430 0%, #0b0a10 55%, #08080a 100%);
+      color: #eceaf5; font: 15px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    main { max-width: 520px; text-align: center; }
+    .glyph {
+      width: 64px; height: 64px; margin: 0 auto 22px; border-radius: 19px; display: grid; place-items: center;
+      background: linear-gradient(135deg, #a855f7, #6d28d9); box-shadow: 0 14px 40px rgba(124, 58, 237, .35);
+    }
+    h1 { font-size: 23px; line-height: 1.3; margin: 0 0 10px; }
+    p { margin: 0 0 10px; color: #a9a3bf; }
+    .address {
+      display: inline-block; margin: 6px 0 20px; padding: 8px 12px; border-radius: 10px;
+      background: #14121d; border: 1px solid #262234; color: #d9d4ea; font-size: 13.5px;
+      max-width: 100%; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text;
+    }
+    .why { font-size: 13px; color: #807b96; margin-bottom: 24px; }
+    .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    button {
+      font: inherit; font-weight: 600; cursor: pointer; border-radius: 12px; padding: 12px 18px;
+      border: 1px solid transparent; transition: transform .06s ease, filter .15s ease;
+    }
+    button:active { transform: translateY(1px); }
+    button.primary { color: #fff; background: linear-gradient(135deg, #a855f7, #7c3aed 60%, #6d28d9); box-shadow: 0 10px 26px rgba(124, 58, 237, .3); }
+    button.primary:hover { filter: brightness(1.08); }
+    button.ghost { background: #17151f; border-color: #2a2739; color: #cfc9e2; }
+    button.ghost:hover { background: #1d1a29; }
+    .tips { margin: 26px auto 0; text-align: left; font-size: 13px; color: #857f9b; max-width: 420px; }
+    .tips li { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="glyph" aria-hidden="true">
+      <svg width="34" height="34" viewBox="0 0 512 512" fill="none">
+        <g stroke="#fff" stroke-width="34" stroke-linecap="round">
+          <path d="M131 256h13" /><path d="M186 208v96" /><path d="M254 152v208" />
+          <path d="M322 196v120" /><path d="M390 232v48" />
+        </g>
+      </svg>
+    </div>
+
+    <h1 id="headline">Can’t reach your Pulse website</h1>
+    <p>The app opens the site you connected it to. This is the address it tried:</p>
+    <div class="address" id="address">…</div>
+    <p class="why" id="why"></p>
+
+    <div class="actions">
+      <button class="primary" id="retry">Try again</button>
+      <button class="ghost" id="change">Change website</button>
+      <button class="ghost" id="browser">Open in browser</button>
+    </div>
+
+    <ul class="tips" id="tips">
+      <li>Free hosting sleeps when nobody is using it — the first visit can take a minute.</li>
+      <li>Check your internet connection, then try again.</li>
+      <li>If the address is wrong, use <strong>Change website</strong>.</li>
+    </ul>
+  </main>
+
+  <script>
+    const api = window.pulseDesktop;
+    const params = new URLSearchParams(location.search);
+    const reason = params.get('reason') || 'unreachable';
+    const detail = params.get('detail') || '';
+
+    const COPY = {
+      unconfigured: {
+        headline: 'Connect Pulse to your website',
+        why: 'Pulse needs to know where your site lives before it can show anything.',
+        tips: 'Paste the address you use in a browser, for example https://pulse-music.onrender.com.'
+      },
+      offline: {
+        headline: 'You’re offline',
+        why: 'The app has no internet connection right now.',
+        tips: 'Reconnect to Wi-Fi or mobile data, then press Try again.'
+      },
+      notfound: {
+        headline: 'That address could not be found',
+        why: detail ? `The lookup failed (${detail}).` : 'The domain did not resolve.',
+        tips: 'Check the spelling of the address under File → Change Pulse website.'
+      },
+      crashed: {
+        headline: 'The page stopped unexpectedly',
+        why: 'The window needs to reload — nothing in your account was affected.',
+        tips: 'Press Try again. If it keeps happening, open the site in a browser to check it.'
+      },
+      unreachable: {
+        headline: 'Can’t reach your Pulse website',
+        why: detail ? `The connection failed (${detail}).` : 'The site did not answer.',
+        tips: 'If the site is on a free host, it may be waking up. Give it a moment and try again.'
+      }
+    };
+
+    (async () => {
+      let state = { url: '' };
+      try { state = await api.getState(); } catch { /* ignore */ }
+      const copy = COPY[reason] || COPY.unreachable;
+
+      document.getElementById('headline').textContent = copy.headline;
+      document.getElementById('why').textContent = copy.why;
+      document.getElementById('address').textContent = state.url || 'no website connected yet';
+      const tips = document.getElementById('tips');
+      tips.innerHTML = '';
+      const li = document.createElement('li');
+      li.textContent = copy.tips;
+      tips.appendChild(li);
+
+      document.getElementById('retry').addEventListener('click', () => api.retry());
+      document.getElementById('change').addEventListener('click', () => api.openSetup());
+      document.getElementById('browser').addEventListener('click', () => {
+        if (state.url) api.openExternal(state.url);
+      });
+      if (!state.url) document.getElementById('browser').style.display = 'none';
+    })();
+  </script>
+</body>
+</html>

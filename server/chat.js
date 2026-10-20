@@ -151,6 +151,33 @@ export function createDm(a, b) {
   })();
 }
 
+/**
+ * The "message yourself" thread. It is a conversation with exactly one member, so it belongs to
+ * one account and is the same thread from every device and every platform — a note written on the
+ * website is waiting in the app, and the other way round.
+ */
+export function findSelf(userId) {
+  return db.prepare(`
+    SELECT c.id FROM conversations c
+    JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = ?
+    WHERE c.kind = 'self'
+      AND (SELECT COUNT(*) FROM conversation_members x WHERE x.conversation_id = c.id) = 1
+    LIMIT 1
+  `).get(userId)?.id || null;
+}
+
+/** Open the self thread, creating it the first time. */
+export function selfConversation(userId) {
+  const existing = findSelf(userId);
+  if (existing) return existing;
+  return db.transaction(() => {
+    const info = db.prepare("INSERT INTO conversations (kind, created_by) VALUES ('self', ?)").run(userId);
+    db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)')
+      .run(info.lastInsertRowid, userId);
+    return info.lastInsertRowid;
+  })();
+}
+
 export function createGroup(creatorId, userIds, { kind = 'party', title = null } = {}) {
   const members = [...new Set([creatorId, ...userIds])].filter((id) => Number.isInteger(id) && id > 0);
   return db.transaction(() => {
@@ -419,11 +446,14 @@ export function insertMessage({ conversationId, senderId, kind = 'text', body = 
  * message that every other member has now seen.
  */
 export function markRead(conversationId, userId, upToId = null) {
-  const rows = db.prepare(`
-    SELECT m.id FROM messages m
-    WHERE m.conversation_id = ? AND m.sender_id != ? AND m.deleted_at IS NULL
-      ${upToId ? 'AND m.id <= ?' : ''}
-  `).all(...(upToId ? [conversationId, userId, upToId] : [conversationId, userId]));
+  // In a self thread the sender is also the reader, so opening it is what starts the clock on
+  // your own notes. Everywhere else only other people's messages count as read.
+  const self = kindOf(conversationId) === 'self';
+  const conditions = ['m.conversation_id = ?', 'm.deleted_at IS NULL'];
+  const params = [conversationId];
+  if (!self) { conditions.push('m.sender_id != ?'); params.push(userId); }
+  if (upToId) { conditions.push('m.id <= ?'); params.push(upToId); }
+  const rows = db.prepare(`SELECT m.id FROM messages m WHERE ${conditions.join(' AND ')}`).all(...params);
 
   const seen = db.prepare('INSERT OR IGNORE INTO message_reads (message_id, user_id) VALUES (?, ?)');
   const recipients = db.prepare(
