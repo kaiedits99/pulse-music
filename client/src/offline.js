@@ -8,6 +8,8 @@
 // Playlist downloads also snapshot the playlist + its tracks, so the Downloads
 // page can list and play them fully offline (no API call needed).
 import { resolveLocalAudioUrl } from './localMusic.js';
+import { API_URL } from './config.js';
+import { resolveMediaUrl } from './media-url.js';
 
 const CACHE_NAME = 'pulse-offline-v1';
 const INDEX_KEY = 'pulse_offline_index_v1';
@@ -39,9 +41,16 @@ async function cache() {
   return caches.open(CACHE_NAME);
 }
 
-// Absolute URL the browser uses for a media path ("/media/…" → API host).
+// Absolute URL for a media path ("/media/…" → the API host).
+//
+// This must use the API base, not the page origin: in the Android app the page lives on
+// https://localhost while the catalog and files live on the Pulse server, so resolving against
+// the page origin asked the phone for a file that only exists on the server — the track showed up
+// but would not play, and downloads cached the wrong address. On the website both are the same.
 function mediaHref(path) {
-  return new URL(path, window.location.origin).toString();
+  const resolved = resolveMediaUrl(path, API_URL);
+  if (/^(https?:|blob:|data:)/i.test(resolved)) return resolved;
+  return new URL(resolved, window.location.origin).toString();
 }
 
 export function songAudioUrl(song) {

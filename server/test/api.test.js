@@ -89,6 +89,30 @@ test('the first upload becomes the catalog, and the next user sees it without up
   assert.deepEqual(titles(await api('GET', '/api/songs')), ['Midnight Drive']);
 });
 
+test('an upload streams to another platform (the app origin), with ranges and CORS', async () => {
+  // The Android app serves its page from https://localhost and fetches audio from the server, so
+  // the media route has to be readable cross-origin and support seeking. Playback broke when the
+  // client resolved /media/… against the page origin instead of the API; this pins the server half.
+  const track = (await api('GET', '/api/songs', { token: tokenB })).body.find((s) => s.title === 'Midnight Drive');
+  assert.ok(track?.file_path?.startsWith('/media/uploads/'), 'a listed track tells you where its audio is');
+
+  const APP_ORIGIN = 'https://localhost';
+  const full = await fetch(fresh.url + track.file_path, { headers: { Origin: APP_ORIGIN } });
+  assert.equal(full.status, 200);
+  assert.match(full.headers.get('content-type') || '', /^audio\//);
+  assert.equal(full.headers.get('accept-ranges'), 'bytes', 'the player can seek');
+  assert.equal(full.headers.get('access-control-allow-origin'), '*', 'the app may fetch it');
+  await full.arrayBuffer();
+
+  // Seeking sends a Range request; it must answer 206 with just that slice.
+  const part = await fetch(fresh.url + track.file_path, {
+    headers: { Origin: APP_ORIGIN, Range: 'bytes=0-99' }
+  });
+  assert.equal(part.status, 206);
+  assert.match(part.headers.get('content-range') || '', /^bytes 0-99\//);
+  assert.equal((await part.arrayBuffer()).byteLength, 100);
+});
+
 test('every further upload accumulates, newest first', async () => {
   const second = await upload(tokenB, { title: 'Golden Hour Jam', artist_name: 'Zed Okoro', genre: 'Indie Pop' });
   assert.equal(second.status, 201);

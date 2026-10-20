@@ -104,7 +104,8 @@ export default function Downloads() {
     artist_name: s.artist_name,
     cover_url: s.cover_url,
     duration_seconds: s.duration_seconds,
-    file_path: s.audioUrl ? s.audioUrl.replace(window.location.origin, '') : null,
+    // Keep the absolute URL it was cached under: in the app that host is the server, not this page.
+    file_path: s.audioUrl || null,
     // keep podcast episodes routable (play counts, resume, show links)
     kind: s.kind || 'song',
     offline_only: true,
