@@ -95,6 +95,7 @@ jobs:
             TAG="desktop-v$(node -p "require('./desktop/package.json').version")"
           fi
           VERSION="${TAG#desktop-v}"
+          VERSION="${VERSION#v}"
           echo "Publishing $TAG"
 
           cat > release-notes.md <<'NOTES'
