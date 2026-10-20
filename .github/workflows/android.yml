@@ -4,9 +4,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a GitHub Release with the APK (a permanent download link)'
+        type: boolean
+        default: false
 
+# Building only reads the repository; publishing a Release writes an asset.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -62,3 +68,33 @@ jobs:
           path: client/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      # An Actions artifact needs a GitHub login and expires after 14 days. A Release is a plain
+      # public link: push a v* tag, or run this workflow with "publish_release" ticked. The Windows
+      # workflow attaches its .exe files to the same release, so one link serves every platform.
+      - name: Publish a GitHub Release
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release) || startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="android-v$(date -u +%Y.%m.%d)"
+          fi
+          VERSION="${TAG#android-v}"
+          VERSION="${VERSION#v}"
+          APK="client/android/app/build/outputs/apk/debug/app-debug.apk"
+          ASSET="Pulse-$VERSION-android.apk"
+          cp "$APK" "$ASSET"
+
+          # If the Windows workflow got here first the release already exists — just add the APK.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse $VERSION" \
+              --notes "Install Pulse on your phone with \`$ASSET\` (Android 6.0 or newer). Windows builds are attached to the same release." \
+              || true
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+          echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"

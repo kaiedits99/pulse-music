@@ -31,9 +31,12 @@ The Android app needs to know where your backend lives. There are two ways:
 
 1. Push this project to GitHub. The **Build Android APK** workflow runs automatically on
    pushes and pull requests; you can also start it from **Actions → Build Android APK → Run workflow**.
-2. When the run finishes (about two minutes), open it and download the **`pulse-apk`** artifact
-   from the **Artifacts** section at the bottom of the run page. Unzip it to get `app-debug.apk`.
-   Every push to the repo builds a new one; the artifact is kept for 14 days.
+2. **Easiest — no GitHub login:** open <https://github.com/kaiedits99/pulse-music/releases> and
+   download `Pulse-<version>-android.apk` from the newest release. Releases are published when a
+   `v*` tag is pushed or the workflow is run with **publish_release** ticked, and they never expire.
+   (The **`pulse-apk`** artifact on the run page contains the same `app-debug.apk`; it needs a login
+   and is kept for 14 days.)
+3. Copy the APK to the phone and tap it. Every push to the repo builds a new one.
 3. Copy the APK to your phone and tap it to install (you may need to allow "install unknown
    apps" for your file manager).
 
