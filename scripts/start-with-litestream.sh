@@ -11,6 +11,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 say() { echo "[pulse] $*"; }
+# Never inherit this from the environment: it is set below only when Litestream actually runs, and a
+# stale value would make the app claim the database is safe when it is not.
+unset PULSE_DB_REPLICATED
 is_set() { [ -n "${!1:-}" ]; }
 run_plain() { exec node server/index.js; }
 
@@ -79,4 +82,8 @@ say "Restoring messages from the bucket, if a saved copy exists..."
   || say "WARNING: messages could not be restored; starting with an empty message store."
 
 say "Starting Pulse under Litestream; database changes are copied to bucket \"$S3_BUCKET\"."
+# Tell the app (and /api/health) that the database really is being copied, so it can distinguish
+# "uploads are safe but accounts are not" from "everything is safe". Set only here, immediately before
+# the process that Litestream supervises is started.
+export PULSE_DB_REPLICATED=1
 exec "$LITESTREAM_BIN" replicate -config "$LITESTREAM_CONFIG" -exec "node server/index.js"

@@ -16,6 +16,7 @@ const dataDir = path.join(work, 'data');
 before(() => {
   fs.writeFileSync(fake, `#!/usr/bin/env bash
 echo "$* | db=$PULSE_DB_PATH region=$S3_REGION interval=$PULSE_DB_SYNC_INTERVAL wait=$PULSE_SHUTDOWN_DELAY_SECONDS" >> "${calls}"
+[ -n "\${FAKE_ENV_DUMP:-}" ] && echo "replicated=\${PULSE_DB_REPLICATED:-unset}" >> "$FAKE_ENV_DUMP"
 case "$1" in
   restore)
     case "\${@: -1}" in
@@ -37,7 +38,7 @@ async function run(env, { until } = {}) {
   fs.rmSync(calls, { force: true });
   const port = await freePort();
   const clean = { ...process.env };
-  for (const key of Object.keys(clean)) if (/^(S3_|LITESTREAM_|KEEP_AWAKE|RENDER)/.test(key)) delete clean[key];
+  for (const key of Object.keys(clean)) if (/^(S3_|LITESTREAM_|KEEP_AWAKE|RENDER|PULSE_DB_REPLICATED)/.test(key)) delete clean[key];
   const child = spawn('bash', ['scripts/start-with-litestream.sh'], {
     cwd: root,
     env: { ...clean, PORT: String(port), PULSE_DATA_DIR: dataDir, JWT_SECRET: 'test', ...env }
@@ -69,6 +70,24 @@ test('with a bucket it restores first, then runs the server under Litestream', a
   assert.match(output, /Restoring the database from the bucket/);
   assert.match(output, /Restoring messages from the bucket/);
   assert.match(output, /database changes are copied to bucket "pulse"/);
+});
+
+test('the app is told the database is replicated only when Litestream really runs', async () => {
+  // /api/health reports uploads and the database separately, so this flag is what stops a healthy
+  // bucket from hiding an unprotected database.
+  const dump = path.join(work, 'env.txt');
+  fs.rmSync(dump, { force: true });
+  await run({ ...BUCKET, LITESTREAM_BIN: fake, FAKE_ENV_DUMP: dump });
+  assert.match(fs.readFileSync(dump, 'utf8'), /replicated=1/);
+
+  // Without a bucket the script runs the server directly: no replication. A stale flag in the
+  // environment must not make the server claim otherwise — it reports both halves honestly.
+  const plain = await run(
+    { LITESTREAM_BIN: fake, PULSE_DB_REPLICATED: '1' },
+    { until: /Database: / }
+  );
+  assert.match(plain.output, /Uploads:\s+Uploaded audio and artwork sit on a temporary disk/);
+  assert.match(plain.output, /Database:\s+Accounts, songs, playlists and messages are on a temporary disk/);
 });
 
 test('a custom region is passed through; the default suits R2', async () => {

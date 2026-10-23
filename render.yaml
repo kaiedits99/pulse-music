@@ -9,6 +9,11 @@ services:
     # Restores the database from the bucket if this machine doesn't have one, then runs the server
     # under Litestream, which keeps copying changes back. With no bucket settings it simply starts
     # the server, exactly like `npm start`. See DEPLOY.md.
+    #
+    # DO NOT change this to `npm start`. That starts the server without Litestream: uploads still reach
+    # the bucket (so /api/health says "bucket"), but the database stays on this instance's temporary
+    # disk and every deploy erases accounts, songs and messages. The app reports that state as
+    # data.database.durable = false and warns in its logs and to the admin. RENDER-GUIDE.md explains it.
     startCommand: "npm run start:render"
     # Render pings this before routing traffic, so a deploy only goes live once the
     # process is actually serving. It intentionally does no DB work, so boot-time
