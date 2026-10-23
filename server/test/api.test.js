@@ -225,12 +225,18 @@ test('saving for offline listening counts, but the bare audio file is only for i
   assert.ok(owner.body.length > 44, 'the audio comes back, not an error page');
 });
 
-test('the health check states whether this machine keeps its data', async () => {
+test('the health check separates "uploads are kept" from "the database is kept"', async () => {
   const res = await api('GET', '/api/health');
   assert.equal(res.status, 200);
-  // Tests run on a temporary folder with no bucket, so the honest answer is "no".
-  assert.equal(res.body.data.persistent, false);
   assert.equal(res.body.storage, 'local');
+  // Tests run on a temporary folder with no bucket and no Litestream, so both halves are honest "no"s.
+  assert.equal(res.body.data.persistent, false);
+  assert.equal(res.body.data.uploads.durable, false);
+  assert.equal(res.body.data.database.durable, false);
+  assert.deepEqual(
+    res.body.data.issues.map((i) => i.code),
+    ['uploads-on-temporary-disk', 'database-on-temporary-disk']
+  );
   assert.match(res.body.data.message, /temporary disk/i);
 });
 

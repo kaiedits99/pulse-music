@@ -8,36 +8,46 @@ that stays running. Here are your realistic options, easiest first.
 
 ## Why accounts and songs disappear after an update
 
-If everyone has to sign up again after a deploy and the catalog is empty, the app is fine — the
-**host threw the files away**. Pulse keeps its database and uploads in one folder on the machine it
-runs on, and on a host with a *temporary* disk (Render's free plan, for example) that folder is
-recreated empty on every deploy, restart or sleep.
+If everyone has to sign up again after a deploy, the app is fine — the **host threw the database
+away**. Pulse keeps two things, and they are kept by different mechanisms:
 
-You can confirm it in one request:
+| Kept thing | Mechanism | Survives a deploy when… |
+|------------|-----------|--------------------------|
+| Uploaded audio, covers | copied to the object-storage bucket on upload | a bucket is configured |
+| Accounts, songs, playlists, messages | copied to the same bucket by **Litestream** | the service starts with `npm run start:render` |
+
+Which is why a deployment can report `"storage": "bucket"` — uploads perfectly safe — and still erase
+every account on every deploy: the start command was `npm start`, so Litestream never ran.
+
+Ask the server, it answers both halves:
 
 ```
 https://your-site.onrender.com/api/health
 ```
 
 ```json
-{ "status": "ok", "storage": "local", "data": { "persistent": false, "keeps": "temporary", "message": "…" } }
+{ "storage": "bucket",
+  "data": { "persistent": false,
+            "uploads":  { "durable": true,  "where": "bucket" },
+            "database": { "durable": false, "where": "temporary", "replicated": false },
+            "issues": [ { "code": "database-not-replicated" } ] } }
 ```
 
-`"persistent": false` means the next deploy erases everything. The app also shows this to the admin
-account as a red banner, and the server logs it at startup, so it cannot pass unnoticed again.
+`"persistent": false` means the next deploy erases accounts and songs. The same verdict appears in the
+startup log and as an admin-only banner in the app, and it is available offline with:
 
-**The fix is storage, and it is a one-time setup** — either:
+```bash
+npm run doctor
+```
 
-| Choice | What to do | Cost |
-|--------|-----------|------|
-| **Bucket (recommended)** | Create a free Cloudflare R2 bucket and set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` — step 1 below. Uploads move there, and the database is copied there by Litestream and restored on boot. | free tier is enough |
-| **A real disk** | Move to a paid Render instance, attach a disk at `/opt/render/project/src/data`, and set `PULSE_PERSISTENT_DISK=true` so the app knows the data is safe. | paid plan |
+**On Render, follow [RENDER-GUIDE.md](RENDER-GUIDE.md)** — it walks through the bucket, the start
+command, and the five-minute test that proves the fix. On any other host, either configure all four
+`S3_*` settings (uploads + Litestream database copies) or use a real disk and set
+`PULSE_PERSISTENT_DISK=true` so the app stops warning.
 
-Nothing in the code changes; Pulse already supports both. Until one is in place, treat the site as a
-demo: every deploy starts from nothing.
-
-If data has already been lost, it cannot be recovered from the host — but anyone can sign up again
-with the same details, and uploads can be re-added. Setting this up now prevents the next loss.
+Until one of those is in place, treat the site as a demo: every deploy starts from nothing. Data
+already lost cannot be recovered from the host; people can sign up again with the same details, and
+uploads can be re-added.
 
 ---
 

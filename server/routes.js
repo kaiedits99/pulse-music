@@ -177,6 +177,8 @@ function resolveUploadArtist(req, body) {
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
+    // Where *uploads* go. Kept as a short word for existing checks; `data` below is the complete
+    // answer, because the database is kept by a different mechanism and can fail on its own.
     storage: storage.remote ? 'bucket' : 'local',
     // Can this instance lose its data? A host with a temporary disk (Render's free plan) wipes the
     // database and uploads on every deploy or restart unless they live in a bucket or on a mounted

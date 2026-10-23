@@ -96,6 +96,11 @@ try {
 console.log(`[pulse] Uploads are kept on ${storage.describe()}.`);
 {
   const safety = dataSafety({ remote: storage.remote });
+  // Two lines, always: where the files are, where the database is. They are kept by different
+  // mechanisms, and reporting only the first is what made a wiped database look like a healthy
+  // deployment.
+  console.log(`[pulse] Uploads:  ${safety.uploads.message}`);
+  console.log(`[pulse] Database: ${safety.database.message}`);
   const line = describeDataSafety(safety);
   if (safety.persistent) console.log(line); else console.warn(line);
 }

@@ -1314,6 +1314,15 @@
 .ds-copy strong { font-size: 13.5px; }
 .ds-copy span { font-size: 12.5px; color: var(--text-dim); }
 .ds-fine { font-size: 12px !important; opacity: 0.85; }
+/* The two halves of the answer, side by side: "files kept" and "database kept" are different facts. */
+.ds-halves { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 4px 0 2px; }
+.ds-half { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ds-half strong { font-size: 12px; }
+.ds-half span { font-size: 12px; }
+.ds-half-ok { color: #4ade80; }
+.ds-half-ok span { color: var(--text-dim); }
+.ds-half-bad { color: #f87171; }
+.ds-half-bad span { color: var(--text-dim); }
 
 @media (max-width: 560px) {
   .data-safety { gap: 10px; padding: 12px; }

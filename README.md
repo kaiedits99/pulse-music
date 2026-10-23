@@ -171,9 +171,20 @@ uptime monitor on the same address does the same job, and also wakes the app aft
 hashing runs on a worker thread, so a sign-in doesn't hold up everyone else's requests.
 
 `npm run storage:check` tries your bucket settings for real (write, signed read, delete, CORS, and
-Litestream's own connection) and explains anything that is wrong. Once the app is deployed,
-`npm run health -- https://your-app.onrender.com` asks it how it is doing — whether it is awake and
-whether uploads really are on the bucket — waiting out the cold start of a sleeping free instance.
+Litestream's own connection) and explains anything that is wrong. `npm run doctor` answers the
+question that matters before a deploy — *will this deployment keep its accounts and songs?* — by
+checking the bucket, Litestream and the disk declaration separately, and exits non-zero when data is at
+risk. Once the app is deployed, `npm run health -- https://your-app.onrender.com` asks it how it is
+doing, waiting out the cold start of a sleeping free instance.
+
+Deploying on Render? **[RENDER-GUIDE.md](RENDER-GUIDE.md)** is the end-to-end version: bucket, start
+command, the five-minute test that proves deploys no longer erase anything, and a troubleshooting
+table.
+
+Two halves, two mechanisms: uploads go to the bucket as they arrive, while accounts and songs only
+survive if **Litestream** copies the database there — which is what `npm run start:render` starts. A
+service running `npm start` keeps the bucket and loses the database, so `/api/health` reports
+`data.uploads` and `data.database` separately rather than one reassuring word.
 
 ### Configuration
 

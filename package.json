@@ -10,7 +10,8 @@
     "storage:check": "node scripts/storage-check.mjs",
     "health": "node scripts/health-check.mjs",
     "dev": "node server/index.js",
-    "test": "node --test server/test/*.test.js client/src/*.test.js desktop/url.test.cjs"
+    "test": "node --test server/test/*.test.js client/src/*.test.js desktop/url.test.cjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1145.0",
