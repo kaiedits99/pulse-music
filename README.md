@@ -217,7 +217,7 @@ person saved are left alone), including from saved playlists.
   control — playback carries on and a compact pill in the corner (track, play/pause, restore)
   brings it back — which is handy on a phone, where it overlaps the bottom navigation
 - **Full CRUD** for the core resources:
-  - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, download, favorite
+  - **Songs** — upload (drag & drop, bulk import), edit, delete, stream, save for offline, favorite
   - **Linked tracks** — paste a YouTube link (Upload page → *Link a YouTube track*, or the
     track dialog) and Pulse stores only the video id: the track plays through YouTube's own
     embeddable player, with title, channel and artwork filled in from YouTube's public oEmbed
@@ -230,13 +230,15 @@ person saved are left alone), including from saved playlists.
   - **Playlists** — every signed-in user can create/edit/delete their own lists (creator- or
     admin-only mutations, viewing is shared), with a Spotify-style "Add to this playlist?"
     dialog that shows check states and creates new playlists inline
-- **Offline downloads** — "Download" toggle on any playlist and "Save to offline" on any track
-  (⋮ menu, Now Playing sheet): audio + covers are cached (Cache Storage) and the playlist's
-  track list is snapshotted, so the **Downloads** page (`/downloads`) opens, lists, and plays
-  everything with no network — like Spotify/YouTube offline. Downloaded tracks prefer the local
-  copy even online (instant, zero-bandwidth playback). A service worker also caches the app
-  shell. "Download" (file) on a row still saves the actual file to the device — in the Android
-  app that lands in the phone's downloads via the system browser.
+- **Offline library** — "Save in Pulse" on any track (row button, ⋮ menu, Now Playing sheet) and
+  "Save offline" on a playlist: audio + covers are cached (Cache Storage) and the playlist's track
+  list is snapshotted, so the **Downloads** page (`/downloads`) opens, lists, and plays everything
+  with no network — like Spotify/YouTube offline. Saved tracks prefer the local copy even online
+  (instant, zero-bandwidth playback), and the player keeps that local copy when it resolves playback
+  (a saved track must never be swapped back to its network URL — that was a bug). A service worker
+  also caches the app shell. Nothing is written to the device as a loose mp3: saving keeps the audio
+  inside Pulse, and exporting the original file (`GET /api/songs/:id/download`) is limited to the
+  artist who uploaded it and admins.
 - **Offline Player** (`/offline-player`) — automatically opens when the browser goes offline and
   returns to the previous page when connectivity comes back. Its single queue combines Pulse
   downloads with audio files the user explicitly imports from a folder or file picker. Imported

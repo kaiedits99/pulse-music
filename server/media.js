@@ -98,12 +98,28 @@ export async function redirectToBucket(req, res, next) {
 export async function sendDownload(res, next, mediaPath, downloadName) {
   const name = mediaName(mediaPath);
   if (!name) return res.status(404).json({ error: 'No audio available' });
-  try {
-    const local = path.join(uploadsDir, name);
-    if (fs.existsSync(local)) return res.download(local, downloadName);
-    if (!storage.remote) return res.status(404).json({ error: 'No audio available' });
+
+  const toBucket = async () => {
+    if (!storage.remote || res.headersSent) return next();
     const url = await storage.urlFor(name, { downloadAs: downloadName });
     return res.status(302).set('Location', url).end();
+  };
+
+  try {
+    const local = path.join(uploadsDir, name);
+    if (fs.existsSync(local)) {
+      // With a bucket, the file on disk is only the staging copy of a fresh upload and is deleted
+      // moments after the upload is copied across. Between the check above and the read it can
+      // disappear, which used to surface as a 404 for a perfectly good track — so fall back to the
+      // bucket instead of failing.
+      return res.download(local, downloadName, (err) => {
+        if (!err) return undefined;
+        if (storage.remote && !res.headersSent) return toBucket().catch(next);
+        return next(err);
+      });
+    }
+    if (!storage.remote) return res.status(404).json({ error: 'No audio available' });
+    return await toBucket();
   } catch (err) {
     return next(err);
   }

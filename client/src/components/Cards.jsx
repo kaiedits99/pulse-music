@@ -107,7 +107,7 @@ export function PlaylistCard({ playlist, onPlay, onDelete, downloaded }) {
       title={playlist.name}
       subtitle={playlist.creator_name ? `By ${playlist.creator_name} • ${plural(playlist.track_count, 'song')}` : plural(playlist.track_count, 'song')}
       meta={downloaded
-        ? { icon: 'download', text: 'Downloaded', tone: 'green' }
+        ? { icon: 'download', text: 'Saved offline', tone: 'green' }
         : { icon: 'clock', text: playlist.created_at ? timeAgo(playlist.created_at) : 'Playlist' }}
       onPlay={onPlay ? () => onPlay(playlist) : undefined}
       playLabel={`Play ${playlist.name}`}

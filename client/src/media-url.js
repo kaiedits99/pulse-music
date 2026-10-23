@@ -43,3 +43,18 @@ export function mediaUrlCandidates(path, apiBase = '', pageOrigin = '') {
   }
   return candidates;
 }
+
+/**
+ * The URLs the player should actually assign to <audio>, given what `resolvePlayableUrl` returned.
+ *
+ * This exists because of a bug that hid in plain sight: a saved track resolves to a `blob:` URL that
+ * holds the audio on the device, but the player then replaced it with the track's *network* address.
+ * Streamed playback worked (the network URL was correct), so only saved-for-offline copies refused
+ * to play — and only while there was no connection to fall back on. A local copy is a single
+ * candidate and must never be swapped for a remote one.
+ */
+export function playbackCandidates(url, apiBase = '', pageOrigin = '') {
+  if (!url) return [];
+  if (/^(blob|data):/i.test(String(url))) return [String(url)];
+  return mediaUrlCandidates(url, apiBase, pageOrigin);
+}

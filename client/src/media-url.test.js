@@ -76,3 +76,42 @@ test('inside the Android app a track resolves to the server, not to localhost', 
   const { mediaUrl } = await import(`./config.js?app=${Date.now()}`);
   assert.equal(mediaUrl('/media/uploads/cover.png'), `${SERVER}/media/uploads/cover.png`);
 });
+
+/**
+ * Saved-for-offline playback. `resolvePlayableUrl` hands back a blob: URL holding the audio on the
+ * device; the player must use exactly that. It used to rebuild the track's network address instead,
+ * which is why a downloaded song worked only while the server was reachable.
+ */
+test('a saved copy plays from the device, never from the network', async () => {
+  const { playbackCandidates } = await import(`./media-url.js?offline=${Date.now()}`);
+  const blob = 'blob:https://localhost/8f1c-42b0';
+
+  assert.deepEqual(playbackCandidates(blob, SERVER, APP_ORIGIN), [blob], 'a blob is the only candidate');
+  assert.deepEqual(playbackCandidates('data:audio/wav;base64,AA', SERVER), ['data:audio/wav;base64,AA']);
+
+  // A stream still gets the API host first, then the page origin as the fallback.
+  assert.deepEqual(playbackCandidates('/media/uploads/a.mp3', SERVER, APP_ORIGIN), [`${SERVER}/media/uploads/a.mp3`]);
+  assert.deepEqual(
+    playbackCandidates('/media/uploads/a.mp3', '', APP_ORIGIN),
+    ['/media/uploads/a.mp3', `${APP_ORIGIN}/media/uploads/a.mp3`]
+  );
+  assert.deepEqual(playbackCandidates('', SERVER), []);
+});
+
+test('a saved entry remembers the address it was stored under', async () => {
+  // Downloads are indexed with `audioUrl`; playback reads file_path/source_url. Without the
+  // fallback the saved song had no URL at all, so it failed before anything could be played.
+  const store = new Map([['pulse_api_url', SERVER]]);
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key)
+  };
+  globalThis.window = { location: { origin: APP_ORIGIN }, dispatchEvent: () => true };
+
+  const { songAudioUrl } = await import(`./offline.js?saved=${Date.now()}`);
+  const saved = { id: 7, title: 'Saved', audioUrl: `${SERVER}/media/uploads/song.mp3` };
+  assert.equal(songAudioUrl(saved), `${SERVER}/media/uploads/song.mp3`);
+  // A linked track has no file to save.
+  assert.equal(songAudioUrl({ id: 8, provider: 'youtube', external_id: 'abc' }), null);
+});

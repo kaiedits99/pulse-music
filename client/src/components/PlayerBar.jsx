@@ -123,7 +123,7 @@ export default function PlayerBar() {
       toast('Removed from Downloads', 'info');
       return;
     }
-    if (!hasPlayableAudio(current)) { toast('This track has no audio file to download yet', 'error'); return; }
+    if (!hasPlayableAudio(current)) { toast('This track has no audio to save yet', 'error'); return; }
     const res = await saveOffline(current);
     if (res === 'failed') toast('Download failed — check your connection', 'error');
     else toast(`Saved “${current.title}” for offline`);
@@ -401,8 +401,8 @@ export default function PlayerBar() {
             <button
               className={`pl-mini-btn ${downloaded ? 'on-green' : ''}`}
               onClick={toggleOffline}
-              title={downloaded ? 'Remove download' : 'Download for offline'}
-              aria-label={downloaded ? 'Remove download' : 'Download for offline'}
+              title={downloaded ? 'Remove from offline music' : 'Save in Pulse — plays offline'}
+              aria-label={downloaded ? 'Remove from offline music' : 'Save in Pulse — plays offline'}
             >
               <Icon name={downloaded ? 'checkCircle' : 'download'} size={18} />
             </button>

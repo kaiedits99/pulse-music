@@ -1,7 +1,7 @@
 {
   "name": "pulse-desktop",
   "productName": "Pulse",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Pulse for Windows \u2014 the same catalog, account and messages as the Pulse website",
   "author": "Pulse",

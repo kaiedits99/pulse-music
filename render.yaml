@@ -69,3 +69,7 @@ services:
     #   name: pulse-data
     #   mountPath: /opt/render/project/src/data
     #   sizeGB: 1
+    #
+    # When you attach that disk, also add `PULSE_PERSISTENT_DISK: "true"` to envVars below. The app
+    # then reports the data as safe instead of warning (on the free plan, without a bucket or a disk,
+    # every deploy wipes accounts and songs — /api/health shows data.persistent: false).

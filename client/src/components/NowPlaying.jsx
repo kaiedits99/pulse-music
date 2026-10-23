@@ -67,10 +67,10 @@ export default function NowPlaying({ open, onClose }) {
   const downloaded = isSongDownloaded(current.id);
 
   const toggleOffline = async () => {
-    if (downloaded) { await removeOffline(current.id); toast('Removed from Downloads', 'info'); return; }
-    if (!hasPlayableAudio(current)) { toast('This track has no audio file to download yet', 'error'); return; }
+    if (downloaded) { await removeOffline(current.id); toast('Removed from your offline music', 'info'); return; }
+    if (!hasPlayableAudio(current)) { toast('This track has no audio to save yet', 'error'); return; }
     const res = await saveOffline(current);
-    toast(res === 'failed' ? 'Download failed' : `Saved “${current.title}” for offline`, res === 'failed' ? 'error' : 'success');
+    toast(res === 'failed' ? 'Could not save this track' : `Saved “${current.title}” to Pulse — it plays offline`, res === 'failed' ? 'error' : 'success');
   };
 
   return (
@@ -208,7 +208,7 @@ export default function NowPlaying({ open, onClose }) {
               ) : (
                 <button className={`btn btn-sm ${downloaded ? 'btn-downloaded' : 'btn-ghost'}`} onClick={toggleOffline}>
                   <Icon name={downloaded ? 'checkCircle' : 'download'} size={16} />
-                  {downloaded ? 'Downloaded' : 'Download'}
+                  {downloaded ? 'Saved offline' : 'Save offline'}
                 </button>
               )}
             </>

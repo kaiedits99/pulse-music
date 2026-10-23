@@ -195,6 +195,45 @@ test('only uploaded media is served — the database is not downloadable', async
   }
 });
 
+test('saving for offline listening counts, but the bare audio file is only for its owner', async () => {
+  // "Download" used to mean "hand me the mp3". That is now a separate, owner-only route; everyone
+  // else saves the track inside Pulse, which is what the app does and what the counter records.
+  const track = (await api('GET', '/api/songs', { token: tokenB })).body.find((s) => s.title === 'Midnight Drive');
+  assert.ok(track, 'the uploaded track is in the catalogue');
+  const before = track.downloads || 0;
+
+  const saved = await api('POST', `/api/songs/${track.id}/saved`, { token: tokenC });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.downloads, before + 1);
+
+  // A visitor saving the same track: allowed (no account needed to listen), still counted.
+  const again = await api('POST', `/api/songs/${track.id}/saved`);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.downloads, before + 2);
+
+  // Someone else's track cannot be exported as a file…
+  const stranger = await api('GET', `/api/songs/${track.id}/download`, { token: tokenC });
+  assert.equal(stranger.status, 403);
+  assert.equal(stranger.body.code, 'save_to_pulse');
+  assert.match(stranger.body.error, /Save it to Pulse/i);
+
+  // …while the artist who uploaded it still can (they already own that file).
+  const owner = await api('GET', `/api/songs/${track.id}/download`, { token: tokenA });
+  assert.equal(owner.status, 200);
+  assert.match(String(owner.headers.get('content-disposition')), /^attachment/, 'it leaves as a file');
+  assert.match(String(owner.headers.get('content-type')), /^audio\//);
+  assert.ok(owner.body.length > 44, 'the audio comes back, not an error page');
+});
+
+test('the health check states whether this machine keeps its data', async () => {
+  const res = await api('GET', '/api/health');
+  assert.equal(res.status, 200);
+  // Tests run on a temporary folder with no bucket, so the honest answer is "no".
+  assert.equal(res.body.data.persistent, false);
+  assert.equal(res.body.storage, 'local');
+  assert.match(res.body.data.message, /temporary disk/i);
+});
+
 test('liking a track is per user, idempotent, and limited to tracks the caller may see', async () => {
   const owner = await register('Fav Owner', 'fav_owner');
   const fan = await register('Fav Fan', 'fav_fan');
