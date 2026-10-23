@@ -6,6 +6,41 @@ that stays running. Here are your realistic options, easiest first.
 
 ---
 
+## Why accounts and songs disappear after an update
+
+If everyone has to sign up again after a deploy and the catalog is empty, the app is fine — the
+**host threw the files away**. Pulse keeps its database and uploads in one folder on the machine it
+runs on, and on a host with a *temporary* disk (Render's free plan, for example) that folder is
+recreated empty on every deploy, restart or sleep.
+
+You can confirm it in one request:
+
+```
+https://your-site.onrender.com/api/health
+```
+
+```json
+{ "status": "ok", "storage": "local", "data": { "persistent": false, "keeps": "temporary", "message": "…" } }
+```
+
+`"persistent": false` means the next deploy erases everything. The app also shows this to the admin
+account as a red banner, and the server logs it at startup, so it cannot pass unnoticed again.
+
+**The fix is storage, and it is a one-time setup** — either:
+
+| Choice | What to do | Cost |
+|--------|-----------|------|
+| **Bucket (recommended)** | Create a free Cloudflare R2 bucket and set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` — step 1 below. Uploads move there, and the database is copied there by Litestream and restored on boot. | free tier is enough |
+| **A real disk** | Move to a paid Render instance, attach a disk at `/opt/render/project/src/data`, and set `PULSE_PERSISTENT_DISK=true` so the app knows the data is safe. | paid plan |
+
+Nothing in the code changes; Pulse already supports both. Until one is in place, treat the site as a
+demo: every deploy starts from nothing.
+
+If data has already been lost, it cannot be recovered from the host — but anyone can sign up again
+with the same details, and uploads can be re-added. Setting this up now prevents the next loss.
+
+---
+
 ## Option 1 — Render free plan + Cloudflare R2 (a small community, no monthly bill)
 
 Render's free web service runs the whole app (frontend + API) with zero code changes, but its

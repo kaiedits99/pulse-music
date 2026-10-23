@@ -98,9 +98,17 @@ test('listeners are sent to a signed bucket link, and playback (including seekin
   assert.equal(head.headers.get('content-length'), String(wavBytes().length));
 });
 
-test('the download button gets a "save as" link, and the play count still moves', async () => {
+test('the artist can export their own file through the bucket, and saving still counts', async () => {
   const before = (await api('GET', `/api/songs/${song.id}`)).body.downloads || 0;
-  const res = await fetch(`${server.url}/api/songs/${song.id}/download`, { redirect: 'manual' });
+  // Exporting the bare file is for the track's owner (and admins); everyone else saves in Pulse.
+  const stranger = await fetch(`${server.url}/api/songs/${song.id}/download`, { redirect: 'manual' });
+  assert.equal(stranger.status, 403);
+  assert.equal((await stranger.json()).code, 'save_to_pulse');
+
+  const res = await fetch(`${server.url}/api/songs/${song.id}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: 'manual'
+  });
   assert.equal(res.status, 302);
   const location = new URL(res.headers.get('location'));
   assert.ok(location.searchParams.has('X-Amz-Signature'));
@@ -157,7 +165,10 @@ test('deleting a track removes its audio and cover from the bucket', async () =>
   const res = await api('DELETE', `/api/songs/${song.id}`, { token });
   assert.equal(res.status, 200);
   await waitFor(() => keys().length === 0, { what: 'the track\'s files to be deleted from the bucket' });
-  assert.equal((await fetch(`${server.url}/api/songs/${song.id}/download`, { redirect: 'manual' })).status, 404);
+  // The track is gone, so even its owner gets nothing back.
+  assert.equal((await fetch(`${server.url}/api/songs/${song.id}/download`, {
+    headers: { Authorization: `Bearer ${token}` }, redirect: 'manual'
+  })).status, 404);
 });
 
 test('a cover shared by a show and its episodes is only deleted once nothing uses it', async () => {
@@ -175,7 +186,10 @@ test('a cover shared by a show and its episodes is only deleted once nothing use
   assert.equal(episode.body.cover_url, show.body.cover_url, 'the episode shows the show\'s cover');
   assert.equal(keys().length, 2, 'one cover + one episode file');
 
-  const download = await fetch(`${server.url}/api/episodes/${episode.body.id}/download`, { redirect: 'manual' });
+  const download = await fetch(`${server.url}/api/episodes/${episode.body.id}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: 'manual'
+  });
   assert.equal(download.status, 302);
   assert.ok(new URL(download.headers.get('location')).searchParams.has('response-content-disposition'));
 

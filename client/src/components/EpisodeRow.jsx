@@ -100,8 +100,8 @@ export default function EpisodeRow({
                 type="button"
                 className="icon-btn icon-btn-sm"
                 onClick={() => onDownload(episode)}
-                title="Download episode"
-                aria-label={`Download ${episode.title}`}
+                title="Save episode in Pulse (plays offline)"
+                aria-label={`Save ${episode.title} in Pulse for offline listening`}
               >
                 <Icon name="download" size={16} />
               </button>

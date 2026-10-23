@@ -3,8 +3,6 @@ import Icon from './Icon.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration, formatNumber } from '../format.js';
 import { api } from '../api.js';
-import { apiUrl } from '../config.js';
-import { openExternal } from '../native.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -41,15 +39,25 @@ function Dropdown({ open, onClose, items }) {
   );
 }
 
-export function downloadFile(song, toast) {
-  if (song.provider) { toast('Linked tracks play from YouTube and cannot be downloaded', 'error'); return; }
-  if (!song.file_path) { toast('No audio file for this track', 'error'); return; }
-  openExternal(apiUrl(`/api/songs/${song.id}/download`));
+/**
+ * Saving a track keeps it inside Pulse: the audio is stored in the app's own offline library and
+ * plays with no connection. Nothing is written to the device as a loose mp3 — the audio stays on the
+ * platform, which is what the artists who upload here expect.
+ *
+ * (Exporting the bare file is a separate, admin/owner-only route: see `GET /api/songs/:id/download`.)
+ */
+export async function saveToPulse(song, toast) {
+  if (song.provider) { toast('Linked tracks play from YouTube and cannot be saved in Pulse', 'error'); return; }
+  if (!hasPlayableAudio(song)) { toast('This track has no audio to save yet', 'error'); return; }
+  if (isSongDownloaded(song.id)) { toast(`"${song.title}" is already saved in Pulse`, 'info'); return; }
+  const result = await saveOffline(song);
+  if (result === 'failed') { toast('Could not save this track — check your connection', 'error'); return; }
   song.downloads = (song.downloads || 0) + 1;
-  toast(`Downloading "${song.title}"`);
+  toast(`Saved "${song.title}" to Pulse — it plays offline`);
 }
-// legacy name kept for existing callers (PlayerBar / NowPlaying)
-export const downloadSong = downloadFile;
+// legacy name kept for existing callers
+export const downloadSong = saveToPulse;
+export const downloadFile = saveToPulse;
 
 export default function SongTable({
   songs,
@@ -75,12 +83,12 @@ export default function SongTable({
     const res = await saveOffline(song);
     if (res === 'no-audio') toast('This track has no playable audio to download yet', 'error');
     else if (res === 'failed') toast('Download failed — check your connection', 'error');
-    else toast(`Saved "${song.title}" for offline`);
+    else toast(`Saved "${song.title}" to Pulse — it plays offline`);
   };
 
   const dropOffline = async (song) => {
     await removeOffline(song.id);
-    toast('Removed from Downloads');
+    toast('Removed from your offline music');
   };
 
   const toggleVisibility = async (song) => {
@@ -114,7 +122,7 @@ export default function SongTable({
             {showAlbum && <th className="col-album">Album</th>}
             <th className="col-genre">Genre</th>
             {showPlays && <th className="col-num">Plays</th>}
-            <th className="col-num col-downloads">Downloads</th>
+            <th className="col-num col-downloads">Saves</th>
             <th className="col-dur"><Icon name="clock" size={15} /></th>
             <th className="col-actions"></th>
           </tr>
@@ -186,8 +194,13 @@ export default function SongTable({
                         <Icon name={liked ? 'heartFill' : 'heart'} size={17} />
                       </button>
                     )}
-                    <button className="icon-btn icon-btn-sm" onClick={() => downloadFile(song, toast)} aria-label="Download">
-                      <Icon name="download" size={17} />
+                    <button
+                      className={`icon-btn icon-btn-sm ${isSongDownloaded(song.id) ? 'on-green' : ''}`}
+                      onClick={() => (isSongDownloaded(song.id) ? dropOffline(song) : saveToPulse(song, toast))}
+                      aria-label={isSongDownloaded(song.id) ? 'Remove from Pulse offline' : 'Save in Pulse for offline'}
+                      title={isSongDownloaded(song.id) ? 'Remove from your offline music' : 'Save in Pulse — plays offline'}
+                    >
+                      <Icon name={isSongDownloaded(song.id) ? 'checkCircle' : 'download'} size={17} />
                     </button>
                     {(onAddToPlaylist || showEdit || showDelete || userCanManage) && (
                       <div className="menu-wrap">
@@ -208,8 +221,8 @@ export default function SongTable({
                               : []),
                             ...(showOfflineActions
                               ? isSongDownloaded(song.id)
-                                ? [{ icon: 'close', label: 'Remove download', onClick: () => dropOffline(song) }]
-                                : [{ icon: 'download', label: 'Save to offline', disabled: !hasPlayableAudio(song), onClick: () => saveToOffline(song) }]
+                                ? [{ icon: 'close', label: 'Remove from offline music', onClick: () => dropOffline(song) }]
+                                : [{ icon: 'download', label: 'Save in Pulse (offline)', disabled: !hasPlayableAudio(song), onClick: () => saveToOffline(song) }]
                               : []),
                             ...(showEdit ? [{ icon: 'edit', label: 'Edit track', onClick: () => onEdit(song) }] : []),
                             ...(showDelete ? [{ icon: 'trash', label: 'Delete track', onClick: () => onDelete(song) }] : [])

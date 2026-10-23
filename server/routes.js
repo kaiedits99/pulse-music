@@ -8,6 +8,7 @@ import { searchClause } from './search.js';
 import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
 import { storage, keepUploads, sendDownload, releaseMedia } from './media.js';
 import { describeLink, readLinkedFields, unsupportedProvider, parseYouTubeId, badRequest } from './youtube.js';
+import { dataSafety } from './persistence.js';
 
 const router = express.Router();
 
@@ -177,6 +178,10 @@ router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     storage: storage.remote ? 'bucket' : 'local',
+    // Can this instance lose its data? A host with a temporary disk (Render's free plan) wipes the
+    // database and uploads on every deploy or restart unless they live in a bucket or on a mounted
+    // disk. The app shows this to admins so a wipe is never a surprise.
+    data: dataSafety({ remote: storage.remote }),
     // Which build is this? Render sets RENDER_GIT_COMMIT to the commit it deployed, so a check can
     // tell a live deployment from an old one. Absent on a machine that isn't a Render build.
     commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : undefined,
@@ -949,10 +954,28 @@ router.post('/songs/:id/play', (req, res) => {
   res.json({ ok: true });
 });
 
+// Saving for offline listening is what people normally mean by "download", and it stays inside
+// Pulse (the browser or app keeps its own copy). Handing out the bare audio file is a different
+// thing: it leaves the platform as a plain mp3, so it is limited to the artist who uploaded the
+// track (and admins), who already own that file.
+router.post('/songs/:id/saved', optionalAuth, (req, res) => {
+  const s = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
+  if (!s || !canAccessSong(req, s)) return res.status(404).json({ error: 'No audio available' });
+  db.prepare('UPDATE songs SET downloads = downloads + 1 WHERE id = ?').run(s.id);
+  const row = db.prepare('SELECT downloads FROM songs WHERE id = ?').get(s.id);
+  res.json({ ok: true, downloads: row.downloads });
+});
+
 router.get('/songs/:id/download', optionalAuth, (req, res, next) => {
   const s = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
   if (!s || !s.file_path) return res.status(404).json({ error: 'No audio available' });
   if (!canAccessSong(req, s)) return res.status(404).json({ error: 'No audio available' });
+  if (!songOwnerIs(req, s)) {
+    return res.status(403).json({
+      error: 'Only the artist who uploaded this track can export the file. Save it to Pulse to listen offline.',
+      code: 'save_to_pulse'
+    });
+  }
   db.prepare('UPDATE songs SET downloads = downloads + 1 WHERE id = ?').run(s.id);
   sendDownload(res, next, s.file_path, path.basename(s.file_path));
 });
@@ -1594,9 +1617,28 @@ router.put('/episodes/:id/progress', authMiddleware, (req, res) => {
   res.json({ ok: true, position_seconds: completed ? 0 : position, completed: !!completed });
 });
 
-router.get('/episodes/:id/download', (req, res, next) => {
+router.post('/episodes/:id/saved', (req, res) => {
   const row = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  db.prepare('UPDATE episodes SET downloads = downloads + 1 WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+router.get('/episodes/:id/download', optionalAuth, (req, res, next) => {
+  // The show's owner is the episode's owner: an episode belongs to its podcast, and the podcast
+  // records who published it.
+  const row = db.prepare(`
+    SELECT e.*, p.user_id AS show_owner FROM episodes e
+    JOIN podcasts p ON p.id = e.podcast_id WHERE e.id = ?
+  `).get(req.params.id);
   if (!row || !row.file_path) return res.status(404).json({ error: 'No audio available' });
+  const owns = req.user && (req.user.role === 'admin' || row.show_owner === req.user.id);
+  if (!owns) {
+    return res.status(403).json({
+      error: 'Save the episode to Pulse to listen offline; the file itself is not offered for export.',
+      code: 'save_to_pulse'
+    });
+  }
   db.prepare('UPDATE episodes SET downloads = downloads + 1 WHERE id = ?').run(row.id);
   sendDownload(res, next, row.file_path, path.basename(row.file_path));
 });

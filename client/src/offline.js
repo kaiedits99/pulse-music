@@ -8,7 +8,7 @@
 // Playlist downloads also snapshot the playlist + its tracks, so the Downloads
 // page can list and play them fully offline (no API call needed).
 import { resolveLocalAudioUrl } from './localMusic.js';
-import { API_URL } from './config.js';
+import { API_URL, apiUrl } from './config.js';
 import { resolveMediaUrl } from './media-url.js';
 
 const CACHE_NAME = 'pulse-offline-v1';
@@ -56,7 +56,9 @@ function mediaHref(path) {
 export function songAudioUrl(song) {
   // Linked tracks play through someone else's player and have no file to cache.
   if (song && song.provider) return null;
-  const raw = (song && (song.file_path || song.source_url)) || '';
+  // `audioUrl` is how a saved entry remembers the address it was stored under; without it a
+  // downloaded song had no URL at playback time and silently refused to play.
+  const raw = (song && (song.file_path || song.source_url || song.audioUrl)) || '';
   if (!raw) return null;
   if (/^(https?:|blob:|data:)/.test(raw)) return raw;
   return mediaHref(raw);
@@ -104,7 +106,31 @@ export async function downloadSong(song) {
     at: Date.now()
   };
   writeIndex(idx);
+  countSave(song);
   return added && isNew ? 'added' : 'cached';
+}
+
+/** The bearer token, if someone is signed in. Kept here to avoid importing the api module (which
+ *  the offline store deliberately does not depend on — it must work with the network switched off). */
+function authHeader() {
+  try {
+    const token = localStorage.getItem('pulse_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch { return {}; }
+}
+
+/**
+ * Tell the catalogue a track was saved. Fire-and-forget: the copy is already on the device, so a
+ * failed counter (offline, signed out) must never turn a successful save into an error.
+ */
+function countSave(song) {
+  if (typeof fetch !== 'function' || !song || !song.id) return;
+  const path = song.kind === 'episode' && song.episode_id
+    ? `/api/episodes/${song.episode_id}/saved`
+    : `/api/songs/${song.id}/saved`;
+  try {
+    fetch(apiUrl(path), { method: 'POST', headers: authHeader() }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 export async function removeSong(songId) {

@@ -104,6 +104,7 @@ const paths = {
   smiley: <><circle cx="12" cy="12" r="9" /><path d="M8.6 14.4a4.2 4.2 0 0 0 6.8 0" /><circle cx="9.2" cy="9.6" r="1" fill="currentColor" stroke="none" /><circle cx="14.8" cy="9.6" r="1" fill="currentColor" stroke="none" /></>,
   flag: <><path d="M6 21V4" /><path d="M6 5h11.5l-2 3.5 2 3.5H6" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="7.8" r="1.1" fill="currentColor" stroke="none" /></>,
+  warning: <><path d="M10.3 3.9 2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4.5" /><circle cx="12" cy="16.8" r="1.1" fill="currentColor" stroke="none" /></>,
   star: <path d="m12 3.5 2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.8l6-.8z" />,
   lossless: <><circle cx="12" cy="12" r="9" /><path d="M7.5 14V9.5M7.5 14h3" /><path d="M13.5 14V9.5l3 4.5V9.5" /></>,
   broadcast: <><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" /><path d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8" /><path d="M15.4 8.6a4.8 4.8 0 0 1 0 6.8" /><path d="M5.8 18.2a8.8 8.8 0 0 1 0-12.4" /><path d="M18.2 5.8a8.8 8.8 0 0 1 0 12.4" /></>

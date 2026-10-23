@@ -1287,3 +1287,35 @@
   .un-copy span { font-size: 11.5px; }
   .un-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* ------------------------------------------------------------ DATA SAFETY -- */
+/* Admin-only, and the loudest thing on the page: it means data is actively being lost. */
+.data-safety {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border-radius: var(--r);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(190, 24, 93, 0.08));
+}
+.ds-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+.ds-copy { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; line-height: 1.4; }
+.ds-copy strong { font-size: 13.5px; }
+.ds-copy span { font-size: 12.5px; color: var(--text-dim); }
+.ds-fine { font-size: 12px !important; opacity: 0.85; }
+
+@media (max-width: 560px) {
+  .data-safety { gap: 10px; padding: 12px; }
+  .ds-copy span { font-size: 12px; }
+}

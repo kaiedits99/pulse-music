@@ -9,6 +9,7 @@ import { startChatCleanup } from './chat.js';
 import db, { dataDir, uploadsDir } from './db.js';
 import { purgeLegacyDemoData } from './legacy-demo-cleanup.js';
 import { storage, redirectToBucket } from './media.js';
+import { dataSafety, describeDataSafety } from './persistence.js';
 import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js';
 import { installGracefulShutdown } from './shutdown.js';
 import { ensureClientBuild, isClientBuilt, clientDir, missingBuildPage } from '../scripts/ensure-client-build.mjs';
@@ -93,12 +94,10 @@ try {
 }
 
 console.log(`[pulse] Uploads are kept on ${storage.describe()}.`);
-if (!storage.remote && process.env.RENDER) {
-  console.warn(
-    '[pulse] WARNING: running on Render without a bucket. The database and every upload live on this '
-    + "instance's temporary disk and are lost on each restart, redeploy or sleep. Set S3_ENDPOINT, S3_BUCKET, "
-    + 'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (see DEPLOY.md), or ignore this if you attached a Render Disk.'
-  );
+{
+  const safety = dataSafety({ remote: storage.remote });
+  const line = describeDataSafety(safety);
+  if (safety.persistent) console.log(line); else console.warn(line);
 }
 
 // Everything with a deadline: expired messages, their attachments, and old report copies.
