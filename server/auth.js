@@ -3,6 +3,16 @@ import { hashPassword, verifyPassword } from './passwords.js';
 import db from './db.js';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'pulse-dev-secret-change-me';
+if (!process.env.JWT_SECRET) {
+  const msg = '[pulse] JWT_SECRET is not set — using an insecure default that must never be used in production. Set JWT_SECRET to a random 32+ character string.';
+  if (String(process.env.NODE_ENV).toLowerCase() === 'production') {
+    console.error(msg + ' Refusing to start.');
+    // Throw so tests (which set JWT_SECRET) still run, but a real production boot fails fast
+    throw new Error('JWT_SECRET is required in production');
+  } else {
+    console.warn(msg);
+  }
+}
 
 // Hashing runs on its own thread so a sign-in never freezes the server (see passwords.js).
 export { hashPassword, verifyPassword };

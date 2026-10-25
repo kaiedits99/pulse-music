@@ -15,6 +15,15 @@ const CACHE_NAME = 'pulse-offline-v1';
 const INDEX_KEY = 'pulse_offline_index_v1';
 export const OFFLINE_EVENT = 'pulse-offline-updated';
 
+// In-memory cache of object URLs for downloaded tracks (revoked on remove/clear).
+const blobUrlCache = new Map(); // songId → object URL (kept for page lifetime)
+function revokeBlobUrl(songId) {
+  const url = blobUrlCache.get(songId);
+  if (!url) return;
+  try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+  blobUrlCache.delete(songId);
+}
+
 function emptyIndex() {
   return { songs: {}, playlists: {} };
 }
@@ -199,6 +208,7 @@ function countSave(song) {
 }
 
 export async function removeSong(songId) {
+  revokeBlobUrl(songId);
   const idx = readIndex();
   const entry = idx.songs[songId];
   delete idx.songs[songId];
@@ -246,6 +256,18 @@ export async function downloadPlaylist(playlist, onProgress) {
 
 export async function removePlaylistDownloads(playlistId) {
   const idx = readIndex();
+  const snapshot = idx.playlists[playlistId];
+  // Revoke cached blob URLs for tracks that will become orphaned (not referenced elsewhere)
+  if (snapshot && Array.isArray(snapshot.songs)) {
+    const stillReferenced = new Set();
+    for (const [otherId, other] of Object.entries(idx.playlists)) {
+      if (String(otherId) === String(playlistId)) continue;
+      for (const s of other.songs || []) stillReferenced.add(String(s.id));
+    }
+    for (const s of snapshot.songs) {
+      if (!idx.songs[s.id] && !stillReferenced.has(String(s.id))) revokeBlobUrl(s.id);
+    }
+  }
   delete idx.playlists[playlistId];
   writeIndex(idx);
 }
@@ -263,13 +285,13 @@ export function downloadedPlaylists() {
 }
 
 export async function clearAllDownloads() {
+  for (const [, url] of blobUrlCache) { try { URL.revokeObjectURL(url); } catch {} }
+  blobUrlCache.clear();
   try { await caches.delete(CACHE_NAME); } catch { /* ignore */ }
   writeIndex(emptyIndex());
 }
 
 /* ---- playback resolution ---- */
-
-const blobUrlCache = new Map(); // songId → object URL (kept for page lifetime)
 
 // Prefer the locally cached copy for downloaded tracks (zero network, instant
 // seek), fall back to the normal stream URL otherwise. Also used as the

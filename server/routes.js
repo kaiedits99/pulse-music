@@ -15,6 +15,36 @@ const router = express.Router();
 // Express 4 does not catch rejected promises, so async handlers are wrapped to reach the error handler.
 const wrap = (handler) => (req, res, next) => { Promise.resolve(handler(req, res, next)).catch(next); };
 
+// Lightweight in-memory rate limiter (no extra dependency). Resets on restart,
+// which is fine for a single-instance host. For multi-instance use a shared
+// store (Redis) — documented in DEPLOY.md.
+function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 30, message = 'Too many requests, try again later' } = {}) {
+  const hits = new Map(); // key → { count, resetAt }
+  const keyFor = (req) => req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+  const middleware = (req, res, next) => {
+    const key = keyFor(req);
+    const now = Date.now();
+    let entry = hits.get(key);
+    if (!entry || now > entry.resetAt) entry = { count: 0, resetAt: now + windowMs };
+    entry.count += 1;
+    hits.set(key, entry);
+    // Lazy cleanup every 100 requests
+    if (hits.size > 5000) {
+      for (const [k, v] of hits) if (now > v.resetAt) hits.delete(k);
+    }
+    if (entry.count > max) {
+      res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+      return res.status(429).json({ error: message });
+    }
+    next();
+  };
+  // Exposed for tests
+  middleware._hits = hits;
+  return middleware;
+}
+const authRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60, message: 'Too many sign-in attempts, try again in 15 minutes' });
+const linkPreviewRateLimit = createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many previews, slow down' });
+
 // ---------- Multer for uploads ----------
 const diskStorage = multer.diskStorage({
   destination(req, file, cb) {
@@ -194,7 +224,7 @@ router.get('/health', (req, res) => {
 });
 
 // ============================== AUTH ==============================
-router.get('/auth/check-username', (req, res) => {
+router.get('/auth/check-username', authRateLimit, (req, res) => {
   const raw = String(req.query.username || '').trim();
   if (!raw) return res.json({ available: false, reason: 'Username cannot be empty' });
   if (raw.length < 3) return res.json({ available: false, reason: 'Username must be at least 3 characters' });
@@ -208,7 +238,7 @@ router.get('/auth/check-username', (req, res) => {
   res.json({ available: true, username: raw });
 });
 
-router.post('/auth/register', wrap(async (req, res) => {
+router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   const { name, username, email, password, artistName, favoriteGenres } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
@@ -273,7 +303,7 @@ router.post('/auth/register', wrap(async (req, res) => {
 const ADMIN_PASSPHRASE = 'You bill me, I block you';
 const ADMIN_PASSKEY = "that's one thing that I hate";
 
-router.post('/auth/login', wrap(async (req, res) => {
+router.post('/auth/login', authRateLimit, wrap(async (req, res) => {
   const { email, identifier, password } = req.body || {};
 
   // Private admin access — raw, exact comparison BEFORE any trimming or
@@ -338,7 +368,7 @@ router.get('/auth/google/status', (req, res) => {
   res.json({ enabled: Boolean(GOOGLE_CLIENT_ID), clientId: GOOGLE_CLIENT_ID || null });
 });
 
-router.post('/auth/google', wrap(async (req, res) => {
+router.post('/auth/google', authRateLimit, wrap(async (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'Google sign-in is not configured on this server' });
   }
@@ -743,7 +773,7 @@ router.get('/songs/:id', optionalAuth, (req, res) => {
 // Resolve a pasted track link before it is saved: recognises embeddable YouTube videos
 // (and fills in title / channel / artwork from YouTube's keyless oEmbed endpoint) and
 // explains why Spotify, Apple Music and friends cannot be added.
-router.post('/link-preview', authMiddleware, wrap(async (req, res) => {
+router.post('/link-preview', authMiddleware, linkPreviewRateLimit, wrap(async (req, res) => {
   const url = (req.body && req.body.url) || '';
   if (!String(url).trim()) return res.status(400).json({ error: 'Paste a track link first' });
   const preview = await describeLink(url);
