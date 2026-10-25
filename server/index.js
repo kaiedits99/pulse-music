@@ -18,9 +18,36 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// CORS is intentionally open: the same API serves the website, the Capacitor Android app
+// (https://localhost + capacitor://) and the Electron shell (file://). With bearer tokens
+// (not cookies) there is no ambient authority to steal, so a reflected Origin is safe.
+// If PULSE_ALLOWED_ORIGINS is set, it is enforced as an allow-list; otherwise any origin
+// is reflected.
+{
+  const allowList = String(process.env.PULSE_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const corsOpts = allowList.length
+    ? { origin(origin, cb) { cb(null, !origin || allowList.includes(origin)); }, credentials: false }
+    : { origin: true, credentials: false };
+  app.use(cors(corsOpts));
+}
+// Minimal security headers without adding a dependency (helmet equivalent).
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  // HSTS only makes sense behind TLS; Render terminates TLS in front of us,
+  // so advertise it and let the proxy strip it if the request was plain http.
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  }
+  next();
+});
+// Body parsers with explicit limits — qs DoS (GHSA) feeds on deeply nested
+// urlencoded bodies, so keep the limit small and the nesting shallow.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200kb', parameterLimit: 100 }));
 
 // Uploaded audio and artwork, with Range support for streaming. Only the uploads
 // folder is exposed — the data directory also holds the SQLite database, which must

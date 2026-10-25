@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, getToken } from '../api.js';
-import { mediaUrl, API_URL } from '../config.js';
-import { playbackCandidates } from '../media-url.js';
+import { mediaUrl, getApiUrl } from '../config.js';
+import { playbackCandidates, mediaUrlCandidates } from '../media-url.js';
 import { resolvePlayableUrl } from '../offline.js';
 import { createYouTubeEngine, isLinkedTrack, youtubeErrorMessage } from '../youtube.js';
 
@@ -316,7 +316,7 @@ export function PlayerProvider({ children }) {
           // A saved copy resolves to a blob: URL on this device and is used as-is; a stream may have
           // a same-origin backup when no API address is configured. (Overwriting the blob with the
           // network address is what made downloaded tracks refuse to play offline.)
-          candidatesRef.current = playbackCandidates(url, API_URL, window.location.origin);
+          candidatesRef.current = playbackCandidates(url, getApiUrl(), window.location.origin);
           attemptRef.current = 0;
           audio.src = candidatesRef.current[0];
           audio.volume = volumeRef.current;

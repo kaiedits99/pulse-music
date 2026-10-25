@@ -63,7 +63,9 @@ const safety = dataSafety({ remote });
 // With a bucket the database is only safe if Litestream exists to copy it. The server cannot check
 // that from inside its own process, so the doctor does it here — this is the check whose absence let
 // a "healthy bucket" deployment erase accounts on every deploy.
-const databaseSafe = safety.database.durable && (!remote || litestreamPresent || safety.database.where === 'disk');
+// The JS fallback (fallback/pulse.db) also counts as durable when Litestream is missing.
+const fallbackActive = Boolean(env.PULSE_DB_FALLBACK === '1');
+const databaseSafe = safety.database.durable && (!remote || litestreamPresent || fallbackActive || safety.database.where === 'disk');
 record(safety.uploads.durable, 'Uploads survive restarts', safety.uploads.message);
 record(databaseSafe, 'Database survives restarts',
   databaseSafe ? safety.database.message

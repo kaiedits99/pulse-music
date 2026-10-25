@@ -27,6 +27,7 @@ export default function Upload() {
   const [coverUrl, setCoverUrl] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [form, setForm] = useState({ title: '', artist_name: '', album_id: '', genre: '', is_public: 1 });
+  const [confirmRights, setConfirmRights] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
   // Adding a YouTube link is a different kind of "upload": no file, no bulk import.
   const [mode, setMode] = useState('files'); // 'files' | 'link'
@@ -97,6 +98,7 @@ export default function Upload() {
     e.preventDefault();
     if (mode === 'link' && !linked) { toast('Check a YouTube link first', 'error'); return; }
     if (mode === 'files' && !audioFiles.length) { toast('Please choose an audio file', 'error'); return; }
+    if (mode === 'files' && !confirmRights) { toast('Please confirm you own the rights to this music', 'error'); return; }
     if (mode === 'files' && !isBulk && !form.title.trim()) { toast('Title is required', 'error'); return; }
     if (mode === 'link' && !form.title.trim() && !linked.title) { toast('Title is required', 'error'); return; }
 
@@ -439,10 +441,17 @@ export default function Upload() {
             </div>
           </div>
 
+          {mode === 'files' && audio && (
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.5, cursor: 'pointer', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: confirmRights ? 'var(--accent-soft)' : 'var(--card-2)' }}>
+              <input type="checkbox" checked={confirmRights} onChange={(e) => setConfirmRights(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--accent)' }} required />
+              <span>I own or am authorised to share this music and it does not infringe anyone’s rights. I’ve read the <Link to="/terms" target="_blank" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Terms §3</Link>. <span style={{ color: 'var(--danger)' }}>*</span></span>
+            </label>
+          )}
+
           <button
             type="submit"
             className="btn btn-primary btn-block btn-lg"
-            disabled={saving || (mode === 'link' ? !linked : !audio)}
+            disabled={saving || (mode === 'link' ? !linked : !audio) || (mode === 'files' && !confirmRights)}
           >
             {saving ? (
               <><Spinner size={18} /> {form.is_public ? 'Publishing…' : 'Saving…'}</>

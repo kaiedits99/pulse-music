@@ -103,6 +103,18 @@ export default function Sidebar({ open, onClose }) {
                 </NavLink>
               );
             })}
+            {user?.role === 'admin' && (
+              <NavLink
+                to="/admin"
+                onClick={onClose}
+                className={({ isActive }) => `side-nav-item ${isActive ? 'active' : ''}`}
+                style={{ color: location.pathname === '/admin' ? undefined : '#8b5cf6' }}
+              >
+                <Icon name="shield" size={20} />
+                <span>Admin</span>
+                <span className="side-nav-badge" style={{ background: '#8b5cf6', color: '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 999 }}>KAI</span>
+              </NavLink>
+            )}
           </nav>
         </div>
 

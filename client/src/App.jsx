@@ -12,6 +12,10 @@ import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
 import Landing from './pages/Landing.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import Privacy from './pages/legal/Privacy.jsx';
+import Terms from './pages/legal/Terms.jsx';
+import Cookies from './pages/legal/Cookies.jsx';
+import CookieConsent from './components/CookieConsent.jsx';
 import Overview from './pages/Overview.jsx';
 import Search from './pages/Search.jsx';
 import Library from './pages/Library.jsx';
@@ -29,6 +33,7 @@ import Upload from './pages/Upload.jsx';
 import Settings from './pages/Settings.jsx';
 import OfflinePlayer from './pages/OfflinePlayer.jsx';
 import Messages from './pages/Messages.jsx';
+import Admin from './pages/Admin.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -43,11 +48,24 @@ function RequireAuth({ children }) {
   }
   const offlineRoute = location.pathname === '/offline-player' || (typeof navigator !== 'undefined' && navigator.onLine === false);
   if (!user && !offlineRoute) {
-    // The front door: a signed-out visitor sees the landing page at "/", and is sent to sign in anywhere
-    // else (remembering where they were headed, so a shared link still works once they are in).
     if (location.pathname === '/') return <Landing />;
     return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   }
+  return children;
+}
+
+function RequireAdmin({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="boot-screen">
+        <div className="brand-logo big"><Icon name="wave" size={28} /></div>
+        <Spinner size={24} />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'admin') return <Navigate to="/" replace />;
   return children;
 }
 
@@ -62,14 +80,17 @@ export default function App() {
               <FavoritesProvider>
                 <PlayerProvider>
                   <OfflineRouteManager />
+                  <a href="#main-content" className="sr-only" style={{ position: 'absolute', top: -999, left: -999 }}>Skip to main content</a>
+                  <CookieConsent />
                   <Routes>
-                    {/* the keys make /login and /signup remount, so each opens on its own tab */}
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/cookies" element={<Cookies />} />
                     <Route path="/login" element={<AuthPage key="login" initialMode="login" />} />
                     <Route path="/signup" element={<AuthPage key="signup" initialMode="register" />} />
                     <Route element={<RequireAuth><Layout /></RequireAuth>}>
                       <Route path="/" element={<Overview />} />
                       <Route path="/search" element={<Search />} />
-                      {/* legacy path kept so old links and bookmarks keep working */}
                       <Route path="/songs" element={<Search />} />
                       <Route path="/library" element={<Library />} />
                       <Route path="/albums" element={<Albums />} />
@@ -86,8 +107,8 @@ export default function App() {
                       <Route path="/upload" element={<Upload />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/messages" element={<Messages />} />
-                      {/* /messages/@artisttag opens the chat with that account */}
                       <Route path="/messages/:handle" element={<Messages />} />
+                      <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

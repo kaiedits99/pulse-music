@@ -62,6 +62,13 @@ export default function Landing() {
           each track you upload is public or private.
         </p>
       </main>
+      <footer style={{ marginTop: 32, padding: '14px 0 8px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center', fontSize: 12.5, color: 'var(--text-faint)' }}>
+        <Link to="/privacy" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Privacy Policy</Link>
+        <Link to="/terms" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Terms of Service</Link>
+        <Link to="/cookies" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Cookie Policy</Link>
+        <span>·</span>
+        <a href="mailto:inputname9@aol.com" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>inputname9@aol.com</a>
+      </footer>
     </div>
   );
 }
