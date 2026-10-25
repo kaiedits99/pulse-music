@@ -22,7 +22,7 @@ export default function Privacy() {
         <h2><Icon name="database" size={18} /> 2 · What we collect — and what we don’t</h2>
         <p>We practice <strong>data minimisation</strong>. We only ask for what Pulse needs to work:</p>
         <ul>
-          <li><strong>Account information:</strong> display name, username/handle (e.g. <code>@adebayo</code>), email, password hash (bcrypt, never plaintext), 1–3 favourite genres (for recommendations), optional artist profile fields (bio, genre, country) and avatar URL.</li>
+          <li><strong>Account information:</strong> display name, username/handle (e.g. <code>@kai99</code>), email, password hash (bcrypt, never plaintext), 1–3 favourite genres (for recommendations), optional artist profile fields (bio, genre, country) and avatar URL.</li>
           <li><strong>Content you provide:</strong> audio files, cover art, album/playlist titles, podcast episodes, messages and group/DM membership, reactions. You choose whether each song/album/playlist is <em>public</em> or <em>private</em>.</li>
           <li><strong>Usage data:</strong> play counts, likes/favourites, follow actions, and anonymous aggregate stats (total tracks/artists) shown on the sign-in screen. No personalised ad profiles.</li>
           <li><strong>Technical data:</strong> device IP (used for rate-limiting and abuse prevention, not stored beyond logs), browser/app version, and any bug report you voluntarily send. Location is never asked for.</li>

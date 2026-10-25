@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import Icon from './Icon.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 import PlayerBar from './PlayerBar.jsx';
@@ -10,6 +11,7 @@ import SharePrompt from './SharePrompt.jsx';
 import UpdateNotice from './UpdateNotice.jsx';
 import DataSafetyBanner from './DataSafetyBanner.jsx';
 
+const ADMIN_MOBILE = { to: '/admin', icon: 'shield', label: 'Admin' };
 const MOBILE_NAV = [
   { to: '/', icon: 'home', label: 'Home', end: true },
   { to: '/search', icon: 'search', label: 'Search' },
@@ -24,6 +26,8 @@ export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const location = useLocation();
+  let isAdmin = false;
+  try { isAdmin = useAuth()?.user?.role === 'admin'; } catch {}
 
   /* Close the mobile drawer on navigation and scroll content back to the top. */
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function Layout() {
       </ErrorBoundary>
 
       <nav className="mobile-nav" aria-label="Primary">
-        {MOBILE_NAV.map((item) => (
+        {[...MOBILE_NAV, ...(isAdmin ? [ADMIN_MOBILE] : [])].map((item) => (
           <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? 'active' : '')}>
             <Icon name={item.icon} size={21} />
             <span>{item.label}</span>

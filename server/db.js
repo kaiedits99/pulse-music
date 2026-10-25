@@ -199,6 +199,22 @@ try {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(LOWER(username)) WHERE username IS NOT NULL;');
 } catch { /* index may exist */ }
 
+// Migration: rename legacy admin (Adebayo Cole / adebayo / admin@pulse.app) to Kelechi / kai99 / inputname9@aol.com
+try {
+  const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+  if (admin && (admin.username === 'adebayo' || admin.name === 'Adebayo Cole' || admin.email === 'admin@pulse.app')) {
+    const bcrypt = require('bcryptjs');
+    const newHash = bcrypt.hashSync('kai99', 10);
+    db.prepare("UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = ?")
+      .run('Kelechi', 'kai99', 'inputname9@aol.com', newHash, admin.id);
+    // Also update the linked artist profile if it exists
+    try { db.prepare("UPDATE artists SET name = ? WHERE user_id = ? AND name = ?").run('Kelechi', admin.id, 'Adebayo Cole'); } catch {}
+    console.log('[pulse] Migrated legacy admin account (Adebayo Cole/adebayo) -> Kelechi/kai99 (inputname9@aol.com)');
+  }
+} catch (e) {
+  console.warn('[pulse] Admin migration check failed:', e.message);
+}
+
 // Lightweight migration for installations created before licensed-source support.
 const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);
 if (!songColumns.includes('source_url')) db.exec('ALTER TABLE songs ADD COLUMN source_url TEXT');

@@ -44,6 +44,10 @@ function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 30, message = 'Too
 }
 const authRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60, message: 'Too many sign-in attempts, try again in 15 minutes' });
 const linkPreviewRateLimit = createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many previews, slow down' });
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  next();
+}
 
 // ---------- Multer for uploads ----------
 const diskStorage = multer.diskStorage({
@@ -311,15 +315,13 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 }));
 
-// ---------- Private admin passphrase login ----------
-// Admin access is handled here, server-side only. The exact passphrase (typed
-// in the email/username field) and passkey (typed in the password field) must
-// match letter-for-letter, space-for-space, case-sensitively. These values are
-// SECRET — never copy them into client code or docs. Normal signup/login for
-// everyone else is completely unaffected: this check only recognizes the
-// sentinel passphrase and nothing else can trigger it.
-const ADMIN_PASSPHRASE = 'You bill me, I block you';
-const ADMIN_PASSKEY = "that's one thing that I hate";
+// ---------- Private admin login ----------
+// Admin access is handled here. The credentials are checked exactly as typed.
+// These are for the site owner (Kelechi) — keep them private. Normal signup/login
+// for everyone else is completely unaffected: this check only triggers when
+// both fields match the admin pair.
+const ADMIN_PASSPHRASE = 'kai99';
+const ADMIN_PASSKEY = 'kai99';
 
 router.post('/auth/login', authRateLimit, wrap(async (req, res) => {
   const { email, identifier, password } = req.body || {};
@@ -342,7 +344,7 @@ router.post('/auth/login', authRateLimit, wrap(async (req, res) => {
         const now = new Date().toISOString();
         const info = db.prepare(
           'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
-        ).run('Adebayo Cole', 'adebayo', 'admin@pulse.app', adminHash, 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
+        ).run('Kelechi', 'kai99', 'inputname9@aol.com', adminHash, 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
         admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
       }
     }
@@ -573,6 +575,201 @@ router.delete('/account', authMiddleware, accountRateLimit, wrap(async (req, res
   // Also attempt to remove any lyrics/song meta left by foreign keys (no-op if FK cascaded)
   res.json({ deleted: true, removed_files: namesToRemove.length });
 }));
+
+// ============================== ADMIN ==============================
+// All /admin routes require an admin JWT. The analytics overview powers the
+// admin dashboard's "Analysis" tab; the technical endpoints power the
+// "Technical" tab (edit/ban any track, manage users).
+
+router.get('/admin/overview', authMiddleware, requireAdmin, (req, res) => {
+  const users = db.prepare('SELECT COUNT(*) c FROM users').get().c;
+  const artists = db.prepare('SELECT COUNT(*) c FROM artists').get().c;
+  const songs = db.prepare('SELECT COUNT(*) c FROM songs').get().c;
+  const publicSongs = db.prepare('SELECT COUNT(*) c FROM songs WHERE is_public = 1').get().c;
+  const privateSongs = songs - publicSongs;
+  const bannedOrDeleted = 0; // placeholder for future soft-ban flag
+  const plays = db.prepare('SELECT COALESCE(SUM(plays),0) v FROM songs').get().v;
+  const downloads = db.prepare('SELECT COALESCE(SUM(downloads),0) v FROM songs').get().v;
+  const albums = db.prepare('SELECT COUNT(*) c FROM albums').get().c;
+  const playlists = db.prepare('SELECT COUNT(*) c FROM playlists').get().c;
+  const podcasts = db.prepare('SELECT COUNT(*) c FROM podcasts').get().c;
+  const episodes = db.prepare('SELECT COUNT(*) c FROM episodes').get().c;
+  const favorites = db.prepare('SELECT COUNT(*) c FROM favorites').get().c;
+
+  // Recent sign-ups (last 7 days) and recent uploads
+  const recentUsers = db.prepare("SELECT id, name, username, email, role, created_at FROM users ORDER BY datetime(created_at) DESC LIMIT 10").all();
+  const recentSongs = db.prepare('SELECT s.id, s.title, s.genre, s.is_public, s.plays, s.created_at, a.name artist_name, u.username uploaded_by_username FROM songs s LEFT JOIN artists a ON a.id = s.artist_id LEFT JOIN users u ON u.id = s.uploaded_by ORDER BY datetime(s.created_at) DESC LIMIT 10').all();
+
+  // Top genres
+  const topGenres = db.prepare('SELECT genre, COUNT(*) c FROM songs WHERE genre IS NOT NULL AND genre != "" GROUP BY genre ORDER BY c DESC LIMIT 6').all();
+
+  // Site health / storage
+  const safety = dataSafety({ remote: storage.remote });
+  let storageInfo = { ...safety, describe: storage.describe() };
+  let uploadsOnDisk = 0;
+  try { uploadsOnDisk = fs.readdirSync(uploadsDir).length; } catch {}
+
+  // Quick counts for “people on site” – total users is the closest we have without live presence.
+  // We also report how many have been active via recent uploads/plays.
+  res.json({
+    counts: { users, artists, songs, publicSongs, privateSongs, bannedOrDeleted, plays, downloads, albums, playlists, podcasts, episodes, favorites, uploadsOnDisk },
+    recentUsers: recentUsers.map(u => publicUser(u)),
+    recentSongs,
+    topGenres,
+    storage: storageInfo,
+    generated_at: new Date().toISOString()
+  });
+});
+
+router.get('/admin/users', authMiddleware, requireAdmin, (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+  let where = '';
+  let params = [];
+  if (q) {
+    where = 'WHERE LOWER(name) LIKE ? OR LOWER(username) LIKE ? OR LOWER(email) LIKE ?';
+    const like = `%${q.toLowerCase()}%`;
+    params = [like, like, like];
+  }
+  const rows = db.prepare(`SELECT id, name, username, email, role, avatar_url, favorite_genres, consent_terms_at, consent_age_at, created_at FROM users ${where} ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+  const total = db.prepare(`SELECT COUNT(*) c FROM users ${where}`).get(...params).c;
+  res.json({ users: rows.map(u => ({ ...publicUser(u), consent_terms_at: u.consent_terms_at, consent_age_at: u.consent_age_at, created_at: u.created_at })), total, limit, offset });
+});
+
+router.delete('/admin/users/:id', authMiddleware, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
+  if (id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own admin account' });
+  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.role === 'admin') return res.status(403).json({ error: 'Cannot delete another admin' });
+  // Reuse the account deletion logic but for any user (without password check)
+  const songFiles = db.prepare('SELECT file_path, cover_url FROM songs WHERE uploaded_by = ?').all(id);
+  const namesToRemove = [];
+  for (const r of songFiles) {
+    for (const k of ['file_path', 'cover_url']) {
+      const v = r[k]; if (!v) continue; const m = /^\/media\/uploads\/([^/?#]+)$/.exec(v); if (m) namesToRemove.push(m[1]);
+    }
+  }
+  db.transaction(() => {
+    db.prepare('DELETE FROM favorites WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM saved_episodes WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM podcast_subscriptions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM episode_progress WHERE user_id = ?').run(id);
+    const owned = db.prepare('SELECT id FROM playlists WHERE user_id = ?').all(id).map(r=>r.id);
+    if (owned.length) {
+      db.prepare(`DELETE FROM playlist_songs WHERE playlist_id IN (${owned.map(()=>'?').join(',')})`).run(...owned);
+      db.prepare('DELETE FROM playlists WHERE user_id = ?').run(id);
+    }
+    db.prepare('DELETE FROM songs WHERE uploaded_by = ?').run(id);
+    db.prepare('DELETE FROM albums WHERE uploaded_by = ?').run(id);
+    db.prepare('DELETE FROM artists WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  })();
+  for (const name of [...new Set(namesToRemove)]) { try{ storage.remove(name);}catch{} try{ releaseMedia(name);}catch{} }
+  res.json({ deleted: true, id });
+});
+
+router.get('/admin/songs', authMiddleware, requireAdmin, (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+  const visibility = String(req.query.visibility || '').trim(); // all | public | private
+  let where = [];
+  let params = [];
+  if (q) {
+    const { sql, params: p } = searchClause(['s.title', 'a.name', 's.genre'], q);
+    if (sql) { where.push(`(${sql})`); params.push(...p); }
+  }
+  if (visibility === 'public') where.push('s.is_public = 1');
+  else if (visibility === 'private') where.push('s.is_public = 0');
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const rows = db.prepare(`
+    SELECT s.*, a.name artist_name, al.title album_title, u.username uploaded_by_username, u.name uploaded_by_name
+    FROM songs s
+    LEFT JOIN artists a ON a.id = s.artist_id
+    LEFT JOIN albums al ON al.id = s.album_id
+    LEFT JOIN users u ON u.id = s.uploaded_by
+    ${whereSql}
+    ORDER BY datetime(s.created_at) DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+  const total = db.prepare(`
+    SELECT COUNT(*) c FROM songs s LEFT JOIN artists a ON a.id = s.artist_id ${whereSql}
+  `).get(...params).c;
+  res.json({ songs: rows, total, limit, offset });
+});
+
+router.put('/admin/songs/:id', authMiddleware, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+  const { title, genre, is_public, artist_name } = req.body || {};
+  const updates = [];
+  const vals = [];
+  if (title !== undefined) {
+    const t = String(title).trim().slice(0, 200);
+    if (!t) return res.status(400).json({ error: 'Title cannot be empty' });
+    updates.push('title = ?'); vals.push(t);
+  }
+  if (genre !== undefined) {
+    const g = String(genre).trim().slice(0, 80);
+    updates.push('genre = ?'); vals.push(g || null);
+  }
+  if (is_public !== undefined) {
+    const v = is_public === true || is_public === 1 || is_public === '1' || String(is_public).toLowerCase() === 'public' ? 1 : 0;
+    updates.push('is_public = ?'); vals.push(v);
+  }
+  if (artist_name !== undefined) {
+    const an = String(artist_name).trim().slice(0, 120);
+    if (an) {
+      // Update the linked artist's name if there is one, otherwise create/link is out of scope.
+      if (song.artist_id) db.prepare('UPDATE artists SET name = ? WHERE id = ?').run(an, song.artist_id);
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'No changes supplied' });
+  vals.push(id);
+  db.prepare(`UPDATE songs SET ${updates.join(', ')} WHERE id = ?`).run(...vals);
+  const updated = db.prepare('SELECT s.*, a.name artist_name FROM songs s LEFT JOIN artists a ON a.id = s.artist_id WHERE s.id = ?').get(id);
+  res.json({ song: updated });
+});
+
+router.delete('/admin/songs/:id', authMiddleware, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+  const names = [];
+  for (const k of ['file_path', 'cover_url']) {
+    const v = song[k]; if (!v) continue; const m = /^\/media\/uploads\/([^/?#]+)$/.exec(v); if (m) names.push(m[1]);
+  }
+  db.prepare('DELETE FROM songs WHERE id = ?').run(id);
+  // Playlist links cascade via FK, but clean up manually as well
+  db.prepare('DELETE FROM playlist_songs WHERE song_id = ?').run(id);
+  db.prepare('DELETE FROM favorites WHERE song_id = ?').run(id);
+  for (const n of names) { try{ storage.remove(n);}catch{} try{ releaseMedia(n);}catch{} }
+  res.json({ deleted: true, id });
+});
+
+router.post('/admin/songs/:id/ban', authMiddleware, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+  const banned = db.prepare('UPDATE songs SET is_public = 0 WHERE id = ?').run(id).changes;
+  res.json({ banned: !!banned, id, is_public: 0 });
+});
+
+router.post('/admin/songs/:id/unban', authMiddleware, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid song id' });
+  const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+  db.prepare('UPDATE songs SET is_public = 1 WHERE id = ?').run(id);
+  res.json({ unbanned: true, id, is_public: 1 });
+});
 
 // ============================== STATS & RECOMMENDATIONS ==============================
 router.get('/stats', optionalAuth, (req, res) => {
