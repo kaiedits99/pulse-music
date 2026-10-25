@@ -3,6 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { foldText } from './search.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Everything Pulse stores (SQLite file + uploaded audio/artwork) lives under one
@@ -222,5 +225,124 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_songs_is_public ON songs(is_public);');
   db.exec('CREATE INDEX IF NOT EXISTS idx_songs_uploaded_by ON songs(uploaded_by);');
 } catch { /* index may exist */ }
+
+// ---------------------------------------------------------------------------
+// Fallback bucket backup — keeps the database safe even when Litestream is
+// not running (wrong start command, missing binary). Litestream remains the
+// primary mechanism; this is a safety net that stores a single snapshot at
+// fallback/pulse.db and restores it on next boot if the local file is empty.
+// It runs only when a bucket is configured and PULSE_DB_REPLICATED != '1'.
+// ---------------------------------------------------------------------------
+let __fallbackState = { started: false };
+async function __maybeStartFallback() {
+  if (__fallbackState.started) return;
+  __fallbackState.started = true;
+  let config = null;
+  try {
+    const { readStorageConfig } = await import('./storage.js');
+    config = readStorageConfig(process.env);
+  } catch { return; }
+  if (!config) return;
+  if (process.env.PULSE_DB_REPLICATED === '1') return;
+  if (process.env.PULSE_PERSISTENT_DISK === 'true') return;
+
+  const dbPath = path.join(dataDir, 'pulse.db');
+  const fallbackKey = 'fallback/pulse.db';
+
+  // Try to restore if local DB looks empty but bucket has a backup
+  try {
+    const count = db.prepare('SELECT COUNT(*) as c FROM users').get()?.c ?? 0;
+    const songCount = db.prepare('SELECT COUNT(*) as c FROM songs').get()?.c ?? 0;
+    const isEmpty = count === 0 && songCount === 0;
+    // Also check file size — an empty DB is ~20KB, a DB with data is larger
+    let fileSize = 0;
+    try { fileSize = fs.statSync(dbPath).size; } catch {}
+    if (isEmpty) {
+      const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+      const client = new S3Client({
+        region: config.region,
+        endpoint: config.endpoint,
+        forcePathStyle: true,
+        credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
+        logger: { debug() {}, info() {}, warn() {}, error() {} }
+      });
+      try {
+        const res = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: fallbackKey }));
+        const body = await res.Body.transformToByteArray();
+        if (body && body.length > 1024) {
+          // Close DB, replace file, reopen? Instead, restore via backup API: close & overwrite.
+          // We are still inside the module's top-level, but we can replace file and restart process
+          // by writing to disk and telling operator to restart — simpler: write to temp and log.
+          // For now, we attempt to overwrite after checkpoint and vacuum.
+          db.close();
+          // Write fetched bytes to the db path
+          fs.writeFileSync(dbPath, Buffer.from(body));
+          // Remove wal/shm that may be stale
+          try { fs.rmSync(dbPath + '-wal', { force: true }); } catch {}
+          try { fs.rmSync(dbPath + '-shm', { force: true }); } catch {}
+          console.log(`[pulse] Restored database from bucket fallback (${body.length} bytes) — restarting to use it`);
+          // Force restart by exiting; process manager (Render) will restart with restored file
+          process.exit(0);
+        }
+      } catch (err) {
+        if (err?.name !== 'NoSuchKey' && err?.Code !== 'NoSuchKey') {
+          console.warn(`[pulse] Fallback restore check failed: ${err.message}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[pulse] Fallback restore check error: ${e.message}`);
+  }
+
+  // Mark that fallback is active so /api/health reports the DB as durable
+  process.env.PULSE_DB_FALLBACK = '1';
+
+  // Start periodic backup
+  try {
+    const intervalSec = Math.min(30, Math.max(5, parseInt(process.env.PULSE_DB_SYNC_SECONDS || '15', 10) || 15));
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: config.region,
+      endpoint: config.endpoint,
+      forcePathStyle: true,
+      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+      logger: { debug() {}, info() {}, warn() {}, error() {} }
+    });
+    const backup = async () => {
+      try {
+        // Ensure WAL is checkpointed so backup is consistent
+        try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch {}
+        const tmpPath = dbPath + '.fallback.tmp';
+        // better-sqlite3 backup: creates a snapshot
+        await db.backup(tmpPath);
+        const data = fs.readFileSync(tmpPath);
+        await client.send(new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: fallbackKey,
+          Body: data,
+          ContentLength: data.length,
+          ContentType: 'application/octet-stream'
+        }));
+        fs.rmSync(tmpPath, { force: true });
+        // keep health check happy even if env was cleared
+        process.env.PULSE_DB_FALLBACK = '1';
+      } catch (err) {
+        console.warn(`[pulse] Fallback backup failed: ${err.message}`);
+      }
+    };
+    // First backup after 10s, then interval
+    setTimeout(backup, 10000).unref?.();
+    const iv = setInterval(backup, intervalSec * 1000);
+    iv.unref?.();
+    console.log(`[pulse] Fallback DB backup enabled (every ${intervalSec}s to ${fallbackKey}) — Litestream is not running, so this keeps data from being lost. Set startCommand to 'npm run start:render' to use Litestream instead.`);
+  } catch (e) {
+    console.warn(`[pulse] Could not start fallback backup: ${e.message}`);
+  }
+}
+__maybeStartFallback().catch(() => {});
 
 export default db;

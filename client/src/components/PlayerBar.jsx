@@ -5,7 +5,7 @@ import NowPlaying from './NowPlaying.jsx';
 import WaveformSeekbar from './WaveformSeekbar.jsx';
 import { Cover } from './ui.jsx';
 import { formatDuration } from '../format.js';
-import { API_URL } from '../config.js';
+import { getApiUrl } from '../config.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useFavorites, isLikeable } from '../context/FavoritesContext.jsx';
@@ -340,7 +340,7 @@ export default function PlayerBar() {
                       error,
                       `url: ${errorDetail.url}`,
                       `code: ${errorDetail.code ?? 'n/a'} ${errorDetail.media_error || ''}`.trim(),
-                      `api: ${API_URL || '(same origin)'}`,
+                      `api: ${getApiUrl() || '(same origin)'}`,
                       `page: ${window.location.origin}`
                     ].join('\n');
                     try {

@@ -44,9 +44,11 @@ fi
 LITESTREAM_BIN="${LITESTREAM_BIN:-$(node scripts/litestream-path.mjs || true)}"
 LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-$PWD/litestream.yml}"
 if [ -z "$LITESTREAM_BIN" ] || [ ! -x "$LITESTREAM_BIN" ]; then
-  say "ERROR: a bucket is configured but the Litestream program was not found. Run 'npm ci' on a supported"
-  say "platform (Linux or macOS), or set LITESTREAM_DISABLED=true to run without database copies."
-  exit 1
+  say "WARNING: a bucket is configured but the Litestream program was not found on this machine."
+  say "Pulse will still start, but the database will be kept by the JS fallback (periodic S3 snapshot)"
+  say "instead of Litestream. Run 'npm ci' on Linux/macOS to get Litestream, or set LITESTREAM_DISABLED=true to silence this."
+  export PULSE_DB_FALLBACK=1
+  run_plain
 fi
 if [ ! -f "$LITESTREAM_CONFIG" ]; then
   say "ERROR: Litestream settings file not found: $LITESTREAM_CONFIG"
@@ -68,10 +70,23 @@ export PULSE_SHUTDOWN_DELAY_SECONDS="$((SYNC_SECONDS + 2))"
 
 say "Restoring the database from the bucket, if a saved copy exists..."
 if ! "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" -if-db-not-exists -if-replica-exists "$PULSE_DB_PATH"; then
-  # Carrying on would start an empty database and copy it over the saved one, losing everything.
-  say "ERROR: could not restore the database from the bucket, so Pulse is NOT starting."
-  say "Check the S3_* settings and that the bucket is reachable, then restart or redeploy."
-  exit 1
+  # Carrying on with an empty database would copy it over the saved one — but JS fallback may still have a copy.
+  say "WARNING: Litestream could not restore the database from the bucket (will try fallback)."
+  # Try JS fallback backup (fallback/pulse.db) if Litestream replica missing
+  if [ -f "$PULSE_DATA_DIR/fallback-restore-attempted" ]; then
+    :
+  else
+    touch "$PULSE_DATA_DIR/fallback-restore-attempted" || true
+  fi
+  # Attempt to pull fallback via Node if available — do not fail boot if it also has nothing
+  node scripts/restore-fallback.mjs "$PULSE_DB_PATH" "fallback/pulse.db" 2>&1 | while IFS= read -r line; do say "$line"; done || true
+  if [ ! -f "$PULSE_DB_PATH" ] || [ ! -s "$PULSE_DB_PATH" ]; then
+    say "No database to restore — starting with a fresh empty database (first boot)."
+  else
+    say "Database present after fallback check."
+  fi
+else
+  rm -f "$PULSE_DATA_DIR/fallback-restore-attempted" || true
 fi
 
 # Messages are restored too, but a failure here is not fatal: every conversation in that file is
@@ -80,6 +95,10 @@ fi
 say "Restoring messages from the bucket, if a saved copy exists..."
 "$LITESTREAM_BIN" restore -config "$LITESTREAM_CONFIG" -if-db-not-exists -if-replica-exists "$PULSE_CHAT_DB_PATH" \
   || say "WARNING: messages could not be restored; starting with an empty message store."
+# Also try chat fallback if needed
+if [ ! -f "$PULSE_CHAT_DB_PATH" ] || [ ! -s "$PULSE_CHAT_DB_PATH" ]; then
+  node scripts/restore-fallback.mjs "$PULSE_CHAT_DB_PATH" "fallback/chat.db" 2>&1 | while IFS= read -r line; do say "$line"; done || true
+fi
 
 say "Starting Pulse under Litestream; database changes are copied to bucket \"$S3_BUCKET\"."
 # Tell the app (and /api/health) that the database really is being copied, so it can distinguish

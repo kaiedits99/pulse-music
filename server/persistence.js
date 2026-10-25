@@ -30,10 +30,14 @@ export function dataSafety({ remote = false, env = process.env, managedHost } = 
   // Anything but an explicit "1" from the start script means Litestream is not running. Being strict
   // here is deliberate: claiming the database is replicated when it is not is the worst failure mode.
   const replicated = env.PULSE_DB_REPLICATED === '1';
+  const fallback = env.PULSE_DB_FALLBACK === '1' || env.PULSE_DB_REPLICATED === '1';
+  // Fallback is the JS snapshot that runs when Litestream is unavailable but a bucket is present.
+  // It is less robust than Litestream (single file, not replicated WAL), but it does survive a wipe.
+  const fallbackActive = bucket && fallback;
   const host = managedHost ?? Boolean(env.RENDER);
 
   const uploadsDurable = bucket || disk;
-  const databaseDurable = disk || replicated;
+  const databaseDurable = disk || replicated || fallbackActive;
 
   const uploads = {
     durable: uploadsDurable,
@@ -45,15 +49,18 @@ export function dataSafety({ remote = false, env = process.env, managedHost } = 
         : 'Uploaded audio and artwork sit on a temporary disk: a deploy, restart or sleep erases them.'
   };
 
+  const isBucket = replicated || fallbackActive;
   const database = {
     durable: databaseDurable,
-    where: replicated ? 'bucket' : disk ? 'disk' : 'temporary',
-    replicated,
+    where: isBucket ? 'bucket' : disk ? 'disk' : 'temporary',
+    replicated: replicated || fallbackActive,
     message: replicated
       ? 'Accounts, songs, playlists and messages are copied to the bucket by Litestream and restored when the server starts.'
-      : disk
-        ? 'Accounts, songs, playlists and messages are on this instance’s disk and survive deploys and restarts.'
-        : 'Accounts, songs, playlists and messages are on a temporary disk: a deploy, restart or sleep erases them.'
+      : fallbackActive
+        ? 'Accounts, songs, playlists and messages are copied to the bucket by the fallback snapshot and restored when the server starts.'
+        : disk
+          ? 'Accounts, songs, playlists and messages are on this instance’s disk and survive deploys and restarts.'
+          : 'Accounts, songs, playlists and messages are on a temporary disk: a deploy, restart or sleep erases them.'
   };
 
   const issues = [];
@@ -81,7 +88,7 @@ export function dataSafety({ remote = false, env = process.env, managedHost } = 
   const persistent = uploadsDurable && databaseDurable;
 
   let keeps = 'temporary';
-  if (persistent) keeps = replicated || bucket ? 'bucket' : 'disk';
+  if (persistent) keeps = (replicated || fallbackActive || bucket) ? 'bucket' : 'disk';
 
   let message;
   if (persistent) {

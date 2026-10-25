@@ -8,8 +8,8 @@
 // Playlist downloads also snapshot the playlist + its tracks, so the Downloads
 // page can list and play them fully offline (no API call needed).
 import { resolveLocalAudioUrl } from './localMusic.js';
-import { API_URL, apiUrl } from './config.js';
-import { resolveMediaUrl } from './media-url.js';
+import { getApiUrl, apiUrl } from './config.js';
+import { resolveMediaUrl, mediaUrlCandidates } from './media-url.js';
 
 const CACHE_NAME = 'pulse-offline-v1';
 const INDEX_KEY = 'pulse_offline_index_v1';
@@ -48,7 +48,8 @@ async function cache() {
 // the page origin asked the phone for a file that only exists on the server — the track showed up
 // but would not play, and downloads cached the wrong address. On the website both are the same.
 function mediaHref(path) {
-  const resolved = resolveMediaUrl(path, API_URL);
+  const api = getApiUrl();
+  const resolved = resolveMediaUrl(path, api);
   if (/^(https?:|blob:|data:)/i.test(resolved)) return resolved;
   return new URL(resolved, window.location.origin).toString();
 }
@@ -64,9 +65,65 @@ export function songAudioUrl(song) {
   return mediaHref(raw);
 }
 
+function candidateUrlsForSong(song) {
+  const raw = (song && (song.file_path || song.source_url || song.audioUrl)) || '';
+  if (!raw) return [];
+  if (/^(https?:|blob:|data:)/i.test(String(raw))) return [String(raw)];
+  return mediaUrlCandidates(raw, getApiUrl(), typeof window !== 'undefined' ? window.location.origin : '');
+}
+
+async function cacheAddWithFallback(url) {
+  const c = await cache();
+  // First try the simple path — cache.add follows redirects and is the common case
+  try {
+    await c.add(url);
+    return true;
+  } catch {}
+  // Fallback for cross-origin bucket redirects that need CORS mode, or opaque responses
+  try {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return false;
+    // Cache the final response under the original request URL so future c.match(url) finds it
+    await c.put(url, res);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findCachedResponse(url) {
+  const candidates = (() => {
+    if (/^(https?:|blob:|data:)/i.test(String(url))) return [url];
+    // url is already absolute via songAudioUrl, but try both API and page origins just in case
+    // the entry was cached under a different base (e.g., after a runtime URL change)
+    const api = getApiUrl();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const list = [url];
+    for (const cand of mediaUrlCandidates(url, api, origin)) {
+      if (!list.includes(cand)) list.push(cand);
+    }
+    // Also try resolving raw path if url looks like /media/...
+    if (String(url).startsWith('/media/')) {
+      for (const cand of mediaUrlCandidates(url, api, origin)) {
+        if (!list.includes(cand)) list.push(cand);
+      }
+    }
+    return list;
+  })();
+  const c = await cache();
+  for (const candidate of candidates) {
+    try {
+      const hit = await c.match(candidate);
+      if (hit) return hit;
+    } catch {}
+  }
+  return null;
+}
+
 export function hasPlayableAudio(song) {
   if (song && song.provider) return false;
-  return Boolean(songAudioUrl(song) && String(song.file_path || '').length > 0);
+  const hasSource = String(song.file_path || song.source_url || song.audioUrl || '').trim().length > 0;
+  return Boolean(songAudioUrl(song) && hasSource);
 }
 
 export function isSongDownloaded(songId) {
@@ -80,15 +137,23 @@ export function isPlaylistDownloaded(playlistId) {
 // Download one track's audio (+ cover). Returns 'cached' | 'added' | 'no-audio' | 'failed'.
 export async function downloadSong(song) {
   if (!hasPlayableAudio(song)) return 'no-audio';
-  const c = await cache();
   const audioUrl = songAudioUrl(song);
-  const existing = await c.match(audioUrl);
+  // Check all candidate URLs — after a runtime URL change the same track may be known under
+  // a different absolute host, and we don't want to treat it as new.
+  let existing = null;
+  try { existing = await findCachedResponse(audioUrl); } catch { existing = null; }
   let added = !existing;
   if (!existing) {
-    try { await c.add(audioUrl); } catch { return 'failed'; }
+    const ok = await cacheAddWithFallback(audioUrl);
+    if (!ok) return 'failed';
   }
   if (song.cover_url) {
-    try { await c.add(mediaHref(song.cover_url)); } catch { /* cover is optional */ }
+    const coverUrl = mediaHref(song.cover_url);
+    let coverHit = null;
+    try { coverHit = await findCachedResponse(coverUrl); } catch {}
+    if (!coverHit) {
+      await cacheAddWithFallback(coverUrl).catch(() => {});
+    }
   }
   const idx = readIndex();
   const isNew = !idx.songs[song.id];
@@ -144,7 +209,11 @@ export async function removeSong(songId) {
     );
     if (!stillUsed) {
       const c = await cache();
-      await c.delete(entry.audioUrl).catch(() => {});
+      // Try all candidates when deleting, to clean up after a host change
+      const urls = [entry.audioUrl, ...mediaUrlCandidates(entry.audioUrl, getApiUrl(), typeof window !== 'undefined' ? window.location.origin : '')];
+      for (const u of [...new Set(urls)]) {
+        try { await c.delete(u); } catch {}
+      }
     }
   }
   writeIndex(idx);
@@ -215,8 +284,7 @@ export async function resolvePlayableUrl(song) {
   if (song.offline_only) {
     if (blobUrlCache.has(song.id)) return blobUrlCache.get(song.id);
     try {
-      const c = await cache();
-      const hit = await c.match(audioUrl);
+      const hit = await findCachedResponse(audioUrl);
       if (hit) {
         const url = URL.createObjectURL(await hit.blob());
         blobUrlCache.set(song.id, url);
@@ -228,8 +296,7 @@ export async function resolvePlayableUrl(song) {
   if (isSongDownloaded(song.id) || !navigator.onLine) {
     if (blobUrlCache.has(song.id)) return blobUrlCache.get(song.id);
     try {
-      const c = await cache();
-      const hit = await c.match(audioUrl);
+      const hit = await findCachedResponse(audioUrl);
       if (hit) {
         const url = URL.createObjectURL(await hit.blob());
         blobUrlCache.set(song.id, url);
@@ -244,9 +311,13 @@ export async function resolvePlayableUrl(song) {
 export async function cachedCoverBlobUrl(coverPath) {
   if (!coverPath) return null;
   try {
+    const hit = await findCachedResponse(mediaHref(coverPath));
+    // findCachedResponse already opens cache; for cover we can also try direct mediaHref fallback
+    if (hit) return URL.createObjectURL(await hit.blob());
+    // try raw path candidate as well
     const c = await cache();
-    const hit = await c.match(mediaHref(coverPath));
-    return hit ? URL.createObjectURL(await hit.blob()) : null;
+    const direct = await c.match(mediaHref(coverPath)).catch(() => null);
+    return direct ? URL.createObjectURL(await direct.blob()) : null;
   } catch {
     return null;
   }

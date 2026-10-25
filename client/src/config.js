@@ -21,15 +21,26 @@ export function setRuntimeUrl(v) {
 // tests import this module to check media URLs.
 const buildUrl = String((import.meta.env && import.meta.env.VITE_API_URL) || '').replace(/\/+$/, '');
 
-export const API_URL = (getRuntimeUrl() || buildUrl).replace(/\/+$/, '');
+export function getApiUrl() {
+  try {
+    return (getRuntimeUrl() || buildUrl).replace(/\/+$/, '');
+  } catch {
+    return buildUrl.replace(/\/+$/, '');
+  }
+}
+
+// Static export for backward compatibility — prefer getApiUrl() where freshness matters
+// (the runtime URL can be set from the UI and needs a reload, but offline helpers
+// should always read the latest value).
+export const API_URL = getApiUrl();
 
 export function apiUrl(path) {
-  return API_URL + path;
+  return getApiUrl() + path;
 }
 
 // Resolve media/cover paths returned by the API (which are relative, e.g. "/media/uploads/x.wav").
 // Absolute URLs pass through untouched; the API base is what a relative path is joined to, so the
 // Android app (page on https://localhost, API elsewhere) asks the right host.
 export function mediaUrl(path) {
-  return resolveMediaUrl(path, API_URL);
+  return resolveMediaUrl(path, getApiUrl());
 }

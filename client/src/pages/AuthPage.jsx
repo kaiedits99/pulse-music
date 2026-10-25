@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { api } from '../api.js';
-import { API_URL, getRuntimeUrl, setRuntimeUrl } from '../config.js';
+import { getApiUrl, getRuntimeUrl, setRuntimeUrl } from '../config.js';
 import { isBundledShell, isNative } from '../native.js';
 import { formatNumber } from '../format.js';
 
@@ -45,7 +45,7 @@ export default function AuthPage({ initialMode = 'login' }) {
   const [showPass, setShowPass] = useState(false);
   // Inside the Android app the website address is the first thing a new install needs: without it
   // there is nothing to sign in to. Open the setting by itself when the app has no backend yet.
-  const [showServer, setShowServer] = useState(() => isBundledShell() && !getRuntimeUrl() && !API_URL);
+  const [showServer, setShowServer] = useState(() => isBundledShell() && !getRuntimeUrl() && !getApiUrl());
   const [serverUrl, setServerUrl] = useState(getRuntimeUrl() || '');
   const [stats, setStats] = useState(null);
 
