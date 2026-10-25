@@ -405,7 +405,7 @@ export default function Settings() {
             </button>
           </div>
           <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-            Export gives you a JSON file with your profile, uploads, playlists, favourites and follows. Deletion erases your account, handle, profile, follows and privately-owned content and logs you out. Public content may be kept briefly as “deleted user” where needed to avoid breaking other users’ playlists — we tell you if we must. Requests by email to <a href="mailto:privacy@pulse.music" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>privacy@pulse.music</a> are completed within 30 days.
+            Export gives you a JSON file with your profile, uploads, playlists, favourites and follows. Deletion erases your account, handle, profile, follows and privately-owned content and logs you out. Public content may be kept briefly as “deleted user” where needed to avoid breaking other users’ playlists — we tell you if we must. Requests by email to <a href="mailto:inputname9@aol.com" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>inputname9@aol.com</a> are completed within 30 days.
           </p>
           <p className="muted" style={{ fontSize: 12.5 }}>
             No unnecessary data collected. No marketing emails sent — so there is no newsletter to unsubscribe from. See <Link to="/terms" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Terms §12</Link> for every item we evaluated.
@@ -435,7 +435,7 @@ export default function Settings() {
                     {deleting ? <><Spinner size={14} /> Deleting…</> : 'Delete forever'}
                   </button>
                 </div>
-                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>You can also email <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> from your account email.</p>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>You can also email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> from your account email.</p>
               </>
             )}
           </div>

@@ -9,7 +9,7 @@ export default function Terms() {
       <div className="legal-hero">
         <h1>Terms of Service</h1>
         <p>Plain-English rules for using Pulse. By creating an account or using the service you agree to these terms. If you don’t agree, don’t use Pulse.</p>
-        <div className="legal-meta">Effective: 25 October 2026 · Governing law: Federal Republic of Nigeria (with mandatory local consumer protections respected) · Contact: support@pulse.music &amp; privacy@pulse.music</div>
+        <div className="legal-meta">Effective: 25 October 2026 · Governing law: Federal Republic of Nigeria (with mandatory local consumer protections respected) · Contact: inputname9@aol.com</div>
       </div>
 
       <section className="legal-card">
@@ -23,7 +23,7 @@ export default function Terms() {
         <ul>
           <li>You must be <strong>at least 13</strong> (16 in the EEA where required) and capable of forming a binding contract. By registering you represent you meet the age threshold.</li>
           <li>Provide accurate details (name, handle, email). Handles must be 3–30 characters, letters/numbers/underscore only, and not impersonate others.</li>
-          <li>Keep your password private. You are responsible for activity under your account. Notify us of compromise at support@pulse.music.</li>
+          <li>Keep your password private. You are responsible for activity under your account. Notify us of compromise at inputname9@aol.com.</li>
           <li>One account per person for everyday use. We may require you to verify email/handle ownership.</li>
         </ul>
       </section>
@@ -62,7 +62,7 @@ export default function Terms() {
 
       <section className="legal-card">
         <h2>6 · Intellectual property &amp; DMCA / notice-and-takedown</h2>
-        <p>If you believe content on Pulse infringes your copyright or trademark, email <a href="mailto:abuse@pulse.music">abuse@pulse.music</a> with: (a) identification of the work and the infringing URL, (b) your contact details, (c) a good-faith statement, (d) a statement under penalty of perjury that you are authorised, and (e) physical/electronic signature. We act expeditiously and notify the uploader, who may file a counter-notice. Repeat infringers are terminated.</p>
+        <p>If you believe content on Pulse infringes your copyright or trademark, email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> with: (a) identification of the work and the infringing URL, (b) your contact details, (c) a good-faith statement, (d) a statement under penalty of perjury that you are authorised, and (e) physical/electronic signature. We act expeditiously and notify the uploader, who may file a counter-notice. Repeat infringers are terminated.</p>
         <p>Fonts/images: Pulse uses <strong>Inter</strong> (Google Fonts, SIL Open Font License), system fallbacks, and icons drawn in-house as inline SVG. Cover art and avatars are user-supplied; Pulse claims no license to them beyond Section 3. All Pulse-owned branding and copy is © Pulse Music and may not be scraped or resold without written permission.</p>
       </section>
 
@@ -72,7 +72,7 @@ export default function Terms() {
         <ul>
           <li>Minimal data: name, handle, email, bcrypt password hash, 1–3 genre picks; content you upload; aggregate play counts. No address, phone, payment or location data.</li>
           <li>No marketing emails or newsletters — we send no bulk mail. If we ever do, every email will carry a one-click <strong>unsubscribe</strong> that works within 10 days (CAN-SPAM / GDPR).</li>
-          <li>Your GDPR/CCPA rights (access, rectification, export, erasure, objection, restriction, complaint) are exercisable via <Link to="/settings">Settings → Your data &amp; privacy</Link> or <a href="mailto:privacy@pulse.music">privacy@pulse.music</a>. Deletion is described below.</li>
+          <li>Your GDPR/CCPA rights (access, rectification, export, erasure, objection, restriction, complaint) are exercisable via <Link to="/settings">Settings → Your data &amp; privacy</Link> or <a href="mailto:inputname9@aol.com">inputname9@aol.com</a>. Deletion is described below.</li>
           <li>Cookies: essential storage only (see Cookie Policy). A consent banner asks before any non-essential analytics; you can change the choice at any time.</li>
         </ul>
       </section>
@@ -82,14 +82,14 @@ export default function Terms() {
         <p>You can <strong>export</strong> your data (JSON of profile, uploads, playlists, follows) and <strong>request erasure</strong> at any time:</p>
         <ul>
           <li><strong>Self-service:</strong> <Link to="/settings">Settings → Your data &amp; privacy → Export your data / Delete my account</Link>. Deletion requires re-authentication and a confirmation.</li>
-          <li><strong>By email:</strong> from your account email to <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> with subject “Deletion request”.</li>
+          <li><strong>By email:</strong> from your account email to <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> with subject “Deletion request”.</li>
         </ul>
         <p>On deletion we: remove your auth credentials, handle, profile, follows and privately-owned content; revoke your offline blob URLs; and purge you from the next storage/DB snapshot. Public content may be retained briefly as “deleted user” where required to avoid breaking other users’ playlists — we will tell you if we must. Backups are overwritten; requests are completed within <strong>30 days</strong> and confirmed by email.</p>
       </section>
 
       <section className="legal-card">
         <h2>9 · Children’s privacy (COPPA / GDPR-K)</h2>
-        <p>Pulse is not for children under 13. We do not knowingly collect under-13 data. If you are 13–15 in the EEA/UK or otherwise under the digital-consent age where you live, you represent you have your parent/guardian’s consent to use Pulse and to the processing described in the Privacy Policy. Parents/guardians may exercise rights on a child’s behalf at privacy@pulse.music. See our <Link to="/privacy">Privacy Policy §8</Link>.</p>
+        <p>Pulse is not for children under 13. We do not knowingly collect under-13 data. If you are 13–15 in the EEA/UK or otherwise under the digital-consent age where you live, you represent you have your parent/guardian’s consent to use Pulse and to the processing described in the Privacy Policy. Parents/guardians may exercise rights on a child’s behalf at inputname9@aol.com. See our <Link to="/privacy">Privacy Policy §8</Link>.</p>
       </section>
 
       <section className="legal-card">
@@ -146,12 +146,12 @@ export default function Terms() {
         </p>
 
         <h3>Accessibility commitment (expandable)</h3>
-        <p><strong>Alt text:</strong> covers, avatars and icon-only buttons carry <code>alt</code>/<code>aria-label</code>. Decorative bars carry <code>aria-hidden</code>. <strong>Colour contrast:</strong> dark text on light panel ≥ 7:1, light text on dark panel ≥ 7:1, accent buttons ≥ 4.5:1 — verified against WCAG AA. <strong>Keyboard:</strong> native focus order, visible <code>:focus-visible</code> ring, player seek and modals are keyboard operable. If you find a barrier, email <a href="mailto:accessibility@pulse.music">accessibility@pulse.music</a> and we prioritise it.</p>
+        <p><strong>Alt text:</strong> covers, avatars and icon-only buttons carry <code>alt</code>/<code>aria-label</code>. Decorative bars carry <code>aria-hidden</code>. <strong>Colour contrast:</strong> dark text on light panel ≥ 7:1, light text on dark panel ≥ 7:1, accent buttons ≥ 4.5:1 — verified against WCAG AA. <strong>Keyboard:</strong> native focus order, visible <code>:focus-visible</code> ring, player seek and modals are keyboard operable. If you find a barrier, email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> and we prioritise it.</p>
       </section>
 
       <section className="legal-card">
         <h2>13 · Contact</h2>
-        <p>Questions about these terms: <a href="mailto:support@pulse.music">support@pulse.music</a>. Privacy/DSR matters: <a href="mailto:privacy@pulse.music">privacy@pulse.music</a>. Abuse/copyright: <a href="mailto:abuse@pulse.music">abuse@pulse.music</a>.</p>
+        <p>For all inquiries — support, privacy/DSR, or abuse/copyright — email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a>.</p>
         <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>These terms are not legal advice. Where you need advice for your own material, consult qualified counsel in your jurisdiction.</p>
       </section>
 

@@ -52,7 +52,7 @@ export default function Layout() {
               <a href="/privacy" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Privacy</a>
               <a href="/terms" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Terms</a>
               <a href="/cookies" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Cookies</a>
-              <a href="mailto:privacy@pulse.music" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Contact</a>
+              <a href="mailto:inputname9@aol.com" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Contact</a>
             </footer>
           </ErrorBoundary>
         </main>

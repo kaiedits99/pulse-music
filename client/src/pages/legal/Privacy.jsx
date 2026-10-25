@@ -14,7 +14,7 @@ export default function Privacy() {
 
       <section className="legal-card">
         <h2><Icon name="shield" size={18} /> 1 · Who we are</h2>
-        <p><strong>Data controller:</strong> Pulse Music (“Pulse”, “we”, “us”). For privacy questions or Data Subject Requests email <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> or use the <Link to="/settings">Settings → Your data &amp; privacy</Link> controls. Pulse is operated from Lagos, Nigeria and serves users globally.</p>
+        <p><strong>Data controller:</strong> Pulse Music (“Pulse”, “we”, “us”). For privacy questions or Data Subject Requests email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> or use the <Link to="/settings">Settings → Your data &amp; privacy</Link> controls. Pulse is operated from Lagos, Nigeria and serves users globally.</p>
         <p>If you are in the EEA/UK, you have GDPR rights; if you are in California, you have CCPA rights — both are honoured for all users. Our lawful bases are <strong>contract</strong> (to run your account and catalogue), <strong>legitimate interest</strong> (security, abuse prevention, service improvement) and <strong>consent</strong> (optional analytics / cookies, marketing — which we do not send).</p>
       </section>
 
@@ -89,11 +89,11 @@ export default function Privacy() {
         <p>Wherever you live, you can:</p>
         <ul>
           <li><strong>Access &amp; export:</strong> <Link to="/settings">Settings → Your data &amp; privacy → Export your data</Link> (or email us) — we provide a JSON copy of your profile, uploads, playlists and follows.</li>
-          <li><strong>Rectify:</strong> edit name, handle, bio and genres in Settings; email corrections to privacy@pulse.music.</li>
-          <li><strong>Erase / deletion request:</strong> <Link to="/settings">Settings → Delete my account</Link> or email privacy@pulse.music. We delete your account, auth credentials, follows and privately-owned content and revoke offline blob URLs. Content you made <em>public</em> may remain visible as “deleted user” if required to preserve other users’ playlists — we will tell you before we keep it.</li>
+          <li><strong>Rectify:</strong> edit name, handle, bio and genres in Settings; email corrections to inputname9@aol.com.</li>
+          <li><strong>Erase / deletion request:</strong> <Link to="/settings">Settings → Delete my account</Link> or email inputname9@aol.com. We delete your account, auth credentials, follows and privately-owned content and revoke offline blob URLs. Content you made <em>public</em> may remain visible as “deleted user” if required to preserve other users’ playlists — we will tell you before we keep it.</li>
           <li><strong>Object / restrict &amp; withdraw consent:</strong> toggle genres, delete downloads, or clear site data in your browser. Cookie preferences can be changed at any time in the consent banner (re-openable from the Cookie Policy page).</li>
         </ul>
-        <p>We respond within <strong>30 days</strong> (EEA/UK GDPR) and without fee unless requests are manifestly unfounded or excessive. To exercise rights, email <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> with the email address on the account.</p>
+        <p>We respond within <strong>30 days</strong> (EEA/UK GDPR) and without fee unless requests are manifestly unfounded or excessive. To exercise rights, email <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> with the email address on the account.</p>
       </section>
 
       <section className="legal-card">
@@ -125,7 +125,7 @@ export default function Privacy() {
         <Link to="/terms">Terms of Service</Link>
         <Link to="/cookies">Cookie Policy</Link>
         <Link to="/settings">Manage data &amp; privacy</Link>
-        <a href="mailto:privacy@pulse.music">privacy@pulse.music</a>
+        <a href="mailto:inputname9@aol.com">inputname9@aol.com</a>
       </div>
     </div>
   );

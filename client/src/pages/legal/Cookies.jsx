@@ -85,7 +85,7 @@ export default function Cookies() {
 
       <section className="legal-card">
         <h2><Icon name="info" size={18} /> Questions</h2>
-        <p>Contact <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> with subject “Cookie Question”.</p>
+        <p>Contact <a href="mailto:inputname9@aol.com">inputname9@aol.com</a> with subject “Cookie Question”.</p>
       </section>
 
       <div className="legal-footer-links">
