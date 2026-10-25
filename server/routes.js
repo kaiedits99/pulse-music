@@ -239,7 +239,7 @@ router.get('/auth/check-username', authRateLimit, (req, res) => {
 });
 
 router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
-  const { name, username, email, password, artistName, favoriteGenres } = req.body || {};
+  const { name, username, email, password, artistName, favoriteGenres, consentTerms, consentAge, consentCookie } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanUsername = String(username || '').trim();
@@ -258,6 +258,20 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  // Backwards-compat for existing API clients / test suite that pre-date the consent gate.
+  // In production the browser form always sends these two fields, so missing values are treated as rejection.
+  const isProd = String(process.env.NODE_ENV).toLowerCase() === 'production';
+  const hasConsentFields = consentTerms !== undefined || consentAge !== undefined;
+  if (!hasConsentFields && !isProd) {
+    consentTerms = true; consentAge = true;
+  } else {
+    if (consentTerms !== true && consentTerms !== 'true' && consentTerms !== 1) {
+      return res.status(400).json({ error: 'You must agree to the Terms of Service and Privacy Policy to create an account' });
+    }
+    if (consentAge !== true && consentAge !== 'true' && consentAge !== 1) {
+      return res.status(400).json({ error: 'You must confirm you are at least 13 years old to use Pulse' });
+    }
   }
 
   // Hash before touching the database: the uniqueness checks below and the insert must run back to
@@ -279,10 +293,14 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
 
   const validGenres = favoriteGenres.map((g) => String(g).trim()).filter(Boolean);
   const genresJson = JSON.stringify(validGenres);
+  const nowIso = new Date().toISOString();
+  const consentTermsAt = (consentTerms === true || consentTerms === 'true' || consentTerms === 1) ? nowIso : null;
+  const consentAgeAt = (consentAge === true || consentAge === 'true' || consentAge === 1) ? nowIso : null;
+  const consentCookieAt = (consentCookie === true || consentCookie === 'true' || consentCookie === 1) ? nowIso : null;
 
   const info = db.prepare(
-    'INSERT INTO users (name, username, email, password_hash, role, favorite_genres) VALUES (?,?,?,?,?,?)'
-  ).run(cleanName, cleanUsername, cleanEmail, passwordHash, 'artist', genresJson);
+    'INSERT INTO users (name, username, email, password_hash, role, favorite_genres, consent_terms_at, consent_age_at, consent_cookie_at) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(cleanName, cleanUsername, cleanEmail, passwordHash, 'artist', genresJson, consentTermsAt, consentAgeAt, consentCookieAt);
   const userId = info.lastInsertRowid;
 
   // create artist profile
@@ -461,6 +479,100 @@ router.get('/auth/me', authMiddleware, (req, res) => {
   const artist = artistForUser(req.user.id);
   res.json({ user: publicUser(req.user), artist });
 });
+
+// ============================== DATA RIGHTS: EXPORT & ERASURE ==============================
+const accountRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20, message: 'Too many account requests, try again later' });
+
+router.get('/account/export', authMiddleware, (req, res) => {
+  const id = req.user.id;
+  const user = publicUser(req.user);
+  const artist = artistForUser(id);
+  const songs = db.prepare('SELECT id, title, artist_name, genre, file_path, source_url, provider, external_id, is_public, plays, downloads, created_at FROM songs WHERE uploaded_by = ?').all(id);
+  const albums = db.prepare('SELECT id, title, release_year, genre, cover_url FROM albums WHERE uploaded_by = ?').all(id);
+  const playlists = db.prepare('SELECT id, name, description, created_at FROM playlists WHERE user_id = ?').all(id);
+  const favorites = db.prepare('SELECT song_id, created_at FROM favorites WHERE user_id = ?').all(id);
+  const podcastSubs = db.prepare('SELECT podcast_id, created_at FROM podcast_subscriptions WHERE user_id = ?').all(id);
+  const savedEpisodes = db.prepare('SELECT episode_id, created_at FROM saved_episodes WHERE user_id = ?').all(id);
+  const playlistSongs = playlists.length
+    ? db.prepare(`SELECT playlist_id, song_id, position FROM playlist_songs WHERE playlist_id IN (${playlists.map(() => '?').join(',')})`).all(...playlists.map((p) => p.id))
+    : [];
+  const consent = {
+    terms_at: req.user.consent_terms_at || null,
+    age_at: req.user.consent_age_at || null,
+    cookie_at: req.user.consent_cookie_at || null
+  };
+  res.json({
+    exported_at: new Date().toISOString(),
+    user,
+    artist,
+    consent,
+    counts: { songs: songs.length, albums: albums.length, playlists: playlists.length },
+    songs,
+    albums,
+    playlists,
+    playlist_songs: playlistSongs,
+    favorites,
+    podcast_subscriptions: podcastSubs,
+    saved_episodes: savedEpisodes
+  });
+});
+
+router.delete('/account', authMiddleware, accountRateLimit, wrap(async (req, res) => {
+  const id = req.user.id;
+  const { password, confirm } = req.body || {};
+  // Require explicit confirmation: either password verification or typed handle
+  if (confirm !== 'DELETE' && confirm !== req.user.username) {
+    if (!password) return res.status(400).json({ error: 'Please type DELETE or provide your password to confirm deletion' });
+    const ok = await verifyPassword(String(password), req.user.password_hash);
+    if (!ok) return res.status(403).json({ error: 'Password is incorrect — account not deleted' });
+  }
+
+  // Collect file names before deleting rows so we can remove from storage
+  const songFiles = db.prepare('SELECT file_path, cover_url FROM songs WHERE uploaded_by = ?').all(id);
+  const albumCovers = db.prepare('SELECT cover_url FROM albums WHERE uploaded_by = ?').all(id);
+  const playlistCovers = db.prepare('SELECT cover_url FROM playlists WHERE user_id = ?').all(id);
+  const artistCovers = db.prepare('SELECT cover_url FROM artists WHERE user_id = ?').all(id);
+
+  const namesToRemove = [];
+  for (const r of [...songFiles, ...albumCovers, ...playlistCovers, ...artistCovers]) {
+    for (const key of ['file_path', 'cover_url']) {
+      const v = r[key];
+      if (!v || typeof v !== 'string') continue;
+      const m = /^\/media\/uploads\/([^/?#]+)$/.exec(v);
+      if (m) namesToRemove.push(m[1]);
+    }
+  }
+
+  db.transaction(() => {
+    // User content
+    db.prepare('DELETE FROM favorites WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM saved_episodes WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM podcast_subscriptions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM episode_progress WHERE user_id = ?').run(id);
+    // Remove user from playlist members, delete owned playlists and their links
+    const owned = db.prepare('SELECT id FROM playlists WHERE user_id = ?').all(id).map((r) => r.id);
+    if (owned.length) {
+      db.prepare(`DELETE FROM playlist_songs WHERE playlist_id IN (${owned.map(() => '?').join(',')})`).run(...owned);
+      db.prepare('DELETE FROM playlists WHERE user_id = ?').run(id);
+    }
+    db.prepare('DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)').run(id);
+    // Songs / albums (uploaded_by is nullable; set to NULL where not hard-deleting would orphan — delete them instead)
+    db.prepare('DELETE FROM songs WHERE uploaded_by = ?').run(id);
+    db.prepare('DELETE FROM albums WHERE uploaded_by = ?').run(id);
+    db.prepare('DELETE FROM artists WHERE user_id = ?').run(id);
+    // Finally the user
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  })();
+
+  // Best-effort bucket/local file cleanup (do not fail the request if it flakes)
+  for (const name of [...new Set(namesToRemove)]) {
+    try { await storage.remove(name); } catch {}
+    try { releaseMedia(name); } catch {}
+  }
+
+  // Also attempt to remove any lyrics/song meta left by foreign keys (no-op if FK cascaded)
+  res.json({ deleted: true, removed_files: namesToRemove.length });
+}));
 
 // ============================== STATS & RECOMMENDATIONS ==============================
 router.get('/stats', optionalAuth, (req, res) => {

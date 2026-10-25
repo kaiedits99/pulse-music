@@ -12,6 +12,10 @@ import Icon from './components/Icon.jsx';
 import { Spinner } from './components/ui.jsx';
 import Landing from './pages/Landing.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import Privacy from './pages/legal/Privacy.jsx';
+import Terms from './pages/legal/Terms.jsx';
+import Cookies from './pages/legal/Cookies.jsx';
+import CookieConsent from './components/CookieConsent.jsx';
 import Overview from './pages/Overview.jsx';
 import Search from './pages/Search.jsx';
 import Library from './pages/Library.jsx';
@@ -62,7 +66,13 @@ export default function App() {
               <FavoritesProvider>
                 <PlayerProvider>
                   <OfflineRouteManager />
+                  <a href="#main-content" className="sr-only" style={{ position: 'absolute', top: -999, left: -999 }}>Skip to main content</a>
+                  <CookieConsent />
                   <Routes>
+                    {/* Public legal — accessible whether signed in or not */}
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/cookies" element={<Cookies />} />
                     {/* the keys make /login and /signup remount, so each opens on its own tab */}
                     <Route path="/login" element={<AuthPage key="login" initialMode="login" />} />
                     <Route path="/signup" element={<AuthPage key="signup" initialMode="register" />} />

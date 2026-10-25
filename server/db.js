@@ -190,6 +190,10 @@ if (!userColumns.includes('username')) {
 if (!userColumns.includes('favorite_genres')) {
   db.exec('ALTER TABLE users ADD COLUMN favorite_genres TEXT');
 }
+// Compliance: explicit consents captured at registration (Privacy/TOS + age gate)
+if (!userColumns.includes('consent_terms_at')) db.exec('ALTER TABLE users ADD COLUMN consent_terms_at TEXT');
+if (!userColumns.includes('consent_age_at')) db.exec('ALTER TABLE users ADD COLUMN consent_age_at TEXT');
+if (!userColumns.includes('consent_cookie_at')) db.exec('ALTER TABLE users ADD COLUMN consent_cookie_at TEXT');
 
 try {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(LOWER(username)) WHERE username IS NOT NULL;');

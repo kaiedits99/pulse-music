@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import GoogleAuthButton from '../components/GoogleAuthButton.jsx';
 import { Spinner } from '../components/ui.jsx';
@@ -53,6 +53,9 @@ export default function AuthPage({ initialMode = 'login' }) {
     name: '', artistName: '', email: '', password: '', username: '', identifier: ''
   });
   const [selectedGenres, setSelectedGenres] = useState([]);
+  const [consentTerms, setConsentTerms] = useState(false);
+  const [consentAge, setConsentAge] = useState(false);
+  const [consentCookie, setConsentCookie] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: null, reason: '' });
   const checkTimerRef = useRef(null);
 
@@ -151,6 +154,8 @@ export default function AuthPage({ initialMode = 'login' }) {
     if (e) e.preventDefault();
     setError('');
     if (!selectedGenres.length) return setError('Please select at least 1 genre to personalise your music');
+    if (!consentTerms) return setError('Please agree to the Terms of Service and Privacy Policy');
+    if (!consentAge) return setError('You must confirm you are at least 13 years old to create an account');
 
     setBusy(true);
     try {
@@ -160,7 +165,10 @@ export default function AuthPage({ initialMode = 'login' }) {
         username: form.username.trim(),
         email: form.email.trim(),
         password: form.password,
-        favoriteGenres: selectedGenres
+        favoriteGenres: selectedGenres,
+        consentTerms,
+        consentAge,
+        consentCookie
       });
       toast(`Welcome to Pulse, @${form.username.trim()}!`);
       navigate(afterSignIn, { replace: true });
@@ -460,6 +468,21 @@ export default function AuthPage({ initialMode = 'login' }) {
                     })}
                   </div>
 
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 14px 12px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--card-2)' }}>
+                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={consentTerms} onChange={(e) => setConsentTerms(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--accent)' }} required />
+                      <span>I agree to the <Link to="/terms" target="_blank" rel="noopener" style={{ color: 'var(--accent-3)', textDecoration: 'underline' }}>Terms of Service</Link> and <Link to="/privacy" target="_blank" rel="noopener" style={{ color: 'var(--accent-3)', textDecoration: 'underline' }}>Privacy Policy</Link> <span style={{ color: 'var(--danger)' }}>*</span></span>
+                    </label>
+                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={consentAge} onChange={(e) => setConsentAge(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--accent)' }} required />
+                      <span>I confirm I am at least 13 years old (16 where required) and have the right to use Pulse <span style={{ color: 'var(--danger)' }}>*</span></span>
+                    </label>
+                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={consentCookie} onChange={(e) => setConsentCookie(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--accent)' }} />
+                      <span>Allow optional anonymous analytics (helps us improve — no ads or tracking). You can change this in the <Link to="/cookies" target="_blank" rel="noopener" style={{ color: 'var(--accent-3)', textDecoration: 'underline' }}>Cookie Policy</Link>.</span>
+                    </label>
+                  </div>
+
                   <div className="row">
                     <button type="button" className="btn btn-ghost" onClick={() => setRegStep(2)} disabled={busy}>
                       <Icon name="arrowLeft" size={16} /> Back
@@ -468,14 +491,11 @@ export default function AuthPage({ initialMode = 'login' }) {
                       type="button"
                       className="btn btn-primary grow btn-lg"
                       onClick={submitRegister}
-                      disabled={busy || selectedGenres.length === 0}
+                      disabled={busy || selectedGenres.length === 0 || !consentTerms || !consentAge}
                     >
                       {busy ? <><Spinner size={18} /> Creating account…</> : <>Sign up <Icon name="sparkle" size={17} /></>}
                     </button>
                   </div>
-                  <p className="auth-note" style={{ textAlign: 'center' }}>
-                    By signing up you agree to Pulse’s Terms and Privacy Policy.
-                  </p>
                 </div>
               )}
 

@@ -42,11 +42,18 @@ export default function Layout() {
 
       <div className="app-main">
         <Topbar onMenu={() => setMenuOpen(true)} onAccount={() => setAccountOpen(true)} />
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           <ErrorBoundary>
             <DataSafetyBanner />
             <UpdateNotice />
             <Outlet />
+            <footer className="legal-footer-min" style={{ marginTop: 28, paddingTop: 14, borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--text-faint)' }}>
+              <span>© {new Date().getFullYear()} Pulse Music</span>
+              <a href="/privacy" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Privacy</a>
+              <a href="/terms" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Terms</a>
+              <a href="/cookies" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Cookies</a>
+              <a href="mailto:privacy@pulse.music" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Contact</a>
+            </footer>
           </ErrorBoundary>
         </main>
       </div>

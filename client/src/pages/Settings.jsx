@@ -46,6 +46,10 @@ export default function Settings() {
   const [offline, setOffline] = useState({ songs: 0, playlists: 0 });
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [deleteStep, setDeleteStep] = useState(0); // 0 none, 1 confirm, 2 password
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (artist) {
@@ -158,6 +162,42 @@ export default function Settings() {
   const clearDownloads = async () => {
     await clearAllDownloads();
     toast('All downloads cleared');
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const data = await api.get('/api/account/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pulse-export-${user?.username || user?.id}-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Your data export has been downloaded');
+    } catch (err) { toast(err.message || 'Could not export data', 'error'); }
+    finally { setExporting(false); }
+  };
+
+  const doDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      const { apiUrl } = await import('../config.js');
+      const token = localStorage.getItem('pulse_token');
+      const res = await fetch(apiUrl('/api/account'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ password: deletePassword, confirm: deletePassword })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Delete failed (${res.status})`);
+      localStorage.removeItem('pulse_token');
+      toast('Account deleted — we have erased your Pulse data. You have been signed out.');
+      window.location.href = '/';
+    } catch (err) {
+      toast(err.message || 'Could not delete account', 'error');
+    } finally { setDeleting(false); }
   };
 
   return (
@@ -342,6 +382,64 @@ export default function Settings() {
             <Icon name="trash" size={15} /> Clear all downloads
           </button>
         </div>
+      </section>
+
+      {/* ================================ Your data & privacy (GDPR) ==== */}
+      <section className="panel" style={{ borderColor: 'rgba(139,92,246,0.18)' }}>
+        <div className="panel-head"><h3><Icon name="shield" size={17} /> Your data &amp; privacy</h3></div>
+        <p className="panel-desc">
+          Pulse keeps only what it needs: your name, handle, email, 1–3 favourite genres, and the music you upload. No ads, no tracking, no payment data. Control your rights here.
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Link className="btn btn-ghost btn-sm btn-pill" to="/privacy"><Icon name="shield" size={15} /> Privacy Policy</Link>
+          <Link className="btn btn-ghost btn-sm btn-pill" to="/terms"><Icon name="info" size={15} /> Terms of Service</Link>
+          <Link className="btn btn-ghost btn-sm btn-pill" to="/cookies"><Icon name="cookie" size={15} /> Cookie Policy</Link>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-primary btn-sm" onClick={exportData} disabled={exporting}>
+              {exporting ? <><Spinner size={14} /> Exporting…</> : <><Icon name="download" size={15} /> Export your data (JSON)</>}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm danger" onClick={() => setDeleteStep(1)}>
+              <Icon name="trash" size={15} /> Delete my account
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            Export gives you a JSON file with your profile, uploads, playlists, favourites and follows. Deletion erases your account, handle, profile, follows and privately-owned content and logs you out. Public content may be kept briefly as “deleted user” where needed to avoid breaking other users’ playlists — we tell you if we must. Requests by email to <a href="mailto:privacy@pulse.music" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>privacy@pulse.music</a> are completed within 30 days.
+          </p>
+          <p className="muted" style={{ fontSize: 12.5 }}>
+            No unnecessary data collected. No marketing emails sent — so there is no newsletter to unsubscribe from. See <Link to="/terms" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Terms §12</Link> for every item we evaluated.
+          </p>
+        </div>
+        {deleteStep > 0 && (
+          <div style={{ marginTop: 16, padding: 14, borderRadius: 12, border: '1px solid rgba(244,63,94,0.22)', background: 'rgba(244,63,94,0.08)' }}>
+            {deleteStep === 1 && (
+              <>
+                <p style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8, color: 'var(--danger)' }}>Are you sure?</p>
+                <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 12 }}>
+                  This erases your Pulse account and your handle <strong>@{user?.username}</strong> forever. Your uploaded songs, owned playlists and favourites go with it. This cannot be undone.
+                </p>
+                <div className="row" style={{ gap: 8 }}>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteStep(0)}>Cancel</button>
+                  <button type="button" className="btn btn-primary btn-sm danger" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => setDeleteStep(2)}>Continue</button>
+                </div>
+              </>
+            )}
+            {deleteStep === 2 && (
+              <>
+                <p style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>Type your password or <code>DELETE</code> to confirm</p>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Password or DELETE" className="input" style={{ flex: 1, minWidth: 180 }} />
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteStep(0)} disabled={deleting}>Cancel</button>
+                  <button type="button" className="btn btn-primary btn-sm danger" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={doDeleteAccount} disabled={deleting || !deletePassword}>
+                    {deleting ? <><Spinner size={14} /> Deleting…</> : 'Delete forever'}
+                  </button>
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>You can also email <a href="mailto:privacy@pulse.music">privacy@pulse.music</a> from your account email.</p>
+              </>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="panel muted-panel">
