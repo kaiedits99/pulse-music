@@ -329,14 +329,13 @@ export default function AuthPage({ initialMode = 'login' }) {
                     </button>
                   </div>
                 </label>
+                <div className="auth-forgot-row">
+                  <Link className="link-btn" to="/forgot-password">Forgot password?</Link>
+                </div>
                 <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={busy}>
                   {busy ? <><Spinner size={18} /> Signing in…</> : 'Sign in to Pulse'}
                 </button>
               </form>
-              <p className="auth-foot" style={{ marginTop: -8, textAlign: 'right' }}>
-                <Link className="link-btn" to="/forgot-password">Forgot password?</Link>
-              </p>
-
               <GoogleAuthButton />
 
               <p className="auth-foot">
