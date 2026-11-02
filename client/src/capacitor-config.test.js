@@ -13,10 +13,14 @@ const configPath = path.join(clientDir, 'capacitor.config.json');
 const runtimePath = path.join(clientDir, 'public', 'capacitor-runtime.js');
 const original = fs.readFileSync(configPath, 'utf8');
 const originalRuntime = fs.readFileSync(runtimePath, 'utf8');
+// The generator writes public/offline.html from scripts/templates/offline.html; restore the
+// generated copy so the repository keeps whichever one it had.
+const originalOffline = fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8');
 
 after(() => {
   fs.writeFileSync(configPath, original);
   fs.writeFileSync(runtimePath, originalRuntime);
+  fs.writeFileSync(path.join(clientDir, 'public', 'offline.html'), originalOffline);
 });
 
 function generate(env = {}) {
@@ -66,29 +70,68 @@ test('without an address the bundled app is built, and asks on first launch', ()
   assert.match(output, /bundled app/);
 });
 
+const templatePath = path.join(clientDir, 'scripts', 'templates', 'offline.html');
+
 test('the bundled mobile recovery page wakes and retries the configured website', () => {
-  const page = fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8');
-  const script = fs.readFileSync(path.join(clientDir, 'public', 'offline.js'), 'utf8');
-  assert.match(page, /src="\.\/offline\.js"/, 'the page loads its logic from a file the CSP allows');
-  assert.match(script, /PULSE_CAPACITOR_RUNTIME/);
-  assert.match(script, /fetch\(health, \{ method: 'GET', cache: 'no-store'/);
-  assert.match(script, /window\.location\.replace\(target\)/);
-  assert.match(script, /login\?settings=server/);
+  const page = fs.readFileSync(templatePath, 'utf8');
+  assert.match(page, /PULSE_CAPACITOR_RUNTIME/);
+  assert.match(page, /healthUrl/);
+  assert.match(page, /\/api\/health/);
+  assert.match(page, /location\.replace\(target\)/);
+  assert.match(page, /\/login\?settings=server/);
 });
 
-test('no page under public/ relies on an inline script the server CSP would block', () => {
-  // server/index.js sends `script-src 'self' https://accounts.google.com` with no 'unsafe-inline'.
-  // An inline script therefore never runs: the recovery page painted but "Try again" did nothing.
+test('the recovery page carries its own settings, with no external file to lose', () => {
+  // Capacitor serves this page from the local origin but proxies its sub-resources to the network
+  // in live mode, where "localhost" does not exist. A page that loaded ./capacitor-runtime.js or
+  // ./offline.js painted its styles and then had no address, a dead retry and no settings button.
+  // Everything it needs must be inline; the only external reference is the marker the build
+  // replaces with the address.
+  const page = fs.readFileSync(templatePath, 'utf8');
+  const external = [...page.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)]
+    .map((match) => match[1])
+    .filter((url) => !/^#/.test(url));
+  assert.deepEqual(external, ['./capacitor-runtime.js'], 'no stylesheet, font or script is fetched at runtime');
+  assert.equal(fs.existsSync(path.join(clientDir, 'public', 'offline.html')) === false, false, 'the built page exists');
+  assert.equal(fs.existsSync(path.join(clientDir, 'public', 'offline.js')), false, 'the external logic file is gone');
+
+  // And the control that lets someone out of the screen is a real link, so it works without JS.
+  assert.match(page, /<a[^>]+id="retry"/);
+  assert.match(page, /<a[^>]+id="change-server"[^>]+href="\/login\?settings=server"/);
+});
+
+test('the build inlines the website address into the recovery page', () => {
+  const live = generate({ PULSE_APP_URL: 'https://pulse.example.com' });
+  const page = fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8');
+  assert.match(page, /window\.PULSE_CAPACITOR_RUNTIME = \{"remoteUrl":"https:\/\/pulse\.example\.com"\}/);
+  assert.doesNotMatch(page, /src="\.\/capacitor-runtime\.js"/, 'the built copy loads nothing external');
+  assert.equal(live.config.server.errorPath, 'offline.html');
+
+  const bundled = generate({});
+  assert.match(fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8'),
+    /window\.PULSE_CAPACITOR_RUNTIME = \{"remoteUrl":""\}/, 'the bundled app inlines an empty address');
+  assert.equal(bundled.config.server.url, undefined);
+});
+
+test('no page under public/ relies on an inline script the server CSP would block when served', () => {
+  // The recovery page is shown by two servers. The website's CSP forbids inline scripts, so the
+  // copy the site serves runs no script at all — which is why every control on it is a plain link
+  // that works with JavaScript switched off. Once the build inlines its settings, that is the only
+  // way both copies can behave. Inline scripts are therefore allowed only for that one settings
+  // assignment, and no page may load a script from a path the proxy would drop.
   const dir = path.join(clientDir, 'public');
   const offenders = [];
   for (const name of fs.readdirSync(dir).filter((file) => file.endsWith('.html'))) {
     const html = fs.readFileSync(path.join(dir, name), 'utf8');
     for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
       const hasSrc = /\bsrc\s*=/i.test(match[1]);
-      if (!hasSrc || match[2].trim()) offenders.push(`${name}: inline script`);
+      if (!hasSrc) continue;
+      const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(match[1])?.[1] || '';
+      // A relative sub-resource of the recovery page dies under Capacitor's proxy.
+      if (name === 'offline.html' && !/^https?:/i.test(src)) offenders.push(`${name}: loads ${src}`);
     }
   }
-  assert.deepEqual(offenders, [], `these would be blocked by the app's own CSP:\n${offenders.join('\n')}`);
+  assert.deepEqual(offenders, [], `these would not load in the app:\n${offenders.join('\n')}`);
 });
 
 test('plain http is refused for a real host, but allowed for localhost', () => {

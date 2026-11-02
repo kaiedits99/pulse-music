@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(here, '..', 'capacitor.config.json');
 const runtimePath = path.join(here, '..', 'public', 'capacitor-runtime.js');
+const offlinePath = path.join(here, '..', 'public', 'offline.html');
+const offlineTemplatePath = path.join(here, 'templates', 'offline.html');
+const OFFLINE_RUNTIME = '<script src="./capacitor-runtime.js"></script>';
 
 const raw = String(process.env.PULSE_APP_URL || process.env.VITE_API_URL || '').trim();
 const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(raw);
@@ -42,9 +45,30 @@ const base = {
 };
 
 const target = normalize(raw);
-// The native offline error page is a local asset; give its retry action the exact same
-// configured origin so it can wake a sleeping host instead of reloading the error page.
+
+/**
+ * The recovery page needs the website address SCRIPTED INTO IT, not loaded from a file next to it.
+ *
+ * Capacitor shows that page from the app's local origin, but in live mode only the exact error URL
+ * counts as local: every sub-resource of the page (a .js, a .css) is proxied to the network, where
+ * "localhost" is the phone itself. A page that fetched its settings from ./capacitor-runtime.js
+ * therefore painted its styles and then had no address, no settings button and a dead retry. The
+ * source keeps a marker line; the build replaces that line with the address, and the shipped copy
+ * carries no external dependency at all.
+ */
+function inlineOfflineRuntime(page, remoteUrl) {
+  if (!page.includes(OFFLINE_RUNTIME)) {
+    throw new Error(`offline.html must contain the marker ${OFFLINE_RUNTIME} so the build can inline its settings`);
+  }
+  const settings = JSON.stringify({ remoteUrl: remoteUrl || '' });
+  return page.replace(OFFLINE_RUNTIME, `<script>window.PULSE_CAPACITOR_RUNTIME = ${settings};</script>`);
+}
+
+// Kept for the website build, where /capacitor-runtime.js is served as a normal file.
 fs.writeFileSync(runtimePath, `window.PULSE_CAPACITOR_RUNTIME = ${JSON.stringify({ remoteUrl: target || '' })};\n`);
+// The page itself: source template -> shipped copy with the address inside it. Always from the
+// template, never from the previous output, or a second build would have nothing left to replace.
+fs.writeFileSync(offlinePath, inlineOfflineRuntime(fs.readFileSync(offlineTemplatePath, 'utf8'), target || ''));
 
 if (!target) {
   if (raw) {

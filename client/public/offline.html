@@ -5,6 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#08080a" />
   <title>Pulse — can’t reach the site</title>
+  <!--
+    TEMPLATE. The build turns this into public/offline.html (see scripts/capacitor-config.mjs),
+    replacing the capacitor-runtime marker line below with the website address. Edit this file,
+    never the generated copy: this one is the source of truth and the only copy in git.
+
+    The page shown when the app cannot reach the website.
+
+    It is deliberately ONE self-contained file with no external script, stylesheet or font, and it
+    works with JavaScript switched off. Capacitor shows it from the app's own local origin
+    (https://localhost/offline.html), but in live mode it only treats that exact URL as local:
+    every sub-resource of this page is sent to the network instead, where "localhost" does not
+    exist. A page that loaded ./offline.js therefore painted its styles and then died — a "Try
+    again" button that did nothing and no way back to the settings screen. Everything here is
+    either inline or a plain link, so nothing can be missing.
+
+    The two links are real navigations, so they work even with no JavaScript:
+      * "Try again" reloads the website if this copy was bundled with an address, or the app's own
+        recovery page if it is being served by the live site (that copy knows the address).
+      * "Open app settings" is the app's own settings screen, which offers a different address.
+    The script is a progressive enhancement on top: it wakes a sleeping host before reloading.
+  -->
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -21,15 +42,24 @@
     }
     h1 { font-size: 21px; line-height: 1.3; margin: 0 0 10px; }
     p { margin: 0 0 22px; color: #a9a3bf; font-size: 14px; }
-    button {
-      font: inherit; font-weight: 700; color: #fff; cursor: pointer;
-      padding: 13px 26px; border: 0; border-radius: 999px;
+    .actions { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+    .btn {
+      font: inherit; font-weight: 700; color: #fff; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 13px 26px; border: 0; border-radius: 999px; width: 100%; max-width: 260px;
       background: linear-gradient(135deg, #a855f7, #7c3aed 60%, #6d28d9);
       box-shadow: 0 10px 26px rgba(124, 58, 237, .3);
     }
-    button:active { transform: translateY(1px); }
-    .hint { margin-top: 22px; font-size: 12px; color: #7f7a95; }
+    .btn:active { transform: translateY(1px); }
+    .btn.secondary {
+      background: #1e1b2e; box-shadow: none; border: 1px solid #2a2640;
+      font-size: 13px; padding: 10px 18px;
+    }
+    .hint { margin-top: 22px; margin-bottom: 0; font-size: 12px; color: #7f7a95; }
     #retry-status:empty { display: none; }
+    #retry-status { margin: 14px 0 0; font-size: 12px; color: #a9a3bf; }
+    #server-info { margin: 0 0 18px; font-size: 12px; color: #a9a3bf; word-break: break-all; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -44,13 +74,94 @@
     </div>
     <h1>Can’t reach Pulse right now</h1>
     <p>Check your connection — or give the site a moment if it was asleep — then try again.</p>
-    <button id="retry" type="button">Try again</button>
-    <p class="hint" id="retry-status" aria-live="polite"></p>
+    <div id="server-info" hidden></div>
+    <div class="actions">
+      <!-- Root-absolute on purpose: a relative link breaks when the site is served under a path. -->
+      <a id="retry" class="btn" href="/offline.html">Try again</a>
+      <a id="change-server" class="btn secondary" href="/login?settings=server" hidden>Open app settings</a>
+    </div>
+    <p id="retry-status" aria-live="polite"></p>
     <p class="hint" id="hint">Anything you downloaded for offline listening is still on this device.</p>
-    <div id="server-info" style="display:none; margin-top:18px; font-size:12px; color:#a9a3bf;"></div>
-    <button id="change-server" type="button" style="display:none; margin-top:12px; background:#1e1b2e; box-shadow:none; border:1px solid #2a2640; font-size:13px; padding:8px 14px;">Open app settings</button>
   </main>
-  <script src="./capacitor-runtime.js"></script>
-  <script src="./offline.js"></script>
+  <script>window.PULSE_CAPACITOR_RUNTIME = {"remoteUrl":""};</script>
+  <script>
+    // Optional: everything above already works without this block. The server's Content-Security-
+    // Policy strips inline scripts from the copy it serves, and the native copy runs it — both
+    // behave correctly, only the waking behaviour differs.
+    (function () {
+      var runtime = window.PULSE_CAPACITOR_RUNTIME || {};
+      var configured = String(runtime.remoteUrl || '').trim();
+      var localShell = /^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
+      var retry = document.getElementById('retry');
+      var settings = document.getElementById('change-server');
+      var info = document.getElementById('server-info');
+      var status = document.getElementById('retry-status');
+      var hint = document.getElementById('hint');
+      var stored = '';
+      try { stored = localStorage.getItem('pulse_api_url') || ''; } catch (e) {}
+
+      // On the native copy of this page we know the website's address; on the copy the website
+      // serves we do not (it lives the other way round), so send the person to the recovery page
+      // under the app's own origin, which does know it.
+      var target = configured;
+      if (!target && !localShell) target = location.origin + '/offline.html';
+
+      var showing = configured || stored;
+      if (showing) {
+        info.hidden = false;
+        info.textContent = 'Website: ' + showing;
+      }
+      if (!target && !stored && localShell) {
+        hint.textContent = 'This app needs the address of your Pulse website. Open app settings to enter it.';
+      }
+
+      // Always offer a way out — this is the screen someone reaches when the app cannot start.
+      settings.hidden = false;
+
+      function healthUrl(site) {
+        var base = new URL(site);
+        var path = base.pathname.replace(/\/+$/, '');
+        base.pathname = path + '/api/health';
+        base.search = '';
+        base.hash = '';
+        return base;
+      }
+
+      retry.addEventListener('click', function (event) {
+        if (!target) return; // no address known: let the plain link reload
+        event.preventDefault();
+        retry.setAttribute('aria-disabled', 'true');
+        retry.style.opacity = '0.6';
+        status.textContent = 'Checking the website…';
+
+        var health;
+        try { health = healthUrl(target); }
+        catch (e) { status.textContent = 'The saved website address is invalid. Open app settings to change it.'; return; }
+
+        var controller = null;
+        var timer = null;
+        try {
+          controller = new AbortController();
+          timer = setTimeout(function () { controller.abort(); }, 10000);
+        } catch (e) {}
+
+        var options = { method: 'GET', cache: 'no-store', credentials: 'omit' };
+        if (controller) options.signal = controller.signal;
+
+        // Either the health check answers, or the socket does not — the link follows in both
+        // cases, because a page that cannot get an answer must still let the person leave it.
+        fetch(health, options)
+          .then(function (response) { return response.json().catch(function () { return null; }).then(function (data) {
+            return response.ok && data && data.status === 'ok';
+          }); })
+          .catch(function () { return false; })
+          .then(function (awake) {
+            if (awake) status.textContent = 'Pulse is awake. Reconnecting…';
+            else status.textContent = 'Pulse still isn’t responding. Reconnecting anyway…';
+            setTimeout(function () { location.replace(target); }, 400);
+          });
+      });
+    })();
+  </script>
 </body>
 </html>

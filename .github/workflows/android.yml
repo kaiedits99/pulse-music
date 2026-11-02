@@ -55,12 +55,20 @@ jobs:
       # The same variable points the app at the site. With it set, the app opens the live
       # website (so web fixes arrive with every deploy instead of needing a new APK); without it,
       # the app bundles its own copy and asks for an address on first launch.
+      # Which mode this APK is decides where a phone can get help when the site is down, so the
+      # build records the answer in the run summary instead of leaving it buried in the log.
       - name: Choose how the app loads Pulse
         working-directory: client
         env:
           PULSE_APP_URL: ${{ vars.PULSE_APP_URL }}
           VITE_API_URL: ${{ vars.VITE_API_URL }}
-        run: node scripts/capacitor-config.mjs
+        run: |
+          node scripts/capacitor-config.mjs
+          MODE="$(node -e "const c=require('./capacitor.config.json');console.log(c.server.url ? 'live: '+c.server.url : 'bundled (asks for an address on first launch)')")"
+          echo "App mode: **$MODE**" >> "$GITHUB_STEP_SUMMARY"
+          if ! node -e "process.exit(require('./capacitor.config.json').server.url ? 0 : 1)"; then
+            echo "::warning title=No website address in this APK::PULSE_APP_URL/VITE_API_URL is not set (or was rejected), so this app opens its own bundled copy and asks for a server address. Set one under Settings -> Secrets and variables -> Actions -> Variables to build the live app."
+          fi
 
       - name: Build web app
         working-directory: client

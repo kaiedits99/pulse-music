@@ -29,6 +29,12 @@ is set when it is built:
   reconnects. **Open app settings** switches to the bundled sign-in screen, where you can enter a
   different website address. The normal *Backend server URL* setting stays out of the live site's
   sign-in screen.
+
+  That recovery page is a single self-contained file. Capacitor serves it from the app's local
+  origin but proxies its sub-resources to the network, so a page that loaded `./something.js`
+  would paint and then lose its behaviour — which is exactly what a "Try again" button that does
+  nothing looked like. Its two controls are plain links, so they work with the page's script
+  missing or blocked.
 - **Bundled mode (no address set).** The app carries its own copy of the interface and asks for the
   backend address on first launch. It works offline out of the box, but **a new APK is needed for
   every interface change**.
