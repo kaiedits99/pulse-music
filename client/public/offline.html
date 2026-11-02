@@ -20,11 +20,18 @@
     again" button that did nothing and no way back to the settings screen. Everything here is
     either inline or a plain link, so nothing can be missing.
 
-    The two links are real navigations, so they work even with no JavaScript:
-      * "Try again" reloads the website if this copy was bundled with an address, or the app's own
-        recovery page if it is being served by the live site (that copy knows the address).
-      * "Open app settings" is the app's own settings screen, which offers a different address.
-    The script is a progressive enhancement on top: it wakes a sleeping host before reloading.
+    The address can be changed right here. "Open app settings" used to navigate to the app's
+    local sign-in screen (/login?settings=server), which cannot work in live mode: Capacitor has
+    to proxy that host to the network, nothing listens on it, and the navigation fails — landing
+    straight back on this page. The button therefore looked dead. A field on this page needs no
+    navigation at all, and it still works when the configured address itself is wrong.
+
+    "Try again" is a real link, so it works even with no JavaScript:
+      * "Try again" reloads the configured website (or this page's own address when it is the copy
+        the website serves, since only the native copy knows the address).
+    The script is a progressive enhancement: it wakes a sleeping host, and it saves a new address.
+    Without JavaScript the page still explains itself and "Try again" still works, but the address
+    field is a plain form that needs the site's own settings screen instead.
   -->
   <style>
     :root { color-scheme: dark; }
@@ -59,6 +66,15 @@
     #retry-status:empty { display: none; }
     #retry-status { margin: 14px 0 0; font-size: 12px; color: #a9a3bf; }
     #server-info { margin: 0 0 18px; font-size: 12px; color: #a9a3bf; word-break: break-all; }
+    .server-form { margin-top: 18px; text-align: left; }
+    .server-form label { display: block; font-size: 12px; color: #a9a3bf; margin-bottom: 6px; }
+    .server-form input {
+      width: 100%; font: inherit; font-size: 14px; color: #eceaf5; padding: 11px 12px;
+      background: #14121d; border: 1px solid #2a2640; border-radius: 10px; margin-bottom: 10px;
+    }
+    .server-form input:focus { outline: 2px solid #7c3aed; outline-offset: 1px; }
+    .server-form .btn { width: 100%; max-width: none; font-size: 14px; padding: 11px 18px; }
+    #server-status { margin-top: 10px; margin-bottom: 0; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -76,10 +92,23 @@
     <p>Check your connection — or give the site a moment if it was asleep — then try again.</p>
     <div id="server-info" hidden></div>
     <div class="actions">
-      <!-- Root-absolute on purpose: a relative link breaks when the site is served under a path. -->
-      <a id="retry" class="btn" href="/offline.html">Try again</a>
-      <a id="change-server" class="btn secondary" href="/login?settings=server" hidden>Open app settings</a>
+      <!-- Root-absolute on purpose: a relative link breaks when the site is served under a path.
+           The no-JavaScript default is the page's own origin, which is always safe: on the website
+           copy that reloads the site, and on the native copy the script immediately rewrites it to
+           the configured website (or to the local settings screen when nothing is configured). -->
+      <a id="retry" class="btn" href="/">Try again</a>
+      <button id="change-server" class="btn secondary" type="button" hidden>Change the website address</button>
     </div>
+    <!-- Kept in the page, not on another screen: the address must be editable even when the
+         configured one is wrong, and a navigation to the app's local settings screen cannot
+         succeed in live mode (see the note at the top of this file). -->
+    <form id="server-form" class="server-form" hidden>
+      <label for="server-url">Pulse website address</label>
+      <input id="server-url" type="url" inputmode="url" autocomplete="url" spellcheck="false"
+             placeholder="https://your-site.example" />
+      <button id="server-save" class="btn btn-sm" type="submit">Save and reconnect</button>
+      <p id="server-status" class="hint" aria-live="polite"></p>
+    </form>
     <p id="retry-status" aria-live="polite"></p>
     <p class="hint" id="hint">Anything you downloaded for offline listening is still on this device.</p>
   </main>
@@ -94,30 +123,59 @@
       var localShell = /^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
       var retry = document.getElementById('retry');
       var settings = document.getElementById('change-server');
+      var form = document.getElementById('server-form');
+      var input = document.getElementById('server-url');
+      var save = document.getElementById('server-save');
+      var serverStatus = document.getElementById('server-status');
       var info = document.getElementById('server-info');
-      var status = document.getElementById('retry-status');
       var hint = document.getElementById('hint');
       var stored = '';
       try { stored = localStorage.getItem('pulse_api_url') || ''; } catch (e) {}
 
       // On the native copy of this page we know the website's address; on the copy the website
-      // serves we do not (it lives the other way round), so send the person to the recovery page
+      // serves we do not (it lives the other way round), so send the person back to that page
       // under the app's own origin, which does know it.
       var target = configured;
       if (!target && !localShell) target = location.origin + '/offline.html';
+
+      // Point "Try again" at the only address that can help: the configured website when there is
+      // one, otherwise the local settings screen (the one place an address can be entered, and it
+      // only exists on the native copy — on the website, "reload this page's origin" is correct).
+      if (configured) retry.setAttribute('href', configured);
+      else if (target) retry.setAttribute('href', target); // the website copy: back to this page
+      else if (localShell) retry.setAttribute('href', '/login?settings=server');
 
       var showing = configured || stored;
       if (showing) {
         info.hidden = false;
         info.textContent = 'Website: ' + showing;
       }
-      if (!target && !stored && localShell) {
-        hint.textContent = 'This app needs the address of your Pulse website. Open app settings to enter it.';
+      input.value = showing;
+      if (!showing) {
+        hint.textContent = 'This app has no Pulse website address yet. Enter it below to connect.';
       }
 
-      // Always offer a way out — this is the screen someone reaches when the app cannot start.
+      // Always offer a way out of this screen. It opens a field on THIS page: the app's local
+      // settings screen cannot be reached in live mode, because Capacitor proxies that host to
+      // the network and nothing answers there — the navigation just fails and lands back here.
       settings.hidden = false;
+      settings.addEventListener('click', function () {
+        form.hidden = !form.hidden;
+        if (!form.hidden) { try { input.focus(); } catch (e) {} }
+      });
 
+      function normalize(value) {
+        var clean = String(value || '').trim().replace(/\/+$/, '');
+        if (!/^https?:\/\//i.test(clean)) clean = 'https://' + clean;
+        var parsed;
+        try { parsed = new URL(clean); } catch (e) { return null; }
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+        if (!parsed.hostname || parsed.hostname.indexOf('.') === -1) return null;
+        return parsed.protocol + '//' + parsed.host + parsed.pathname.replace(/\/+$/, '');
+      }
+
+      // Where a sleeping host answers: the site's own health check, not its home page (which can
+      // be a cached app shell and would say "awake" when nothing is running).
       function healthUrl(site) {
         var base = new URL(site);
         var path = base.pathname.replace(/\/+$/, '');
@@ -126,6 +184,23 @@
         base.hash = '';
         return base;
       }
+
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var clean = normalize(input.value);
+        if (!clean) {
+          serverStatus.textContent = 'That does not look like a web address. Try https://your-site.example';
+          return;
+        }
+        try { localStorage.setItem('pulse_api_url', clean); } catch (e) {
+          serverStatus.textContent = 'This device will not let the app save settings.';
+          return;
+        }
+        serverStatus.textContent = 'Saved. Reconnecting to ' + clean + '…';
+        save.disabled = true;
+        // The page itself is the app's local copy, so navigating to the new site IS the reconnect.
+        setTimeout(function () { location.replace(clean); }, 500);
+      });
 
       retry.addEventListener('click', function (event) {
         if (!target) return; // no address known: let the plain link reload
@@ -136,7 +211,7 @@
 
         var health;
         try { health = healthUrl(target); }
-        catch (e) { status.textContent = 'The saved website address is invalid. Open app settings to change it.'; return; }
+        catch (e) { status.textContent = 'The saved website address is invalid. Change it below and save.'; return; }
 
         var controller = null;
         var timer = null;
