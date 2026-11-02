@@ -89,10 +89,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Same tag as the Android build: one Pulse release carries the APK and the .exe files,
+          # so /releases/latest is never a desktop-only release with no phone download.
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             TAG="$GITHUB_REF_NAME"
           else
-            TAG="desktop-v$(node -p "require('./desktop/package.json').version")"
+            TAG="v$(node -p "require('./desktop/package.json').version")"
           fi
           VERSION="${TAG#desktop-v}"
           VERSION="${VERSION#v}"
