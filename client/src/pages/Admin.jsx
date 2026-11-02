@@ -105,7 +105,7 @@ export default function Admin() {
       <div className="page">
         <PageHero icon="shield" title="Admin" subtitle="Restricted area" />
         <section className="section">
-          <EmptyState icon="lock" title="Admin only" description="You need an admin account (Kelechi / kai99) to view this page." action={<Link className="btn btn-primary" to="/">Back to home</Link>} />
+          <EmptyState icon="lock" title="Admin only" description="Sign in with an account that has administrator privileges to view this page." action={<Link className="btn btn-primary" to="/">Back to home</Link>} />
         </section>
       </div>
     );
@@ -174,7 +174,7 @@ export default function Admin() {
       <PageHero
         icon="shield"
         title="Admin"
-        chip={`Kelechi · kai99`}
+        chip="Administrator"
         subtitle="Analysis & technical controls. Edit any track, ban or delete songs, audit users, and monitor health."
         actions={
           <>
@@ -470,7 +470,7 @@ export default function Admin() {
                   <li><strong style={{ color: 'var(--text)' }}>Ban / unban</strong> tracks — marks them private so regular listeners cannot see them (Ban button); unban restores public visibility.</li>
                   <li><strong style={{ color: 'var(--text)' }}>Delete</strong> any track or user (and all their uploads) — destructive, requires confirmation.</li>
                   <li><strong style={{ color: 'var(--text)' }}>Analysis</strong> — site-wide counts (users, tracks, plays, downloads, genres), recent sign-ups &amp; uploads, storage health, “people on site”.</li>
-                  <li>Signed in as <strong style={{ color: 'var(--text)' }}>{user.name} (@{user.username})</strong> · <code style={{ background: 'var(--card-2)', padding: '2px 6px', borderRadius: 6 }}>inputname9@aol.com</code> · role <code>{user.role}</code>.</li>
+                  <li>Signed in as <strong style={{ color: 'var(--text)' }}>{user.name} (@{user.username})</strong> · role <code>{user.role}</code>.</li>
                 </ul>
               </div>
             </section>

@@ -4,6 +4,10 @@ import App from './App.jsx';
 import { purgeLegacyDemoDownloads } from './offline.js';
 import './styles.css';
 
+// Old releases kept JWTs in localStorage. Remove the legacy copy now that the API
+// session is HttpOnly, and require one sign-in if no session cookie exists.
+try { localStorage.removeItem('pulse_token'); } catch { /* storage may be disabled */ }
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />

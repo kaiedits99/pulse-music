@@ -7,8 +7,9 @@ import multer from 'multer';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { authMiddleware, userFromToken } from './auth.js';
+import { authMiddleware } from './auth.js';
 import { chatMediaDir } from './chat-db.js';
+import { uploadSignatureIsValid } from './media.js';
 import * as chat from './chat.js';
 
 const router = express.Router();
@@ -30,9 +31,19 @@ const upload = multer({
     const ok = file.fieldname === 'image' ? IMAGE_TYPES.test(file.originalname)
       : file.fieldname === 'audio' ? AUDIO_TYPES.test(file.originalname)
         : false;
-    cb(ok ? null : new Error('Unsupported attachment type'), ok);
+    cb(ok ? null : Object.assign(new Error('Unsupported attachment type'), { status: 400 }), ok);
   }
 });
+
+async function validateChatUploads(req, res, next) {
+  const files = Object.values(req.files || {}).flat();
+  try {
+    const valid = await Promise.all(files.map(uploadSignatureIsValid));
+    if (valid.every(Boolean)) return next();
+    await Promise.all(files.map((file) => fs.promises.rm(file.path, { force: true })));
+    return res.status(400).json({ error: 'The attachment contents do not match a supported media format' });
+  } catch (error) { return next(error); }
+}
 
 /* ------------------------------------------------------------------ helpers -- */
 
@@ -256,6 +267,7 @@ router.get('/conversations/:id/messages', authMiddleware, requireMember, (req, r
 // Send: text, an image, a voice note, a shared track, or a combination.
 router.post('/conversations/:id/messages', authMiddleware, requireMember,
   upload.fields([{ name: 'image', maxCount: 1 }, { name: 'audio', maxCount: 1 }]),
+  validateChatUploads,
   wrap(async (req, res) => {
     const body = String(req.body.body || '').trim().slice(0, 4000);
     const trackId = req.body.track_id ? parseInt(req.body.track_id, 10) : null;
@@ -463,17 +475,9 @@ router.delete('/users/:id/block', authMiddleware, (req, res) => {
 
 /* ------------------------------------------------------------------- media -- */
 
-/**
- * Ephemeral media. The token rides in the query string because <img>/<audio> cannot send headers.
- * Every response is membership-checked, expiry-checked and marked no-store, so nothing survives in
- * a browser cache after the message is gone.
- */
-router.get('/media/:name', wrap(async (req, res) => {
-  const token = req.query.t || (req.headers.authorization || '').replace(/^Bearer /, '');
-  const user = userFromToken(token);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
-
-  const row = chat.mediaIsReadable(req.params.name, user.id);
+/** Ephemeral media: bearer auth stays in the request header, never in URLs/referrers/logs. */
+router.get('/media/:name', authMiddleware, wrap(async (req, res) => {
+  const row = chat.mediaIsReadable(req.params.name, req.user.id);
   if (!row) return res.status(404).json({ error: 'This attachment has expired' });
 
   const location = await chat.resolveMediaLocation(req.params.name);

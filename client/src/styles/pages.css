@@ -2,6 +2,23 @@
    Pulse — Page-level styles : auth, detail pages, upload, settings, player UI
    ========================================================================== */
 
+.route-not-found {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+  background: var(--bg);
+  color: var(--text);
+}
+.route-not-found-code { color: var(--accent); font-size: clamp(64px, 14vw, 112px); font-weight: 900; line-height: .9; letter-spacing: -.08em; }
+.route-not-found h1 { margin: 8px 0 0; font-size: clamp(26px, 5vw, 40px); }
+.route-not-found p { margin: 0; color: var(--muted); }
+.route-not-found-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+
 /* ============================================================ COVER IMAGE = */
 .cover {
   border-radius: var(--r-sm);
@@ -733,6 +750,26 @@
 .auth-stat strong { display: block; font-size: 25px; font-weight: 800; color: #fff; letter-spacing: -0.03em; }
 .auth-stat small { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255, 255, 255, 0.5); }
 
+.email-action-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at 15% 10%, rgba(139, 92, 246, 0.14), transparent 42%), var(--bg);
+}
+.email-action-card {
+  width: min(100%, 460px);
+  padding: clamp(24px, 6vw, 40px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+}
+.email-action-card h1 { margin: 20px 0 8px; font-size: clamp(25px, 6vw, 32px); letter-spacing: -0.04em; }
+.email-action-brand { display: inline-block; color: var(--text); font-size: 20px; font-weight: 850; text-decoration: none; }
+.email-action-message { display: flex; align-items: flex-start; gap: 9px; margin: 16px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); background: var(--card-2); font-size: 14px; line-height: 1.5; }
+.email-action-loading { display: flex; align-items: center; gap: 10px; margin: 18px 0; color: var(--text-dim); }
 .auth-form-side { display: flex; align-items: center; justify-content: center; padding: 44px 32px; }
 .auth-card { width: 100%; max-width: 420px; }
 .auth-card h2 { font-size: 27px; font-weight: 800; letter-spacing: -0.035em; margin-bottom: 7px; }

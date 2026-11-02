@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '../Icon.jsx';
-import { chatMediaUrl } from '../../chat.jsx';
+import { useChatMediaUrl } from '../../chat.jsx';
 
 const BAR_COUNT = 32;
 
@@ -31,7 +31,7 @@ export default function VoiceNote({ message }) {
   const [duration, setDuration] = useState(message.media_meta?.duration || 0);
   const [rate, setRate] = useState(1);
   const peaks = bars(message.media_meta?.waveform, message.id);
-  const src = chatMediaUrl(message.media_name);
+  const src = useChatMediaUrl(message.media_name);
   const total = duration || message.media_meta?.duration || 0;
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);

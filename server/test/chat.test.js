@@ -201,13 +201,15 @@ test('attachments are served to members only, marked no-store, and never past th
 
   const anon = await fetch(`${server.url}${url}`);
   assert.equal(anon.status, 401, 'no token, no attachment');
+  const queryToken = await fetch(`${server.url}${url}?t=${tokens.bode}`);
+  assert.equal(queryToken.status, 401, 'URL tokens are not accepted');
 
-  const asBode = await fetch(`${server.url}${url}?t=${tokens.bode}`);
+  const asBode = await fetch(`${server.url}${url}`, { headers: { Authorization: `Bearer ${tokens.bode}` } });
   assert.equal(asBode.status, 200);
   assert.match(asBode.headers.get('cache-control'), /no-store/);
   assert.equal(asBode.headers.get('content-type'), 'image/png');
 
-  const outsider = await fetch(`${server.url}${url}?t=${tokens.chidi}`);
+  const outsider = await fetch(`${server.url}${url}`, { headers: { Authorization: `Bearer ${tokens.chidi}` } });
   assert.equal(outsider.status, 404, 'a member of another conversation cannot fetch it');
 
   // Once the message lapses, the attachment stops being served even if the file is still there.
@@ -216,7 +218,7 @@ test('attachments are served to members only, marked no-store, and never past th
   try {
     db.prepare("UPDATE messages SET expires_at = datetime('now', '-1 minutes') WHERE id = ?").run(sent.body.id);
   } finally { db.close(); }
-  const lapsed = await fetch(`${server.url}${url}?t=${tokens.bode}`);
+  const lapsed = await fetch(`${server.url}${url}`, { headers: { Authorization: `Bearer ${tokens.bode}` } });
   assert.equal(lapsed.status, 404);
 });
 
@@ -224,7 +226,7 @@ test('a voice note keeps its waveform and duration, and a shared track keeps its
   const conversation = await dmBetween('ada', 'bode');
 
   const voice = new FormData();
-  voice.append('audio', new Blob([pngBytes()], { type: 'audio/webm' }), 'note.webm');
+  voice.append('audio', new Blob([Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x93, 0x42, 0x86, 0x81, 0x01])], { type: 'audio/webm' }), 'note.webm');
   voice.append('duration', '38');
   voice.append('waveform', JSON.stringify([0.2, 0.6, 0.3]));
   const sentVoice = await api('POST', `/api/chat/conversations/${conversation}/messages`, { ...as('ada'), form: voice });

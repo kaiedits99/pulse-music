@@ -24,9 +24,11 @@ For the Android app there are two modes, chosen by whether `PULSE_APP_URL` (or `
 is set when it is built:
 
 - **Live mode (recommended).** The app opens your website directly. Every fix to the site reaches
-  installed phones on the next deploy — no new APK. If the site can't be reached, the app shows a
-  bundled "can't reach Pulse" page with a retry button. The *Backend server URL* setting disappears,
-  because the site's own address is the server.
+  installed phones on the next deploy — no new APK. If the site can't be reached, the bundled
+  recovery page probes `/api/health` when you retry, so a sleeping host can wake before the app
+  reconnects. **Open app settings** switches to the bundled sign-in screen, where you can enter a
+  different website address. The normal *Backend server URL* setting stays out of the live site's
+  sign-in screen.
 - **Bundled mode (no address set).** The app carries its own copy of the interface and asks for the
   backend address on first launch. It works offline out of the box, but **a new APK is needed for
   every interface change**.

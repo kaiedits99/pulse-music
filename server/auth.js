@@ -18,7 +18,7 @@ if (!process.env.JWT_SECRET) {
 export { hashPassword, verifyPassword };
 
 export function signToken(user) {
-  return jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ id: user.id, email: user.email, role: user.role, ver: Number(user.auth_version || 0) }, JWT_SECRET, { expiresIn: '7d' });
 }
 
 export function parseGenres(raw) {
@@ -41,6 +41,7 @@ export function publicUser(user) {
     name: user.name,
     username: user.username || null,
     email: user.email,
+    email_verified: Boolean(user.email_verified_at),
     role: user.role,
     avatar_url: user.avatar_url,
     favorite_genres: parseGenres(user.favorite_genres),
@@ -48,14 +49,24 @@ export function publicUser(user) {
   };
 }
 
-export function authMiddleware(req, res, next) {
+function cookieToken(req) {
+  const match = String(req.headers.cookie || '').match(/(?:^|;\s*)pulse_session=([^;]+)/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
+function requestToken(req) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  return header.startsWith('Bearer ') ? header.slice(7) : cookieToken(req);
+}
+
+export function authMiddleware(req, res, next) {
+  const token = requestToken(req);
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id);
-    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user || Number(payload.ver || 0) !== Number(user.auth_version || 0)) return res.status(401).json({ error: 'Invalid or expired token' });
     req.user = user;
     next();
   } catch (e) {
@@ -63,28 +74,14 @@ export function authMiddleware(req, res, next) {
   }
 }
 
-/**
- * The user behind a token, or null. Used where a URL cannot carry an Authorization header —
- * chat media is fetched by <img>/<audio> tags, so the token rides in the query string.
- */
-export function userFromToken(token) {
-  if (!token) return null;
-  try {
-    const payload = jwt.verify(String(token), JWT_SECRET);
-    return db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id) || null;
-  } catch {
-    return null;
-  }
-}
-
 // Optional auth: attaches user if token present, but doesn't block
 export function optionalAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const token = requestToken(req);
   if (token) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
-      req.user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id) || null;
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.id) || null;
+      req.user = user && Number(payload.ver || 0) === Number(user.auth_version || 0) ? user : null;
     } catch { req.user = null; }
   } else {
     req.user = null;

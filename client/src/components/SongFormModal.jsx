@@ -144,7 +144,7 @@ export default function SongFormModal({ open, onClose, onSaved, song, artists, a
           </label>
           <label className="field file-field">
             <span>Cover image (optional)</span>
-            <input type="file" accept="image/*,.svg,.png,.jpg,.jpeg,.webp" onChange={(e) => set('cover', e.target.files[0])} />
+            <input type="file" accept="image/jpeg,image/png,image/webp,.png,.jpg,.jpeg,.webp" onChange={(e) => set('cover', e.target.files[0])} />
             {form.cover && <em className="file-note">{form.cover.name}</em>}
           </label>
         </div>

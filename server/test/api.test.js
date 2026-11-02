@@ -7,7 +7,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { buildLegacyFixture } from './legacy-fixture.js';
-import { startServer, wavBytes, call } from './helpers.js';
+import { startServer, wavBytes, call, takeTestEmail, verifyEmailFromTestOutbox } from './helpers.js';
 
 const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-api-'));
 const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-api-legacy-'));
@@ -45,6 +45,68 @@ async function upload(token, fields) {
 }
 
 const titles = (res) => res.body.map((song) => song.title);
+
+test('browser sessions use HttpOnly cookies, reject cross-site writes, and can log out', async () => {
+  const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-session-'));
+  const sessionServer = await startServer(sessionDir);
+  try {
+    const created = await fetch(sessionServer.url + '/api/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Cookie User', username: 'cookie_user', email: 'cookie@example.test', password: 'private-password-1', favoriteGenres: ['Pop'] })
+    });
+    assert.equal(created.status, 201);
+    assert.equal((await created.json()).requiresVerification, true);
+    assert.equal(created.headers.get('set-cookie'), null, 'a new account is not signed in before mailbox verification');
+    const beforeVerification = await fetch(sessionServer.url + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'cookie@example.test', password: 'private-password-1' })
+    });
+    assert.equal(beforeVerification.status, 403);
+    assert.equal((await beforeVerification.json()).code, 'EMAIL_NOT_VERIFIED');
+    await verifyEmailFromTestOutbox(sessionServer, 'cookie@example.test');
+    const signedIn = await fetch(sessionServer.url + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'cookie@example.test', password: 'private-password-1' })
+    });
+    assert.equal(signedIn.status, 200);
+    const setCookie = signedIn.headers.get('set-cookie') || '';
+    assert.match(setCookie, /HttpOnly/);
+    assert.match(setCookie, /pulse_session=/);
+    const cookie = setCookie.split(';', 1)[0];
+    const me = await fetch(sessionServer.url + '/api/auth/me', { headers: { Cookie: cookie } });
+    assert.equal(me.status, 200, 'cookie-auth works without a local bearer token');
+    const rejected = await fetch(sessionServer.url + '/api/auth/preferences', {
+      method: 'PUT', headers: { Cookie: cookie, Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favoriteGenres: ['Rock'] })
+    });
+    assert.equal(rejected.status, 403, 'cookie-auth rejects cross-site writes');
+    const logout = await fetch(sessionServer.url + '/api/auth/logout', {
+      method: 'POST', headers: { Cookie: cookie, Origin: sessionServer.url, 'Content-Type': 'application/json' }, body: '{}'
+    });
+    assert.equal(logout.status, 200);
+    assert.match(logout.headers.get('set-cookie') || '', /Max-Age=0/);
+  } finally {
+    sessionServer.stop();
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test('database and upload directories have private filesystem permissions on POSIX', async () => {
+  if (process.platform === 'win32') return;
+  assert.equal(fs.statSync(path.join(freshDir, 'pulse.db')).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(freshDir, 'uploads')).mode & 0o777, 0o700);
+});
+
+test('security headers are set and the old shared admin credential cannot bootstrap an account', async () => {
+  const response = await fetch(fresh.url + '/api/health');
+  assert.match(response.headers.get('content-security-policy') || '', /object-src 'none'/);
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN');
+  const denied = await api('POST', '/api/auth/login', { json: { identifier: 'kai99', password: 'kai99' } });
+  assert.equal(denied.status, 401);
+  assert.equal((await api('GET', '/api/admin/overview')).status, 401);
+  assert.ok(!fresh.logs().includes('kai99'), 'startup and login must not log admin credentials');
+});
 
 test('a fresh install starts completely empty — no seeded content of any kind', async () => {
   assert.deepEqual((await api('GET', '/api/songs')).body, []);
@@ -101,7 +163,10 @@ test('an upload streams to another platform (the app origin), with ranges and CO
   assert.equal(full.status, 200);
   assert.match(full.headers.get('content-type') || '', /^audio\//);
   assert.equal(full.headers.get('accept-ranges'), 'bytes', 'the player can seek');
-  assert.equal(full.headers.get('access-control-allow-origin'), '*', 'the app may fetch it');
+  assert.equal(full.headers.get('access-control-allow-origin'), APP_ORIGIN, 'the native app origin is explicitly allowed');
+  const denied = await fetch(fresh.url + track.file_path, { headers: { Origin: 'https://untrusted.example' } });
+  assert.equal(denied.headers.get('access-control-allow-origin'), null, 'untrusted origins receive no CORS permission');
+  await denied.arrayBuffer();
   await full.arrayBuffer();
 
   // Seeking sends a Range request; it must answer 206 with just that slice.
@@ -120,6 +185,18 @@ test('every further upload accumulates, newest first', async () => {
     assert.deepEqual(titles(await api('GET', '/api/songs', { token })), ['Golden Hour Jam', 'Midnight Drive']);
   }
   assert.equal((await api('GET', '/api/stats', { token: tokenC })).body.songs, 2);
+});
+
+test('uploads reject spoofed media extensions and do not leave files behind', async () => {
+  const before = fs.readdirSync(path.join(freshDir, 'uploads'));
+  const form = new FormData();
+  form.append('title', 'Not actually audio');
+  form.append('artist_name', 'Kai Rivers');
+  form.append('audio', new Blob(['not an mp3'], { type: 'audio/mpeg' }), 'spoof.mp3');
+  const response = await api('POST', '/api/songs', { token: tokenA, form });
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /contents do not match/i);
+  assert.deepEqual(fs.readdirSync(path.join(freshDir, 'uploads')), before);
 });
 
 test('search finds tracks by artist, title or genre — case, accent and punctuation insensitive', async () => {
@@ -318,6 +395,11 @@ test('existing databases are cleaned of demo content on boot, keeping real uploa
   // the unused demo log-ins are gone; the one that owns real uploads was kept (the fixture's
   // hash really is demo123, so this proves the 401s below come from the account being deleted)
   const login = (email) => apiLegacy('POST', '/api/auth/login', { json: { email, password: 'demo123' } });
+  assert.equal((await login('kofi@pulse.app')).status, 403, 'legacy password users must verify their address once');
+  assert.equal((await apiLegacy('POST', '/api/auth/verification/resend', { json: { email: 'kofi@pulse.app' } })).status, 202);
+  const legacyVerification = await takeTestEmail(legacy, 'kofi@pulse.app', 'verify-email');
+  assert.ok(legacyVerification);
+  assert.equal((await apiLegacy('POST', '/api/auth/verify-email', { json: { token: legacyVerification } })).status, 200);
   assert.equal((await login('kofi@pulse.app')).status, 200);
   for (const email of ['amara@pulse.app', 'zara@pulse.app']) {
     assert.equal((await login(email)).status, 401, email);

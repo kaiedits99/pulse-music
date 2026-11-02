@@ -3,11 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { foldText } from './search.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Account data and uploaded media are private to the service process on POSIX hosts.
+// This also protects SQLite files created later (including WAL sidecars) by default.
+if (process.platform !== 'win32') process.umask(0o077);
 // Everything Pulse stores (SQLite file + uploaded audio/artwork) lives under one
 // folder. Point PULSE_DATA_DIR at a mounted disk to keep it somewhere else.
 export const dataDir = process.env.PULSE_DATA_DIR
@@ -16,10 +15,13 @@ export const dataDir = process.env.PULSE_DATA_DIR
 export const uploadsDir = path.join(dataDir, 'uploads');
 
 for (const d of [dataDir, uploadsDir]) {
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') fs.chmodSync(d, 0o700);
 }
 
-const db = new Database(path.join(dataDir, 'pulse.db'));
+const dbPath = path.join(dataDir, 'pulse.db');
+const db = new Database(dbPath);
+if (process.platform !== 'win32') fs.chmodSync(dbPath, 0o600);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL'); // the usual pairing with WAL: much fewer disk syncs, still crash-safe
 db.pragma('busy_timeout = 5000'); // wait briefly instead of failing if Litestream is mid-checkpoint
@@ -38,6 +40,8 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'artist',
   avatar_url TEXT,
   favorite_genres TEXT,
+  email_verified_at TEXT,
+  auth_version INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -194,27 +198,30 @@ if (!userColumns.includes('favorite_genres')) {
 if (!userColumns.includes('consent_terms_at')) db.exec('ALTER TABLE users ADD COLUMN consent_terms_at TEXT');
 if (!userColumns.includes('consent_age_at')) db.exec('ALTER TABLE users ADD COLUMN consent_age_at TEXT');
 if (!userColumns.includes('consent_cookie_at')) db.exec('ALTER TABLE users ADD COLUMN consent_cookie_at TEXT');
+// Password accounts must prove mailbox ownership; legacy accounts are prompted to verify on next sign-in.
+if (!userColumns.includes('email_verified_at')) db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
+if (!userColumns.includes('auth_version')) db.exec('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('verify-email', 'password-reset')),
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_purpose ON auth_tokens(user_id, purpose);
+`);
 
 try {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(LOWER(username)) WHERE username IS NOT NULL;');
 } catch { /* index may exist */ }
 
-// Migration: rename legacy admin (Adebayo Cole / adebayo / admin@pulse.app) to Kelechi / kai99 / inputname9@aol.com
-try {
-  const admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
-  if (admin && (admin.username === 'adebayo' || admin.name === 'Adebayo Cole' || admin.email === 'admin@pulse.app')) {
-    const bcrypt = require('bcryptjs');
-    const newHash = bcrypt.hashSync('kai99', 10);
-    db.prepare("UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = ?")
-      .run('Kelechi', 'kai99', 'inputname9@aol.com', newHash, admin.id);
-    // Also update the linked artist profile if it exists
-    try { db.prepare("UPDATE artists SET name = ? WHERE user_id = ? AND name = ?").run('Kelechi', admin.id, 'Adebayo Cole'); } catch {}
-    console.log('[pulse] Migrated legacy admin account (Adebayo Cole/adebayo) -> Kelechi/kai99 (inputname9@aol.com)');
-  }
-} catch (e) {
-  console.warn('[pulse] Admin migration check failed:', e.message);
-}
-
+// Do not rewrite admin identity or credentials during startup. Historical builds
+// embedded a shared admin password; the login route now refuses that password
+// for legacy admin rows. Rotate any such account through an operator-managed DB
+// procedure before using it again.
 // Lightweight migration for installations created before licensed-source support.
 const songColumns = db.prepare('PRAGMA table_info(songs)').all().map((column) => column.name);
 if (!songColumns.includes('source_url')) db.exec('ALTER TABLE songs ADD COLUMN source_url TEXT');

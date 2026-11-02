@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import db, { uploadsDir } from './db.js';
 import { searchClause } from './search.js';
 import { hashPassword, verifyPassword, signToken, publicUser, parseGenres, authMiddleware, optionalAuth } from './auth.js';
+import { sendPasswordResetEmail, sendVerificationEmail } from './email.js';
 import { storage, keepUploads, sendDownload, releaseMedia } from './media.js';
 import { describeLink, readLinkedFields, unsupportedProvider, parseYouTubeId, badRequest } from './youtube.js';
 import { dataSafety } from './persistence.js';
@@ -18,11 +19,11 @@ const wrap = (handler) => (req, res, next) => { Promise.resolve(handler(req, res
 // Lightweight in-memory rate limiter (no extra dependency). Resets on restart,
 // which is fine for a single-instance host. For multi-instance use a shared
 // store (Redis) — documented in DEPLOY.md.
-function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 30, message = 'Too many requests, try again later' } = {}) {
+function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 30, message = 'Too many requests, try again later', keyFor } = {}) {
   const hits = new Map(); // key → { count, resetAt }
-  const keyFor = (req) => req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+  const resolveKey = keyFor || ((req) => req.ip || 'unknown');
   const middleware = (req, res, next) => {
-    const key = keyFor(req);
+    const key = resolveKey(req);
     const now = Date.now();
     let entry = hits.get(key);
     if (!entry || now > entry.resetAt) entry = { count: 0, resetAt: now + windowMs };
@@ -42,11 +43,46 @@ function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 30, message = 'Too
   middleware._hits = hits;
   return middleware;
 }
-const authRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60, message: 'Too many sign-in attempts, try again in 15 minutes' });
+const authRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30, message: 'Too many requests, try again in 15 minutes' });
+const loginRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 10,
+  message: 'Too many sign-in attempts, try again in 15 minutes',
+  keyFor: (req) => req.ip || 'unknown'
+});
+const emailRequestIpLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30, message: 'Too many requests, try again later' });
+const emailRequestAddressLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many requests, try again later',
+  keyFor: (req) => crypto.createHash('sha256').update(String(req.body?.email || '').trim().toLowerCase()).digest('hex')
+});
+const emailTokenRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: process.env.NODE_ENV === 'test' ? 1000 : 20, message: 'Too many requests, try again later' });
 const linkPreviewRateLimit = createRateLimiter({ windowMs: 60 * 1000, max: 20, message: 'Too many previews, slow down' });
 function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
+}
+
+function requestUsesSecureCookie(req) {
+  return String(process.env.NODE_ENV).toLowerCase() === 'production'
+    || req.secure || req.headers['x-forwarded-proto'] === 'https';
+}
+
+function setSessionCookie(req, res, token) {
+  const secure = requestUsesSecureCookie(req);
+  const attributes = [
+    `pulse_session=${encodeURIComponent(token)}`,
+    'Path=/api', 'HttpOnly', 'SameSite=' + (secure ? 'None' : 'Lax'),
+    'Max-Age=604800'
+  ];
+  if (secure) attributes.push('Secure');
+  res.append('Set-Cookie', attributes.join('; '));
+}
+
+function clearSessionCookie(req, res) {
+  const secure = requestUsesSecureCookie(req);
+  res.append('Set-Cookie', `pulse_session=; Path=/api; HttpOnly; SameSite=${secure ? 'None' : 'Lax'}; Max-Age=0${secure ? '; Secure' : ''}`);
 }
 
 // ---------- Multer for uploads ----------
@@ -61,17 +97,17 @@ const diskStorage = multer.diskStorage({
 });
 const upload = multer({
   storage: diskStorage,
-  limits: { fileSize: 60 * 1024 * 1024 },
+  limits: { fileSize: 60 * 1024 * 1024, files: 10, fields: 40, parts: 50, fieldSize: 200 * 1024 },
   fileFilter(req, file, cb) {
     if (file.fieldname === 'audio') {
       const ok = /\.(wav|mp3|m4a|ogg|flac|aac)$/i.test(file.originalname);
-      return ok ? cb(null, true) : cb(new Error('Unsupported audio format'));
+      return ok ? cb(null, true) : cb(Object.assign(new Error('Unsupported audio format'), { status: 400 }));
     }
     if (file.fieldname === 'cover') {
-      const ok = /\.(jpg|jpeg|png|svg|webp)$/i.test(file.originalname);
-      return ok ? cb(null, true) : cb(new Error('Unsupported image format'));
+      const ok = /\.(jpg|jpeg|png|webp)$/i.test(file.originalname);
+      return ok ? cb(null, true) : cb(Object.assign(new Error('Unsupported image format'), { status: 400 }));
     }
-    cb(null, true);
+    cb(Object.assign(new Error('Unexpected upload field'), { status: 400 }));
   }
 });
 
@@ -228,6 +264,52 @@ router.get('/health', (req, res) => {
 });
 
 // ============================== AUTH ==============================
+const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+const authTokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+async function issueEmailAction(user, purpose) {
+  db.prepare('DELETE FROM auth_tokens WHERE expires_at <= ?').run(new Date().toISOString());
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = authTokenHash(token);
+  const expiresAt = new Date(Date.now() + (purpose === 'verify-email' ? VERIFICATION_TTL_MS : PASSWORD_RESET_TTL_MS)).toISOString();
+  const info = db.prepare('INSERT INTO auth_tokens (user_id, token_hash, purpose, expires_at) VALUES (?,?,?,?)')
+    .run(user.id, tokenHash, purpose, expiresAt);
+  try {
+    if (purpose === 'verify-email') await sendVerificationEmail({ to: user.email, token });
+    else await sendPasswordResetEmail({ to: user.email, token });
+  } catch (error) {
+    db.prepare('DELETE FROM auth_tokens WHERE id = ?').run(info.lastInsertRowid);
+    throw error;
+  }
+  // A newly delivered action link replaces previous links for the same purpose.
+  db.prepare('DELETE FROM auth_tokens WHERE user_id = ? AND purpose = ? AND id != ?')
+    .run(user.id, purpose, info.lastInsertRowid);
+  return token;
+}
+
+async function dispatchEmailAction(user, purpose) {
+  if (process.env.NODE_ENV === 'test') return issueEmailAction(user, purpose);
+  // Do not make password recovery or verification-resend response time reveal whether an address exists.
+  void issueEmailAction(user, purpose).catch(() => console.error('[pulse] account email delivery failed'));
+}
+
+const verifyEmailToken = db.transaction((tokenHash) => {
+  const action = db.prepare("SELECT * FROM auth_tokens WHERE token_hash = ? AND purpose = 'verify-email'").get(tokenHash);
+  if (!action) return false;
+  db.prepare('DELETE FROM auth_tokens WHERE id = ?').run(action.id);
+  if (Date.parse(action.expires_at) <= Date.now()) return false;
+  db.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?')
+    .run(new Date().toISOString(), action.user_id);
+  db.prepare("DELETE FROM auth_tokens WHERE user_id = ? AND purpose = 'verify-email'").run(action.user_id);
+  return true;
+});
+
+const normalizeActionToken = (raw) => {
+  const token = String(raw || '').trim();
+  return /^[a-f0-9]{64}$/i.test(token) ? token.toLowerCase() : null;
+};
+
 router.get('/auth/check-username', authRateLimit, (req, res) => {
   const raw = String(req.query.username || '').trim();
   if (!raw) return res.json({ available: false, reason: 'Username cannot be empty' });
@@ -242,14 +324,75 @@ router.get('/auth/check-username', authRateLimit, (req, res) => {
   res.json({ available: true, username: raw });
 });
 
+router.post('/auth/verify-email', emailTokenRateLimit, (req, res) => {
+  const token = normalizeActionToken(req.body?.token);
+  if (!token || !verifyEmailToken(authTokenHash(token))) {
+    return res.status(400).json({ error: 'This verification link is invalid or expired. Request a new one and try again.' });
+  }
+  res.json({ ok: true, message: 'Email verified. You can now sign in.' });
+});
+
+router.post('/auth/verification/resend', emailRequestIpLimit, emailRequestAddressLimit, wrap(async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254) {
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+    if (user && !user.email_verified_at) {
+      try { await dispatchEmailAction(user, 'verify-email'); }
+      catch (error) { console.error('[pulse] verification email delivery failed'); }
+    }
+  }
+  res.status(202).json({ message: 'If an account needs verification at that address, an email with next steps will arrive shortly.' });
+}));
+
+router.post('/auth/password-reset/request', emailRequestIpLimit, emailRequestAddressLimit, wrap(async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254) {
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
+    if (user) {
+      try { await dispatchEmailAction(user, 'password-reset'); }
+      catch (error) { console.error('[pulse] password reset email delivery failed'); }
+    }
+  }
+  res.status(202).json({ message: 'If an account exists for that address, password reset instructions will arrive shortly.' });
+}));
+
+router.post('/auth/password-reset/confirm', emailTokenRateLimit, wrap(async (req, res) => {
+  const token = normalizeActionToken(req.body?.token);
+  const password = req.body?.password;
+  if (!token || typeof password !== 'string' || password.length < 6 || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ error: 'This reset link is invalid or expired, or the password does not meet the requirements.' });
+  }
+  const passwordHash = await hashPassword(password);
+  const tokenHash = authTokenHash(token);
+  const reset = db.transaction(() => {
+    const action = db.prepare("SELECT * FROM auth_tokens WHERE token_hash = ? AND purpose = 'password-reset'").get(tokenHash);
+    if (!action) return false;
+    db.prepare('DELETE FROM auth_tokens WHERE id = ?').run(action.id);
+    if (Date.parse(action.expires_at) <= Date.now()) return false;
+    const changed = db.prepare(`UPDATE users SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, ?),
+      auth_version = auth_version + 1 WHERE id = ?`).run(passwordHash, new Date().toISOString(), action.user_id);
+    db.prepare('DELETE FROM auth_tokens WHERE user_id = ?').run(action.user_id);
+    return changed.changes === 1;
+  });
+  if (!reset()) return res.status(400).json({ error: 'This reset link is invalid or expired. Request a new one and try again.' });
+  clearSessionCookie(req, res);
+  res.json({ ok: true, message: 'Password changed. Sign in with your new password.' });
+}));
+
 router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
-  const { name, username, email, password, artistName, favoriteGenres, consentTerms, consentAge, consentCookie } = req.body || {};
+  let { name, username, email, password, artistName, favoriteGenres, consentTerms, consentAge, consentCookie } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanUsername = String(username || '').trim();
 
   if (!cleanName || !cleanEmail || !password) {
     return res.status(400).json({ error: 'Name, email and password are required' });
+  }
+  if (cleanName.length > 80 || cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Enter a valid name and email address' });
+  }
+  if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ error: 'Password must be no more than 72 UTF-8 bytes' });
   }
   if (!cleanUsername) {
     return res.status(400).json({ error: 'Username is required' });
@@ -283,10 +426,10 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   const passwordHash = await hashPassword(password);
 
   const emailExists = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(cleanEmail);
-  if (emailExists) return res.status(400).json({ error: 'An account with this email already exists' });
-
   const usernameExists = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(cleanUsername);
-  if (usernameExists) return res.status(400).json({ error: 'This username is already taken. Please choose another.' });
+  if (emailExists || usernameExists) {
+    return res.status(400).json({ error: 'Unable to create an account with those details. Check the email and username, then try again.' });
+  }
 
   if (!Array.isArray(favoriteGenres) || favoriteGenres.length === 0) {
     return res.status(400).json({ error: 'Please select at least 1 favorite genre' });
@@ -294,8 +437,14 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   if (favoriteGenres.length > 3) {
     return res.status(400).json({ error: 'You can select at most 3 favorite genres' });
   }
+  if (favoriteGenres.some((genre) => typeof genre !== 'string')) {
+    return res.status(400).json({ error: 'Favorite genres must be text values' });
+  }
 
-  const validGenres = favoriteGenres.map((g) => String(g).trim()).filter(Boolean);
+  const validGenres = [...new Set(favoriteGenres.map((g) => String(g).trim()).filter(Boolean))];
+  if (!validGenres.length || validGenres.some((genre) => genre.length > 60)) {
+    return res.status(400).json({ error: 'Choose between 1 and 3 valid favorite genres' });
+  }
   const genresJson = JSON.stringify(validGenres);
   const nowIso = new Date().toISOString();
   const consentTermsAt = (consentTerms === true || consentTerms === 'true' || consentTerms === 1) ? nowIso : null;
@@ -308,49 +457,24 @@ router.post('/auth/register', authRateLimit, wrap(async (req, res) => {
   const userId = info.lastInsertRowid;
 
   // create artist profile
-  const aName = (artistName || cleanName).trim() || cleanName;
+  const aName = String(artistName || cleanName).trim().slice(0, 120) || cleanName;
   db.prepare('INSERT INTO artists (name, user_id) VALUES (?,?)').run(aName, userId);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-  res.status(201).json({ token: signToken(user), user: publicUser(user) });
+  try {
+    await issueEmailAction(user, 'verify-email');
+  } catch (error) {
+    console.error('[pulse] verification email delivery failed');
+    return res.status(503).json({ error: 'Your account was created, but the verification email could not be sent. Try requesting it again shortly.' });
+  }
+  res.status(201).json({ requiresVerification: true, email: cleanEmail, message: 'Check your email for a verification link before signing in.' });
 }));
 
-// ---------- Private admin login ----------
-// Admin access is handled here. The credentials are checked exactly as typed.
-// These are for the site owner (Kelechi) — keep them private. Normal signup/login
-// for everyone else is completely unaffected: this check only triggers when
-// both fields match the admin pair.
-const ADMIN_PASSPHRASE = 'kai99';
-const ADMIN_PASSKEY = 'kai99';
-
-router.post('/auth/login', authRateLimit, wrap(async (req, res) => {
+// Admins use the same database-backed password login as every other account.
+// Never create or elevate an account from a public login request: admin role is
+// provisioned out-of-band by an operator with database access.
+router.post('/auth/login', loginRateLimit, wrap(async (req, res) => {
   const { email, identifier, password } = req.body || {};
-
-  // Private admin access — raw, exact comparison BEFORE any trimming or
-  // case-folding, so a stray space or different capitalization just fails and
-  // falls through to the normal (failing) login path.
-  const rawId = String(identifier != null && identifier !== '' ? identifier : (email != null ? email : ''));
-  const rawPw = String(password != null ? password : '');
-  if (rawId === ADMIN_PASSPHRASE && rawPw === ADMIN_PASSKEY) {
-    let admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
-    if (!admin) {
-      // Admin row missing (e.g. wiped users table) — recreate it so the
-      // private login keeps working. Password stays the passkey, never stored
-      // in plaintext beyond the bcrypt hash.
-      const adminHash = await hashPassword(ADMIN_PASSKEY);
-      // Another sign-in may have recreated it while we were hashing; nothing is awaited from here to the insert.
-      admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
-      if (!admin) {
-        const now = new Date().toISOString();
-        const info = db.prepare(
-          'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
-        ).run('Kelechi', 'kai99', 'inputname9@aol.com', adminHash, 'admin', null, JSON.stringify(['Indie', 'Alternative Rock', 'Pop']), now);
-        admin = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-      }
-    }
-    return res.json({ token: signToken(admin), user: publicUser(admin) });
-  }
-
   const queryId = String(identifier || email || '').trim();
   if (!queryId || !password) {
     return res.status(400).json({ error: 'Username/email and password are required' });
@@ -367,10 +491,21 @@ router.post('/auth/login', authRateLimit, wrap(async (req, res) => {
     }
   }
 
+  // Previous builds shipped shared admin/demo credentials. Refuse them even if
+  // an older database still contains their hashes; provision a new password
+  // through the operator-only admin command before signing in.
+  if (user?.role === 'admin' && ['kai99', 'demo123'].includes(String(password))) {
+    return res.status(401).json({ error: 'Invalid username/email or password' });
+  }
   if (!user || !(await verifyPassword(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid username/email or password' });
   }
-  res.json({ token: signToken(user), user: publicUser(user) });
+  if (!user.email_verified_at) {
+    return res.status(403).json({ error: 'Verify your email address before signing in.', code: 'EMAIL_NOT_VERIFIED' });
+  }
+  const token = signToken(user);
+  setSessionCookie(req, res, token);
+  res.json({ token, user: publicUser(user) });
 }));
 
 // ---------- Google sign-in (ID token / "credential" flow) ----------
@@ -439,14 +574,25 @@ router.post('/auth/google', authRateLimit, wrap(async (req, res) => {
     const taken = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)');
     for (let i = 2; taken.get(username); i++) username = `${base.slice(0, 24)}_${i}`;
     const info = db.prepare(
-      'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, created_at) VALUES (?,?,?,?,?,?,?,?)'
-    ).run(cleanName, username, email, randomHash, 'artist', String(payload.picture || '') || null, '[]', now);
+      'INSERT INTO users (name, username, email, password_hash, role, avatar_url, favorite_genres, email_verified_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run(cleanName, username, email, randomHash, 'artist', String(payload.picture || '') || null, '[]', now, now);
     const userId = info.lastInsertRowid;
     db.prepare('INSERT INTO artists (name, user_id, created_at) VALUES (?,?,?)').run(cleanName, userId, now);
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   }
-  res.json({ token: signToken(user), user: publicUser(user) });
+  if (!user.email_verified_at) {
+    db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ?').run(new Date().toISOString(), user.id);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  }
+  const token = signToken(user);
+  setSessionCookie(req, res, token);
+  res.json({ token, user: publicUser(user) });
 }));
+
+router.post('/auth/logout', (req, res) => {
+  clearSessionCookie(req, res);
+  res.json({ ok: true });
+});
 
 router.put('/auth/preferences', authMiddleware, (req, res) => {
   const { favoriteGenres, username } = req.body || {};

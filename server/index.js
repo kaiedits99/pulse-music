@@ -12,24 +12,53 @@ import { storage, redirectToBucket } from './media.js';
 import { dataSafety, describeDataSafety } from './persistence.js';
 import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js';
 import { installGracefulShutdown } from './shutdown.js';
+import { assertEmailConfiguration } from './email.js';
 import { ensureClientBuild, isClientBuilt, clientDir, missingBuildPage } from '../scripts/ensure-client-build.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
+if (String(process.env.NODE_ENV).toLowerCase() === 'production' || process.env.RENDER) {
+  assertEmailConfiguration();
+}
 
 const app = express();
-// CORS is intentionally open: the same API serves the website, the Capacitor Android app
-// (https://localhost + capacitor://) and the Electron shell (file://). With bearer tokens
-// (not cookies) there is no ambient authority to steal, so a reflected Origin is safe.
-// If PULSE_ALLOWED_ORIGINS is set, it is enforced as an allow-list; otherwise any origin
-// is reflected.
-{
-  const allowList = String(process.env.PULSE_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const corsOpts = allowList.length
-    ? { origin(origin, cb) { cb(null, !origin || allowList.includes(origin)); }, credentials: false }
-    : { origin: true, credentials: false };
-  app.use(cors(corsOpts));
+const trustProxySetting = process.env.PULSE_TRUST_PROXY;
+if (trustProxySetting !== undefined) {
+  app.set('trust proxy', /^(true|1)$/i.test(trustProxySetting) ? 1 : false);
+} else {
+  app.set('trust proxy', process.env.RENDER ? 1 : false);
 }
+// Same-origin web requests need no CORS permission. Cross-origin access is limited to
+// the native WebView origins plus explicitly configured deployment origins.
+const configuredOrigins = String(process.env.PULSE_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const allowedCorsOrigins = new Set([
+  'capacitor://localhost', 'https://localhost', 'http://localhost',
+  ...configuredOrigins
+]);
+app.use(cors({
+  origin(origin, cb) { cb(null, !origin || allowedCorsOrigins.has(origin)); },
+  credentials: true,
+  maxAge: 600
+}));
+
+// Cookie-based sessions are ambient authority, so unsafe methods must come from
+// the same origin or a native/configured origin. Bearer-only clients are not
+// affected (their token is an explicit Authorization header).
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const hasCookie = /(?:^|;\s*)pulse_session=/.test(String(req.headers.cookie || ''));
+  if (!hasCookie || req.headers.authorization) return next();
+  const origin = req.headers.origin;
+  let sameOrigin = false;
+  try {
+    const scheme = String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0].trim();
+    sameOrigin = Boolean(origin) && origin === `${scheme}://${req.get('host')}`;
+  } catch { /* invalid origin */ }
+  if (!sameOrigin && !allowedCorsOrigins.has(origin)) {
+    return res.status(403).json({ error: 'Request origin is not allowed' });
+  }
+  return next();
+});
 // Minimal security headers without adding a dependency (helmet equivalent).
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -37,6 +66,24 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'self'",
+    "form-action 'self'",
+    "script-src 'self' https://accounts.google.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: https:",
+    "connect-src 'self' https: wss:",
+    "frame-src https://accounts.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:"
+  ].join('; '));
   // HSTS only makes sense behind TLS; Render terminates TLS in front of us,
   // so advertise it and let the proxy strip it if the request was plain http.
   if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
@@ -52,7 +99,16 @@ app.use(express.urlencoded({ extended: true, limit: '200kb', parameterLimit: 100
 // Uploaded audio and artwork, with Range support for streaming. Only the uploads
 // folder is exposed — the data directory also holds the SQLite database, which must
 // never be downloadable.
-app.use('/media/uploads', express.static(uploadsDir, { maxAge: '1d' }));
+app.use('/media/uploads', express.static(uploadsDir, {
+  maxAge: '1d',
+  setHeaders(res, filePath) {
+    // Old releases allowed uploaded SVGs. Isolate them if any remain on disk so a direct
+    // navigation cannot run embedded script with the Pulse origin's authority.
+    if (path.extname(filePath).toLowerCase() === '.svg') {
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'");
+    }
+  }
+}));
 // With a bucket configured, uploads live there instead: anything not on local disk is sent to the
 // bucket (see media.js), so playback bandwidth never passes through this server.
 if (storage.remote) app.get('/media/uploads/:name', redirectToBucket);
@@ -87,8 +143,14 @@ if (isClientBuilt()) {
 }
 
 app.use((err, req, res, next) => {
-  console.error('[error]', err.message);
-  res.status(err.status || 500).json({ error: err.message || 'Server error' });
+  if (res.headersSent) return next(err);
+  const status = Number.isInteger(err.status) ? err.status
+    : err.code === 'LIMIT_FILE_SIZE' ? 413
+      : err.name === 'MulterError' ? 400 : 500;
+  // Do not echo/log SQL errors, URLs, tokens, or submitted field values.
+  if (status >= 500) console.error('[pulse] Request failed', { method: req.method, path: req.path, code: err.code || err.name || 'Error' });
+  const message = status >= 500 ? 'Server error' : (err.message || 'Invalid request');
+  return res.status(status).json({ error: message });
 });
 
 // ---------------------------------------------------------------------------

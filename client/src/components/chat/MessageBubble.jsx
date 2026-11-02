@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from '../Icon.jsx';
 import VoiceNote from './VoiceNote.jsx';
 import { Cover } from '../ui.jsx';
-import { chatMediaUrl, timeLeft } from '../../chat.jsx';
+import { useChatMediaUrl, timeLeft } from '../../chat.jsx';
 import { formatDuration } from '../../format.js';
 
 const QUICK = ['🔥', '❤️', '😂', '😮', '👏', '🎶', '⚡', '🙏'];
@@ -42,14 +42,13 @@ function TrackCard({ track, onPlay }) {
 
 export default function MessageBubble({ message, track, onPlayTrack, onReact, onUnsend, onReport, onShowTime, showSender = false }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const imageRef = useRef(null);
   const mine = message.mine;
   const read = message.read_by?.length > 0;
   const isImage = message.kind === 'image' && message.media_name;
+  const mediaUrl = useChatMediaUrl(isImage ? message.media_name : null);
 
   const openImage = () => {
-    const url = chatMediaUrl(message.media_name);
-    if (url) window.open(url, '_blank', 'noopener');
+    if (mediaUrl) window.open(mediaUrl, '_blank', 'noopener');
   };
 
   return (
@@ -69,9 +68,8 @@ export default function MessageBubble({ message, track, onPlayTrack, onReact, on
         <div className={`msg-bubble ${isImage ? 'msg-bubble--media' : ''}`}>
           {isImage && (
             <img
-              ref={imageRef}
               className="msg-image"
-              src={chatMediaUrl(message.media_name)}
+              src={mediaUrl || undefined}
               alt="Shared attachment"
               loading="lazy"
               onClick={openImage}

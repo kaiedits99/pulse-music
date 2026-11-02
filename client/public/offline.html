@@ -29,6 +29,7 @@
     }
     button:active { transform: translateY(1px); }
     .hint { margin-top: 22px; font-size: 12px; color: #7f7a95; }
+    #retry-status:empty { display: none; }
   </style>
 </head>
 <body>
@@ -44,38 +45,73 @@
     <h1>Can’t reach Pulse right now</h1>
     <p>Check your connection — or give the site a moment if it was asleep — then try again.</p>
     <button id="retry" type="button">Try again</button>
+    <p class="hint" id="retry-status" aria-live="polite"></p>
     <p class="hint" id="hint">Anything you downloaded for offline listening is still on this device.</p>
     <div id="server-info" style="display:none; margin-top:18px; font-size:12px; color:#a9a3bf;"></div>
-    <button id="change-server" type="button" style="display:none; margin-top:12px; background:#1e1b2e; box-shadow:none; border:1px solid #2a2640; font-size:13px; padding:8px 14px;">Change website address</button>
+    <button id="change-server" type="button" style="display:none; margin-top:12px; background:#1e1b2e; box-shadow:none; border:1px solid #2a2640; font-size:13px; padding:8px 14px;">Open app settings</button>
   </main>
+  <script src="./capacitor-runtime.js"></script>
   <script>
-    document.getElementById('retry').addEventListener('click', () => {
-      // In the app this reload is what re-attempts the remote URL; in a browser it is a normal
-      // refresh of whatever page was open.
-      window.location.reload();
-    });
-    // Help app users who stored a wrong address: show it and let them reset.
+    const target = String(window.PULSE_CAPACITOR_RUNTIME?.remoteUrl || '').trim();
+    const retry = document.getElementById('retry');
+    const status = document.getElementById('retry-status');
+    const info = document.getElementById('server-info');
+    const settings = document.getElementById('change-server');
+    const localShell = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+    function healthUrl(site) {
+      const base = new URL(site);
+      const path = base.pathname.replace(/\/+$/, '');
+      base.pathname = `${path}/api/health`;
+      base.search = '';
+      base.hash = '';
+      return base;
+    }
+
+    async function wakeSite() {
+      if (!target) { window.location.reload(); return; }
+      let health;
+      try { health = healthUrl(target); }
+      catch { status.textContent = 'The saved website address is invalid. Open app settings to change it.'; return; }
+
+      retry.disabled = true;
+      for (let attempt = 1; attempt <= 8; attempt += 1) {
+        retry.textContent = 'Waking Pulse…';
+        status.textContent = `Checking the website (${attempt} of 8). A sleeping host may take a minute to wake.`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        try {
+          const response = await fetch(health, { method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal });
+          const data = await response.json().catch(() => null);
+          if (response.ok && data?.status === 'ok') {
+            status.textContent = 'Pulse is awake. Reconnecting…';
+            window.location.replace(target);
+            return;
+          }
+        } catch { /* offline, waking, or temporarily unreachable — retry below */ }
+        finally { clearTimeout(timeout); }
+        if (attempt < 8) await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      retry.disabled = false;
+      retry.textContent = 'Try again';
+      status.textContent = 'Pulse still isn’t responding. Check your connection and try again in a moment.';
+    }
+
+    retry.addEventListener('click', wakeSite);
     try {
-      const stored = localStorage.getItem('pulse_api_url');
-      if (stored) {
-        const info = document.getElementById('server-info');
+      const stored = localStorage.getItem('pulse_api_url') || '';
+      const showing = target || stored;
+      if (showing) {
         info.style.display = 'block';
-        info.textContent = 'Trying: ' + stored;
-        const btn = document.getElementById('change-server');
-        // Only show “change” when running inside the app (WebView on localhost) or when stored looks wrong
-        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || stored.includes('localhost')) {
-          btn.style.display = 'inline-block';
-          btn.addEventListener('click', () => {
-            if (confirm('Clear the saved website address (' + stored + ') and set a new one on the next screen?')) {
-              localStorage.removeItem('pulse_api_url');
-              location.href = '/login';
-            }
-          });
-        }
-      } else {
-        // No stored API URL and page is on localhost (the app's bundled shell): guide to login
-        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-          document.getElementById('hint').textContent = 'This app needs the address of your Pulse website. Go to the login screen to set it.';
+        info.textContent = 'Website: ' + showing;
+      }
+      if (localShell) {
+        settings.style.display = 'inline-block';
+        settings.addEventListener('click', () => {
+          window.location.href = '/login?settings=server';
+        });
+        if (!target && !stored) {
+          document.getElementById('hint').textContent = 'This app needs the address of your Pulse website. Open app settings to enter it.';
         }
       }
     } catch {}

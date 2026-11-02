@@ -31,6 +31,20 @@ services:
         value: "24"
       - key: JWT_SECRET
         generateValue: true
+      # Account verification and password recovery require a real SMTP provider; startup refuses
+      # production traffic until delivery and public links are configured.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: PULSE_APP_URL
+        sync: false   # HTTPS base URL served to users, e.g. https://pulse-music.onrender.com
       - key: GOOGLE_CLIENT_ID
         sync: false   # optional: public Google OAuth client ID; set in Render dashboard to enable "Sign in with Google"
       # Where uploads and the database copy are kept. Render asks for these when the Blueprint is

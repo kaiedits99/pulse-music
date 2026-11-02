@@ -105,13 +105,13 @@ test('two sign-ups for the same email or username at the same moment cannot both
     json: { ...person(100), username: `racer${i}` }
   })));
   assert.equal(sameEmail.filter((r) => r.status === 201).length, 1, JSON.stringify(sameEmail.map((r) => r.status)));
-  assert.ok(sameEmail.filter((r) => r.status !== 201).every((r) => r.status === 400 && /already exists/.test(r.body.error)));
+  assert.ok(sameEmail.filter((r) => r.status !== 201).every((r) => r.status === 400 && /those details/.test(r.body.error)));
 
   const sameName = await Promise.all(Array.from({ length: 5 }, (_, i) => api('POST', '/api/auth/register', {
     json: { ...person(200 + i), username: 'oneandonly' }
   })));
   assert.equal(sameName.filter((r) => r.status === 201).length, 1, JSON.stringify(sameName.map((r) => r.status)));
-  assert.ok(sameName.filter((r) => r.status !== 201).every((r) => r.status === 400 && /already taken/.test(r.body.error)));
+  assert.ok(sameName.filter((r) => r.status !== 201).every((r) => r.status === 400 && /those details/.test(r.body.error)));
 });
 
 test('signing in still works, and a wrong password is still refused', async () => {

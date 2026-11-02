@@ -10,9 +10,14 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clientDir = path.resolve(here, '..');
 const configPath = path.join(clientDir, 'capacitor.config.json');
+const runtimePath = path.join(clientDir, 'public', 'capacitor-runtime.js');
 const original = fs.readFileSync(configPath, 'utf8');
+const originalRuntime = fs.readFileSync(runtimePath, 'utf8');
 
-after(() => fs.writeFileSync(configPath, original));
+after(() => {
+  fs.writeFileSync(configPath, original);
+  fs.writeFileSync(runtimePath, originalRuntime);
+});
 
 function generate(env = {}) {
   const base = { ...process.env };
@@ -23,13 +28,21 @@ function generate(env = {}) {
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr);
-  return { config: JSON.parse(fs.readFileSync(configPath, 'utf8')), output: `${result.stdout}${result.stderr}` };
+  const runtimeText = fs.readFileSync(runtimePath, 'utf8');
+  const runtimeMatch = runtimeText.match(/window\.PULSE_CAPACITOR_RUNTIME = (.+);/);
+  assert.ok(runtimeMatch, 'the offline page receives generated runtime connection settings');
+  return {
+    config: JSON.parse(fs.readFileSync(configPath, 'utf8')),
+    runtime: JSON.parse(runtimeMatch[1]),
+    output: `${result.stdout}${result.stderr}`
+  };
 }
 
 test('with a website address the app loads the live site, so web fixes need no new APK', () => {
-  const { config, output } = generate({ PULSE_APP_URL: 'https://pulse-music.onrender.com' });
+  const { config, runtime, output } = generate({ PULSE_APP_URL: 'https://pulse-music.onrender.com' });
   assert.equal(config.server.url, 'https://pulse-music.onrender.com');
-  assert.deepEqual(config.server.allowNavigation, ['pulse-music.onrender.com']);
+  assert.equal(runtime.remoteUrl, 'https://pulse-music.onrender.com', 'offline retry targets the live site rather than reloading itself');
+  assert.deepEqual(config.server.allowNavigation, ['pulse-music.onrender.com', 'localhost']);
   assert.equal(config.server.errorPath, 'offline.html', 'a failed load shows the bundled page');
   assert.equal(config.webDir, 'dist');
   assert.match(output, /Live mode/);
@@ -46,10 +59,19 @@ test('a bare domain is treated as https', () => {
 });
 
 test('without an address the bundled app is built, and asks on first launch', () => {
-  const { config, output } = generate();
+  const { config, runtime, output } = generate();
   assert.equal(config.server.url, undefined);
+  assert.equal(runtime.remoteUrl, '');
   assert.equal(config.server.androidScheme, 'https');
   assert.match(output, /bundled app/);
+});
+
+test('the bundled mobile recovery page wakes and retries the configured website', () => {
+  const page = fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8');
+  assert.match(page, /PULSE_CAPACITOR_RUNTIME/);
+  assert.match(page, /fetch\(health, \{ method: 'GET', cache: 'no-store'/);
+  assert.match(page, /window\.location\.replace\(target\)/);
+  assert.match(page, /login\?settings=server/);
 });
 
 test('plain http is refused for a real host, but allowed for localhost', () => {

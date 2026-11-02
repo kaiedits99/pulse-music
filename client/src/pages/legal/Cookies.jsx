@@ -24,7 +24,7 @@ export default function Cookies() {
 
       <section className="legal-card">
         <h2>At a glance</h2>
-        <p>When most policies say “cookies” they really mean <strong>any browser storage set by a site</strong>: HTTP cookies, <code>localStorage</code>, <code>sessionStorage</code> and <code>Cache Storage</code>. Pulse uses the last three for essential functions and <strong>does not set non-essential advertising/tracking cookies</strong> in its current free operation. If we ever add optional analytics, we will ask for consent first via the Cookie Consent banner described below.</p>
+        <p>When most policies say “cookies” they really mean <strong>any browser storage set by a site</strong>: HTTP cookies, <code>localStorage</code>, <code>sessionStorage</code> and <code>Cache Storage</code>. Pulse uses an essential HttpOnly session cookie plus the last three storage types for essential functions and <strong>does not set non-essential advertising/tracking cookies</strong> in its current free operation. If we ever add optional analytics, we will ask for consent first via the Cookie Consent banner described below.</p>
         <div className="legal-note">Quick test: open DevTools → Application → Storage and you will see only the keys listed below. Nothing for ads or third-party trackers.</div>
       </section>
 
@@ -33,7 +33,7 @@ export default function Cookies() {
         <table className="legal-table">
           <thead><tr><th>Key / store</th><th>Purpose</th><th>Lifetime</th><th>Essential?</th></tr></thead>
           <tbody>
-            <tr><td><code>pulse_token</code> <span className="muted">(localStorage)</span></td><td>Your signed-in session (JWT). Without it you must re-enter password on every fetch.</td><td>Until you sign out / clear site data (JWT itself expires 7 days)</td><td>Yes</td></tr>
+            <tr><td><code>pulse_session</code> <span className="muted">(HttpOnly cookie)</span></td><td>Authenticates your signed-in session. JavaScript cannot read the cookie; the server validates it on API requests.</td><td>Up to 7 days, or until you sign out / clear site data</td><td>Yes</td></tr>
             <tr><td><code>pulse_api_url</code> <span className="muted">(localStorage)</span></td><td>Self-hosters &amp; bundled apps: the address of the Pulse server you chose via <em>Settings → Website address</em>.</td><td>Until you reset it on the offline-splash / Settings</td><td>Yes (for hosted mode)</td></tr>
             <tr><td>User, genre &amp; theme prefs <span className="muted">(localStorage)</span></td><td>Cached display of your handle, chosen genres, light/dark theme, which onboarding demo content was purged.</td><td>Persistent until you log out / reset</td><td>Yes</td></tr>
             <tr><td><code>pulse_offline_index_v1</code> &amp; <code>pulse-offline-v1</code> <span className="muted">(localStorage + Cache Storage)</span></td><td>Index + bytes for tracks/playlists you tapped “Save offline”.</td><td>Until you remove from Downloads or Settings → Clear all downloads</td><td>Yes (your explicit request to download)</td></tr>
@@ -41,7 +41,7 @@ export default function Cookies() {
             <tr><td>Ephemeral session keys <span className="muted">(sessionStorage)</span></td><td>One-off UI state: “saw data-safety banner”, return-path after offline navigation.</td><td>Until tab closes</td><td>Yes</td></tr>
           </tbody>
         </table>
-        <p>We do <strong>not</strong> use <code>document.cookie</code> HTTP cookies for session or tracking. On native shells (Capacitor) the <em>CapacitorCookies</em> bridge is bundled but disabled by default and unused by Pulse.</p>
+        <p>Pulse issues one <strong>HttpOnly, essential session cookie</strong>; page scripts cannot read it and it is never used for tracking. Native shells use their platform WebView cookie jar; Pulse does not expose the session through <code>document.cookie</code> or persist bearer tokens in Web Storage.</p>
       </section>
 
       <section className="legal-card">
@@ -77,7 +77,7 @@ export default function Cookies() {
       <section className="legal-card">
         <h2><Icon name="sun" size={18} /> Managing storage</h2>
         <ul>
-          <li><strong>In Pulse:</strong> <Link to="/settings">Settings → App &amp; offline storage → Clear all downloads</Link> removes cached tracks; <em>Sign out</em> removes <code>pulse_token</code>; the offline-splash <em>Change website</em> removes <code>pulse_api_url</code>.</li>
+          <li><strong>In Pulse:</strong> <Link to="/settings">Settings → App &amp; offline storage → Clear all downloads</Link> removes cached tracks; <em>Sign out</em> clears the HttpOnly session cookie; the offline-splash <em>Change website</em> removes <code>pulse_api_url</code>.</li>
           <li><strong>In your browser:</strong> Settings → Privacy → Cookies and site data → Clear “pulse.music / localhost” — removes everything above at once. The service worker cache can also be cleared via DevTools → Application → Cache Storage.</li>
           <li><strong>Do Not Track / Global Privacy Control:</strong> Pulse does not track, so these signals are respected by default.</li>
         </ul>

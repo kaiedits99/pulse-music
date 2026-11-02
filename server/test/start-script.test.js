@@ -109,6 +109,8 @@ test('without Litestream the server is not told to wait when stopping', async ()
 });
 
 test('if the saved database cannot be restored it refuses to start rather than begin with an empty one', async () => {
+  // Isolate this simulated first-boot restore failure from a database created by earlier tests.
+  fs.rmSync(dataDir, { recursive: true, force: true });
   const { code, output } = await run({ ...BUCKET, LITESTREAM_BIN: fake, FAKE_RESTORE_EXIT: '1' });
   assert.equal(code, 1);
   assert.match(output, /could not restore the database from the bucket, so Pulse is NOT starting/);

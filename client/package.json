@@ -14,11 +14,18 @@
     "@capacitor/core": "^7.6.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0"
+    "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.6.8",
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.0"
+    "@capacitor/cli": "^7.6.10",
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.5"
+  },
+  "overrides": {
+    "@capacitor/cli": {
+      "rimraf": {
+        "glob": "14.0.3"
+      }
+    }
   }
 }

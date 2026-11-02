@@ -44,6 +44,31 @@ async function mapLimit(items, limit, fn) {
 
 const forget = (files) => Promise.allSettled(files.map((file) => storage.remove(file.filename)));
 
+/** Check that uploaded bytes match the extension allow-list; filenames and browser MIME types are untrusted. */
+export async function uploadSignatureIsValid(file) {
+  if (['cover', 'image'].includes(file.fieldname) && Number(file.size) > 10 * 1024 * 1024) return false;
+  const ext = path.extname(file.originalname || file.filename).toLowerCase();
+  const header = Buffer.alloc(16);
+  const handle = await fs.promises.open(file.path, 'r');
+  let count;
+  try { ({ bytesRead: count } = await handle.read(header, 0, header.length, 0)); }
+  finally { await handle.close(); }
+  const starts = (value, offset = 0) => header.subarray(offset, offset + value.length).equals(Buffer.from(value));
+  if (['.jpg', '.jpeg'].includes(ext)) return starts([0xff, 0xd8, 0xff]);
+  if (ext === '.png') return starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (ext === '.webp') return starts('RIFF') && starts('WEBP', 8);
+  if (ext === '.gif') return starts('GIF87a') || starts('GIF89a');
+  if (ext === '.wav') return starts('RIFF') && starts('WAVE', 8);
+  if (ext === '.flac') return starts('fLaC');
+  if (ext === '.ogg' || ext === '.oga') return starts('OggS');
+  if (ext === '.m4a' || ext === '.mp4') return starts('ftyp', 4);
+  if (ext === '.mp3') return starts('ID3') || (count >= 2 && header[0] === 0xff && (header[1] & 0xe0) === 0xe0);
+  if (ext === '.aac') return count >= 2 && header[0] === 0xff && (header[1] & 0xf6) === 0xf0;
+  // WebM/Matroska EBML, or an Ogg/WebM wrapper for voice notes.
+  if (ext === '.webm' || ext === '.mkv') return starts([0x1a, 0x45, 0xdf, 0xa3]);
+  return false;
+}
+
 /**
  * Runs right after multer. With a bucket configured it copies every uploaded file there before the
  * route handler records it, so the database never points at a file that was not stored. The temporary
@@ -54,27 +79,33 @@ export function keepUploads(req, res, next) {
   const files = uploadedFiles(req);
   if (!files.length) return next();
 
-  if (!storage.remote) {
-    // The file already sits where it will be served from; only a rejected request should remove it.
-    res.once('close', () => { if (res.statusCode >= 400) forget(files); });
-    return next();
-  }
-
-  mapLimit(files, 3, (file) => storage.put(file)).then(
-    () => {
-      if (req.socket.destroyed) { forget(files); return; } // the client left while we were uploading
-      res.once('close', () => {
-        if (res.statusCode >= 400) forget(files);
-        else for (const file of files) fs.rm(file.path, { force: true }, () => {});
-      });
-      next();
-    },
-    (err) => {
-      console.error('[pulse] Could not store an upload:', err.message);
-      forget(files);
-      res.status(502).json({ error: 'Could not store the upload right now. Please try again in a moment.' });
+  Promise.all(files.map(uploadSignatureIsValid)).then((valid) => {
+    if (valid.some((ok) => !ok)) {
+      return Promise.all(files.map((file) => fs.promises.rm(file.path, { force: true })))
+        .then(() => res.status(400).json({ error: 'The file contents do not match a supported media format' }));
     }
-  );
+    if (!storage.remote) {
+      // The file already sits where it will be served from; only a rejected request should remove it.
+      res.once('close', () => { if (res.statusCode >= 400) forget(files); });
+      return next();
+    }
+
+    mapLimit(files, 3, (file) => storage.put(file)).then(
+      () => {
+        if (req.socket.destroyed) { forget(files); return; } // the client left while we were uploading
+        res.once('close', () => {
+          if (res.statusCode >= 400) forget(files);
+          else for (const file of files) fs.rm(file.path, { force: true }, () => {});
+        });
+        next();
+      },
+      (err) => {
+        console.error('[pulse] Could not store an upload:', err.code || err.name || 'storage error');
+        forget(files);
+        res.status(502).json({ error: 'Could not store the upload right now. Please try again in a moment.' });
+      }
+    );
+  }).catch(next);
 }
 
 /** GET /media/uploads/:name when the file is not on local disk: send the browser to the bucket. */
