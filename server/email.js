@@ -21,7 +21,6 @@ export function emailConfigurationErrors(env = process.env) {
   const errors = [];
   if (!env.SMTP_HOST) errors.push('SMTP_HOST');
   if (!env.SMTP_FROM) errors.push('SMTP_FROM');
-  if (!env.PULSE_APP_URL) errors.push('PULSE_APP_URL');
   if ((env.SMTP_USER && !env.SMTP_PASS) || (!env.SMTP_USER && env.SMTP_PASS)) errors.push('SMTP_USER and SMTP_PASS must be set together');
   try { configuredUrl(env); } catch (error) { errors.push(error.message); }
   const port = Number(env.SMTP_PORT || 587);
