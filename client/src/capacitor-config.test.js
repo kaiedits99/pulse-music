@@ -95,9 +95,29 @@ test('the recovery page carries its own settings, with no external file to lose'
   assert.equal(fs.existsSync(path.join(clientDir, 'public', 'offline.html')) === false, false, 'the built page exists');
   assert.equal(fs.existsSync(path.join(clientDir, 'public', 'offline.js')), false, 'the external logic file is gone');
 
-  // And the control that lets someone out of the screen is a real link, so it works without JS.
+  // "Try again" is a real link, so it works without JS.
   assert.match(page, /<a[^>]+id="retry"/);
-  assert.match(page, /<a[^>]+id="change-server"[^>]+href="\/login\?settings=server"/);
+});
+
+test('the address can be changed on the recovery screen itself', () => {
+  // "Open app settings" navigated to /login?settings=server on the app's local origin. In live mode
+  // Capacitor proxies that host to the network, nothing answers, the navigation fails and the error
+  // page is shown again — so the button looked dead and there was no way to correct a wrong
+  // address. The field must live on this page, which needs no navigation at all.
+  const page = fs.readFileSync(templatePath, 'utf8');
+  assert.match(page, /<form[^>]+id="server-form"/);
+  assert.match(page, /<input[^>]+id="server-url"[^>]+type="url"/);
+  assert.match(page, /<button[^>]+id="server-save"[^>]+type="submit"/);
+  assert.match(page, /localStorage\.setItem\('pulse_api_url'/);
+  assert.match(page, /location\.replace\(clean\)/, 'saving reconnects to the new address');
+
+  // No <a> may offer to reach the app's local settings screen: that navigation cannot resolve in
+  // live mode, which is what made the old button dead.
+  const settingsLinks = [...page.matchAll(/<a[^>]*id="change-server"[^>]*>/g)];
+  assert.deepEqual(settingsLinks, [], 'the settings escape hatch is a control on this page, not a link');
+  // The plain fallback for "Try again" is the page's own origin (always safe), never a host that
+  // needs JavaScript to be known: the script rewrites it before anyone can tap it.
+  assert.match(page, /<a id="retry"[^>]+href="\/"/);
 });
 
 test('the build inlines the website address into the recovery page', () => {

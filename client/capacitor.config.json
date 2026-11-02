@@ -3,6 +3,12 @@
   "appName": "Pulse",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "url": "https://pulse.example.com",
+    "allowNavigation": [
+      "pulse.example.com",
+      "localhost"
+    ],
+    "errorPath": "offline.html"
   }
 }

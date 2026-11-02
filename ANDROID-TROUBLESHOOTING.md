@@ -4,8 +4,13 @@ The recovery screen means the app opened but the website behind it did not answe
 ways out, and both work with the phone offline:
 
 - **Try again** reloads the website (waking a sleeping host first when it can).
-- **Open app settings** shows the sign-in screen, where **Backend server URL** accepts a different
-  address. Use this when the address baked into the app is wrong or the server has moved.
+- **Change the website address** opens a field on the same screen. Enter the address and it is saved
+  and used immediately. Use this when the address baked into the app is wrong or the server has
+  moved — it is the only way to correct it without installing a new APK.
+
+  It used to open the app's local sign-in screen instead. That cannot work when the app loads the
+  live site: Android has no address to reach there, so the navigation failed and landed straight
+  back on this page — the button appeared to do nothing.
 
 If neither works, the address itself is usually the problem, not the app.
 
