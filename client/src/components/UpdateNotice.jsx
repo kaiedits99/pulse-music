@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import { checkForUpdate, APP_VERSION, RELEASES_PAGE } from '../appVersion.js';
-import { isNative, openExternal } from '../native.js';
+import { isBundledShell, isNative, openExternal } from '../native.js';
 
 const DISMISS_KEY = 'pulse_update_dismissed_v1';
 
@@ -31,9 +31,14 @@ export default function UpdateNotice() {
     if (!isNative()) return undefined;
     let alive = true;
     const timer = setTimeout(() => {
+      const bundled = isBundledShell();
       checkForUpdate().then((found) => {
         if (!alive || !found) return;
         if (dismissedVersion() === found.version) return;
+        // With the site served live, the interface is already the newest one. That is only worth
+        // interrupting someone for when the release actually carries a new APK (a new shell);
+        // otherwise the notice would tell them to reinstall and change nothing they can see.
+        if (!bundled && !found.apk) return;
         setUpdate(found);
       });
     }, 2500); // after the first screen has painted: an update is never urgent

@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# Two pushes to the same branch must not publish the same release tag at once.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build debug APK
@@ -68,6 +73,29 @@ jobs:
         working-directory: client
         run: npx cap add android
 
+      # Android refuses to install an update whose versionCode is not greater than the installed
+      # one, so every build carries the client version as both its name and its code. Without this
+      # the app was stuck at "1.0.5 (1)" and a fixed APK could not be installed over an old one.
+      - name: Stamp the app version
+        working-directory: client
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const pkg = require('./package.json');
+          const [major = 0, minor = 0, patch = 0] = String(pkg.version).split('.').map(Number);
+          const versionCode = major * 10000 + minor * 100 + patch;
+          const gradlePath = 'android/app/build.gradle';
+          let gradle = fs.readFileSync(gradlePath, 'utf8');
+          if (!/versionCode\s+\d+/.test(gradle) || !/versionName\s+"[^"]*"/.test(gradle)) {
+            throw new Error('version fields not found in ' + gradlePath);
+          }
+          gradle = gradle
+            .replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
+            .replace(/versionName\s+"[^"]*"/, `versionName "${pkg.version}"`);
+          fs.writeFileSync(gradlePath, gradle);
+          console.log(`[android] versionName ${pkg.version} (versionCode ${versionCode})`);
+          NODE
+
       - name: Build debug APK
         working-directory: client/android
         run: ./gradlew --no-daemon assembleDebug
@@ -80,22 +108,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # An Actions artifact needs a GitHub login and expires after 14 days. A Release is a plain
-      # public link: push a v* tag, or run this workflow with "publish_release" ticked. The Windows
-      # workflow attaches its .exe files to the same release, so one link serves every platform.
+      # An Actions artifact needs a GitHub login and expires after 14 days, so the download link
+      # people actually use is a Release. A release is published for every build on the default
+      # branch and for v* tags; the tag is the client version, so the app's own update check sees a
+      # newer version exactly when a newer APK exists. (It used to be published only when a tag was
+      # pushed, which left a month-old APK as the newest download while main had moved on.)
       - name: Publish a GitHub Release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish_release) || startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+          || startsWith(github.ref, 'refs/tags/v')
+          || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          VERSION="$(node -p "require('./client/package.json').version")"
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             TAG="$GITHUB_REF_NAME"
           else
-            TAG="android-v$(date -u +%Y.%m.%d)"
+            TAG="v$VERSION"
           fi
-          VERSION="${TAG#android-v}"
           VERSION="${VERSION#v}"
           APK="client/android/app/build/outputs/apk/debug/app-debug.apk"
           ASSET="Pulse-$VERSION-android.apk"
@@ -104,7 +137,7 @@ jobs:
           # If the Windows workflow got here first the release already exists — just add the APK.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "Pulse $VERSION" \
-              --notes "Install Pulse on your phone with \`$ASSET\` (Android 6.0 or newer). Windows builds are attached to the same release." \
+              --notes "Install Pulse on your phone with \`$ASSET\` (Android 6.0 or newer). An installed copy keeps your account and downloads; tap the APK to update. Windows builds are attached to the same release." \
               || true
           fi
           gh release upload "$TAG" "$ASSET" --clobber

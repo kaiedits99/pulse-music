@@ -68,10 +68,27 @@ test('without an address the bundled app is built, and asks on first launch', ()
 
 test('the bundled mobile recovery page wakes and retries the configured website', () => {
   const page = fs.readFileSync(path.join(clientDir, 'public', 'offline.html'), 'utf8');
-  assert.match(page, /PULSE_CAPACITOR_RUNTIME/);
-  assert.match(page, /fetch\(health, \{ method: 'GET', cache: 'no-store'/);
-  assert.match(page, /window\.location\.replace\(target\)/);
-  assert.match(page, /login\?settings=server/);
+  const script = fs.readFileSync(path.join(clientDir, 'public', 'offline.js'), 'utf8');
+  assert.match(page, /src="\.\/offline\.js"/, 'the page loads its logic from a file the CSP allows');
+  assert.match(script, /PULSE_CAPACITOR_RUNTIME/);
+  assert.match(script, /fetch\(health, \{ method: 'GET', cache: 'no-store'/);
+  assert.match(script, /window\.location\.replace\(target\)/);
+  assert.match(script, /login\?settings=server/);
+});
+
+test('no page under public/ relies on an inline script the server CSP would block', () => {
+  // server/index.js sends `script-src 'self' https://accounts.google.com` with no 'unsafe-inline'.
+  // An inline script therefore never runs: the recovery page painted but "Try again" did nothing.
+  const dir = path.join(clientDir, 'public');
+  const offenders = [];
+  for (const name of fs.readdirSync(dir).filter((file) => file.endsWith('.html'))) {
+    const html = fs.readFileSync(path.join(dir, name), 'utf8');
+    for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+      const hasSrc = /\bsrc\s*=/i.test(match[1]);
+      if (!hasSrc || match[2].trim()) offenders.push(`${name}: inline script`);
+    }
+  }
+  assert.deepEqual(offenders, [], `these would be blocked by the app's own CSP:\n${offenders.join('\n')}`);
 });
 
 test('plain http is refused for a real host, but allowed for localhost', () => {
