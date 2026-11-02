@@ -20,7 +20,9 @@ test('production email configuration requires HTTPS links and SMTP settings', ()
   };
   assert.deepEqual(emailConfigurationErrors(valid), []);
   assert.ok(emailConfigurationErrors({ ...valid, PULSE_APP_URL: 'http://pulse.example.test' }).some((error) => /HTTPS/.test(error)));
-  assert.ok(emailConfigurationErrors({ NODE_ENV: 'production' }).length >= 3);
+  assert.deepEqual(emailConfigurationErrors({ NODE_ENV: 'production' }), [
+    'SMTP_HOST', 'SMTP_FROM', 'PULSE_APP_URL is required for account email links'
+  ]);
 });
 
 async function register(email, username) {
