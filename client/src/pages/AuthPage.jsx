@@ -42,10 +42,13 @@ export default function AuthPage({ initialMode = 'login' }) {
   const [regStep, setRegStep] = useState(1); // 1: account, 2: username, 3: genres
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingMessage, setPendingMessage] = useState('');
   const [showPass, setShowPass] = useState(false);
   // Inside the Android app the website address is the first thing a new install needs: without it
   // there is nothing to sign in to. Open the setting by itself when the app has no backend yet.
-  const [showServer, setShowServer] = useState(() => isBundledShell() && !getRuntimeUrl() && !getApiUrl());
+  const [showServer, setShowServer] = useState(() => new URLSearchParams(location.search).get('settings') === 'server'
+    || (isBundledShell() && !getRuntimeUrl() && !getApiUrl()));
   const [serverUrl, setServerUrl] = useState(getRuntimeUrl() || '');
   const [stats, setStats] = useState(null);
 
@@ -143,7 +146,13 @@ export default function AuthPage({ initialMode = 'login' }) {
       toast('Welcome back!');
       navigate(afterSignIn, { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid credentials');
+      if (err.code === 'EMAIL_NOT_VERIFIED') {
+        setPendingEmail(id.includes('@') ? id.trim() : '');
+        setPendingMessage('Verify your email address before signing in.');
+        setMode('pending');
+      } else {
+        setError(err.message || 'Invalid credentials');
+      }
     } finally {
       setBusy(false);
     }
@@ -159,7 +168,7 @@ export default function AuthPage({ initialMode = 'login' }) {
 
     setBusy(true);
     try {
-      await register({
+      const result = await register({
         name: form.name.trim(),
         artistName: form.artistName.trim() || form.name.trim(),
         username: form.username.trim(),
@@ -170,15 +179,40 @@ export default function AuthPage({ initialMode = 'login' }) {
         consentAge,
         consentCookie
       });
-      toast(`Welcome to Pulse, @${form.username.trim()}!`);
-      navigate(afterSignIn, { replace: true });
+      setPendingEmail(result.email || form.email.trim());
+      setPendingMessage('Check your inbox and follow the verification link before signing in.');
+      setMode('pending');
+      setError('');
+      toast('Verification email sent.');
     } catch (err) {
-      setError(err.message || 'Could not complete registration');
+      if (err.status === 503) {
+        setPendingEmail(form.email.trim());
+        setPendingMessage(err.message || 'Your account was created, but we could not send the verification email. Request another link below.');
+        setMode('pending');
+      } else {
+        setError(err.message || 'Could not complete registration');
+      }
       if (err.message && err.message.toLowerCase().includes('username')) setRegStep(2);
     } finally {
       setBusy(false);
     }
     return undefined;
+  };
+
+  const resendVerification = async () => {
+    setError('');
+    setPendingMessage('');
+    const email = pendingEmail.trim();
+    if (!email) return setError('Enter the email address you used to create your account.');
+    setBusy(true);
+    try {
+      const result = await api.post('/api/auth/verification/resend', { email });
+      setPendingMessage(result.message || 'If the account needs verification, an email will arrive shortly.');
+    } catch (err) {
+      setError(err.message || 'Could not request a verification email. Try again later.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const saveServer = () => {
@@ -299,6 +333,9 @@ export default function AuthPage({ initialMode = 'login' }) {
                   {busy ? <><Spinner size={18} /> Signing in…</> : 'Sign in to Pulse'}
                 </button>
               </form>
+              <p className="auth-foot" style={{ marginTop: -8, textAlign: 'right' }}>
+                <Link className="link-btn" to="/forgot-password">Forgot password?</Link>
+              </p>
 
               <GoogleAuthButton />
 
@@ -332,6 +369,21 @@ export default function AuthPage({ initialMode = 'login' }) {
               </div>
               )}
             </>
+          )}
+
+          {mode === 'pending' && (
+            <section className="form" aria-live="polite">
+              <h2>Check your email</h2>
+              <p className="auth-lead">{pendingMessage || 'Verify your email address to finish setting up your account.'}</p>
+              <label className="field">
+                <span>Email address</span>
+                <input type="email" autoComplete="email" value={pendingEmail} onChange={(e) => setPendingEmail(e.target.value)} placeholder="you@example.com" required />
+              </label>
+              <button className="btn btn-primary btn-block" type="button" onClick={resendVerification} disabled={busy}>
+                {busy ? <><Spinner size={16} /> Sending…</> : 'Resend verification email'}
+              </button>
+              <p className="auth-foot"><button className="link-btn" type="button" onClick={() => switchMode('login')}>Back to sign in</button></p>
+            </section>
           )}
 
           {/* --------------------------------------------------- REGISTER -- */}

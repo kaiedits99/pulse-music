@@ -22,7 +22,7 @@ export default function Privacy() {
         <h2><Icon name="database" size={18} /> 2 · What we collect — and what we don’t</h2>
         <p>We practice <strong>data minimisation</strong>. We only ask for what Pulse needs to work:</p>
         <ul>
-          <li><strong>Account information:</strong> display name, username/handle (e.g. <code>@kai99</code>), email, password hash (bcrypt, never plaintext), 1–3 favourite genres (for recommendations), optional artist profile fields (bio, genre, country) and avatar URL.</li>
+          <li><strong>Account information:</strong> display name, username/handle (an artist tag), email and verification status, password hash (bcrypt, never plaintext), 1–3 favourite genres (for recommendations), optional artist profile fields (bio, genre, country) and avatar URL. Short-lived email-action tokens are stored only as hashes and deleted after use or expiry.</li>
           <li><strong>Content you provide:</strong> audio files, cover art, album/playlist titles, podcast episodes, messages and group/DM membership, reactions. You choose whether each song/album/playlist is <em>public</em> or <em>private</em>.</li>
           <li><strong>Usage data:</strong> play counts, likes/favourites, follow actions, and anonymous aggregate stats (total tracks/artists) shown on the sign-in screen. No personalised ad profiles.</li>
           <li><strong>Technical data:</strong> device IP (used for rate-limiting and abuse prevention, not stored beyond logs), browser/app version, and any bug report you voluntarily send. Location is never asked for.</li>
@@ -41,7 +41,7 @@ export default function Privacy() {
         <h2><Icon name="cookie" size={18} /> 3 · Cookies, local storage &amp; similar</h2>
         <p>Pulse uses <strong>no third-party cookies for advertising</strong>. See our full <Link to="/cookies">Cookie Policy</Link> for details.</p>
         <ul>
-          <li><strong>Essential storage:</strong> <code>pulse_token</code> (your JWT in <code>localStorage</code>), <code>pulse_api_url</code> (when you self-host), theme and offline indexes. Without these you cannot stay signed in or play downloads.</li>
+          <li><strong>Essential storage:</strong> the essential HttpOnly <code>pulse_session</code> cookie (the browser cannot read it), <code>pulse_api_url</code> (when you self-host), theme and offline indexes. Authentication tokens are not stored in localStorage or sessionStorage.</li>
           <li><strong>Cache Storage &amp; IndexedDB:</strong> offline tracks/covers you explicitly download (Cache <code>pulse-offline-v1</code>). Controlled in <Link to="/settings">Settings → App &amp; offline storage</Link> and by your browser’s site-data settings.</li>
           <li><strong>Session helpers:</strong> ephemeral keys like “saw data-safety banner” in <code>sessionStorage</code>.</li>
         </ul>

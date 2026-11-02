@@ -403,7 +403,7 @@ export default function Upload() {
             <label className="cover-picker">
               <input
                 type="file"
-                accept="image/*,.svg,.png,.jpg,.jpeg,.webp"
+                accept="image/jpeg,image/png,image/webp,.png,.jpg,.jpeg,.webp"
                 onChange={(e) => pickCover(e.target.files[0])}
                 style={{ display: 'none' }}
                 disabled={isBulk}

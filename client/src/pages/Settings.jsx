@@ -183,16 +183,8 @@ export default function Settings() {
   const doDeleteAccount = async () => {
     setDeleting(true);
     try {
-      const { apiUrl } = await import('../config.js');
-      const token = localStorage.getItem('pulse_token');
-      const res = await fetch(apiUrl('/api/account'), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ password: deletePassword, confirm: deletePassword })
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `Delete failed (${res.status})`);
-      localStorage.removeItem('pulse_token');
+      await api.del('/api/account', { password: deletePassword, confirm: deletePassword });
+      logout();
       toast('Account deleted — we have erased your Pulse data. You have been signed out.');
       window.location.href = '/';
     } catch (err) {

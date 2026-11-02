@@ -1,8 +1,8 @@
 // Client side of messaging.
 //
 // Two things here are deliberate and worth keeping if this file is ever rewritten:
-//   - attachments are fetched through an authorised, no-store route with the token in the query
-//     (an <img> cannot send an Authorization header), so an expired attachment simply stops loading
+//   - attachments are fetched through an authorised, no-store route and held only as temporary
+//     object URLs (tokens never go into URLs, referrers, or browser history), so an expired attachment simply stops loading
 //   - nothing about a conversation is written to localStorage or the offline cache: these messages
 //     are meant to disappear, and a device copy would outlive them
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -10,8 +10,34 @@ import { api, getToken } from './api.js';
 import { apiUrl } from './config.js';
 import { useAuth } from './context/AuthContext.jsx';
 
-/** Where an attachment lives. The token is required: media is never public. */
-export const chatMediaUrl = (name) => (name ? apiUrl(`/api/chat/media/${encodeURIComponent(name)}?t=${encodeURIComponent(getToken() || '')}`) : null);
+/** Fetch an ephemeral attachment with bearer auth; the URL only exists in memory and is revoked on unmount. */
+export function useChatMediaUrl(name) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!name) { setUrl(null); return undefined; }
+    const controller = new AbortController();
+    let objectUrl = null;
+    setUrl(null);
+    fetch(apiUrl(`/api/chat/media/${encodeURIComponent(name)}`), {
+      headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal
+    }).then((response) => {
+      if (!response.ok) throw new Error('Attachment unavailable');
+      return response.blob();
+    }).then((blob) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => {});
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [name]);
+  return url;
+}
 
 export const chatApi = {
   conversations: () => api.get('/api/chat/conversations'),

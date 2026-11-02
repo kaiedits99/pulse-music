@@ -17,8 +17,7 @@ a song. Everything you will ever see in the app was uploaded by a real user.
 - **Apps:** one server, three doors — the website, an Android app (Capacitor, `ANDROID-BUILD.md`) and a
   Windows app (Electron, `DESKTOP-BUILD.md`). Both apps are thin shells around the same website, so
   the catalog, accounts and messages are identical everywhere with no syncing layer.
-- **Auth:** JWT (bearer tokens) + bcrypt password hashing, done on a worker thread so a sign-in never
-  freezes the server
+- **Auth:** HttpOnly cookie sessions + bcrypt password hashing on a worker thread; password sign-up requires email verification, and recovery links are single-use
 - **Uploads:** Multer (audio + cover images), streamed with HTTP Range support. Only
   `data/uploads/` is served at `/media/uploads/…` — the database next to it is never exposed. On hosts
   with a temporary disk the files live in an S3-compatible bucket (Cloudflare R2) instead, and
@@ -32,6 +31,11 @@ a song. Everything you will ever see in the app was uploaded by a real user.
   catalog data. Signed-in users get Home at `/` instead.
 - **Links keep working.** Following a link to an inner page while signed out sends you to sign
   in first and then to that page.
+- **Email verification.** Password sign-up sends a 24-hour, single-use verification link and does not
+  create a signed-in session until the address is confirmed. Existing password accounts verify their
+  address at next sign-in; Google accounts use Google's verified-email claim.
+- **Password recovery.** A one-hour, single-use email link changes the password and invalidates all
+  existing sessions. Reset-request responses are the same for known and unknown email addresses.
 - **"Sharing is caring" prompt.** Right after someone signs in or signs up, a dialog invites
   them to upload their music: *Choose music files* opens the file picker and takes the chosen
   files to the Upload page, ready to publish. It is only an invitation: *Maybe later* (or Esc,
@@ -90,12 +94,12 @@ and `Esc` work as you would expect. Press `/` anywhere to jump to it.
 
 Pulse supports "Continue with Google" using the Google Identity Services
 **credential (ID token) flow**: the browser gets a Google-signed ID token and
-the server verifies it at `POST /api/auth/google`, returning the same
-`{ token, user }` shape as password login. There is **no OAuth client secret**
-anywhere — only the public client ID is configured. Login and signup are the
-same call: an existing email signs in, an unknown email gets an account (artist
+the server verifies it at `POST /api/auth/google`. Google accounts with a
+verified email are trusted as verified and receive the same HttpOnly session
+cookie as password sign-in. There is **no OAuth client secret** anywhere — only
+the public client ID is configured. An unknown email gets an account (artist
 role + auto-created artist profile, no usable password — they keep signing in
-via Google). The private admin passphrase login is untouched by all this.
+via Google).
 
 Setup:
 
@@ -188,11 +192,19 @@ service running `npm start` keeps the bucket and loses the database, so `/api/he
 
 ### Configuration
 
+Production startup requires `SMTP_HOST`, `SMTP_FROM`, and `PULSE_APP_URL`; set `SMTP_PORT` (587 for STARTTLS), and set both `SMTP_USER` and `SMTP_PASS` when the provider requires authentication. `PULSE_APP_URL` must be the public HTTPS address users open. Configure these in the host's secret/environment settings—never commit SMTP credentials. Local password sign-up and recovery also need a reachable SMTP service; there is no delivery fallback.
+
 | Variable | Default | What it does |
 |----------|---------|--------------|
 | `PORT` | `8080` (Render sets its own) | Port the server listens on |
 | `PULSE_DATA_DIR` | `./data` | Where the database and local uploads live |
 | `JWT_SECRET` | built-in dev value | Signs sign-in tokens. **Set your own in production** (`render.yaml` generates one) |
+| `PULSE_APP_URL` | unset | Public HTTPS base URL used for verification and password-reset links; required in production |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` | unset, `587`, unset | SMTP delivery settings for account verification and password recovery; required in production |
+| `SMTP_USER`, `SMTP_PASS` | unset | Optional SMTP credentials; set both or neither |
+| `SMTP_SECURE` | inferred from port | Set `true` for implicit TLS; port `465` enables it automatically |
+| `PULSE_ALLOWED_ORIGINS` | Capacitor origins only | Comma-separated exact origins allowed to call the API cross-origin (for example `https://pulse.example.com`). Same-origin requests need no entry. |
+| `PULSE_TRUST_PROXY` | Render: one proxy hop; local: off | Set `true` only when the service is behind one trusted reverse proxy; affects client IPs, secure-cookie detection and rate limits. |
 | `GOOGLE_CLIENT_ID` | unset | Enables "Continue with Google" |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | unset | Keep uploads (and, with `start:render`, the database copy) in a bucket. **All four or none**: a partial set stops the app from starting |
 | `S3_REGION` | `auto` | Bucket region (`auto` is right for R2) |
@@ -205,6 +217,10 @@ service running `npm start` keeps the bucket and loses the database, so `/api/he
 | `PULSE_DB_SYNC_SECONDS` | `5` | How often Litestream copies the database (1 to 20). Smaller means less to lose in a crash and more writes to the bucket |
 | `LITESTREAM_DISABLED` | unset | `true` runs without database copies even though a bucket is set |
 | `LITESTREAM_BIN`, `LITESTREAM_CONFIG` | the npm-installed program, `litestream.yml` | Advanced: use a different Litestream program or settings file |
+
+### Provisioning an administrator
+
+Admin privileges are never granted through public registration or login. To create or rotate an admin account on the server, run `npm run admin:provision` with `PULSE_ADMIN_EMAIL`, `PULSE_ADMIN_NAME`, `PULSE_ADMIN_USERNAME`, and a unique `PULSE_ADMIN_PASSWORD` (at least 12 characters) set in the operator's environment. The command updates the matching account or creates it, and does not print the password. Do not use retired shared/demo credentials (including `kai99` or `demo123`).
 
 **Upgrading from a version that shipped demo data.** Earlier versions seeded sample users,
 artists, albums, tracks, playlists and podcast shows (plus generated audio and cover art).
@@ -321,8 +337,7 @@ person saved are left alone), including from saved playlists.
 Pulse runs on **Node.js 24** in production. The version is pinned in three places that must agree —
 `package.json` (`engines.node`), `.node-version` and `render.yaml` — because the database driver
 (`better-sqlite3`) is a native module that only works on Node versions it has a prebuilt binary for;
-`npm test` checks that the three pins match. Any Node 22+ works for development too (you'll just see
-an `EBADENGINE` warning from npm).
+`npm test` checks that the three pins match. Install Node 24 for local development as well as production.
 
 ```bash
 # 1. backend deps

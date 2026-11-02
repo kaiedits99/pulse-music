@@ -67,7 +67,9 @@ export default function Landing() {
         <Link to="/terms" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Terms of Service</Link>
         <Link to="/cookies" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Cookie Policy</Link>
         <span>·</span>
-        <a href="mailto:inputname9@aol.com" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>inputname9@aol.com</a>
+        <a href="mailto:inputname9@aol.com" style={{ color: 'var(--text-faint)', textDecoration: 'underline' }}>Contact</a>
+        <span>·</span>
+        <span>© {new Date().getFullYear()} Pulse</span>
       </footer>
     </div>
   );

@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs/promises';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -37,7 +38,10 @@ export async function startServer(dataDir, env = {}) {
       ...process.env,
       PORT: String(port),
       PULSE_DATA_DIR: dataDir,
+      NODE_ENV: 'test',
       JWT_SECRET: 'test-secret',
+      PULSE_APP_URL: `http://127.0.0.1:${port}`,
+      PULSE_TEST_EMAIL_DIR: path.join(dataDir, 'test-mail'),
       PULSE_SKIP_CLIENT_BUILD: 'true',
       ...env
     }
@@ -50,7 +54,33 @@ export async function startServer(dataDir, env = {}) {
     if (Date.now() > deadline || child.exitCode !== null) throw new Error(`server did not start:\n${log}`);
     await sleep(50);
   }
-  return { url: `http://127.0.0.1:${port}`, logs: () => log, stop: () => child.kill() };
+  return { url: `http://127.0.0.1:${port}`, testMailDir: path.join(dataDir, 'test-mail'), logs: () => log, stop: () => child.kill() };
+}
+
+export async function takeTestEmail(server, email, purpose) {
+  const names = (await fs.readdir(server.testMailDir)).filter((name) => name.endsWith('.json')).sort().reverse();
+  for (const name of names) {
+    const file = path.join(server.testMailDir, name);
+    const mail = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (mail.to.toLowerCase() === email.toLowerCase() && mail.purpose === purpose) {
+      await fs.unlink(file);
+      const match = mail.text.match(/https?:\/\/\S+/);
+      if (!match) throw new Error(`test email did not contain an action URL (${purpose})`);
+      return new URL(match[0]).searchParams.get('token');
+    }
+  }
+  return null;
+}
+
+export async function verifyEmailFromTestOutbox(server, email) {
+  const token = await takeTestEmail(server, email, 'verify-email');
+  if (!token) throw new Error(`verification email for ${email} was not captured`);
+  const response = await fetch(`${server.url}/api/auth/verify-email`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token })
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(`test email verification failed: ${body.error}`);
+  return body;
 }
 
 /** A tiny but valid mono 16-bit WAV (0.25 s). */
@@ -80,5 +110,15 @@ export const call = (server) => async (method, route, { token, json, form } = {}
   const text = await res.text();
   let body = text;
   try { body = JSON.parse(text); } catch { /* not JSON */ }
+  if (method === 'POST' && route === '/api/auth/register' && res.status === 201 && body.requiresVerification) {
+    await verifyEmailFromTestOutbox(server, json.email);
+    const signedIn = await fetch(`${server.url}/api/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: json.email, password: json.password })
+    });
+    const session = await signedIn.json();
+    if (!signedIn.ok) throw new Error(`test sign-in after email verification failed: ${session.error}`);
+    return { status: 201, body: session, headers: signedIn.headers };
+  }
   return { status: res.status, body, headers: res.headers };
 };

@@ -21,10 +21,12 @@ export const chatMediaDir = path.join(dataDir, 'chat-media');
 export const chatDbPath = process.env.PULSE_CHAT_DB_PATH || path.join(dataDir, 'chat.db');
 
 for (const dir of [dataDir, chatMediaDir]) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') fs.chmodSync(dir, 0o700);
 }
 
 const db = new Database(chatDbPath);
+if (process.platform !== 'win32') fs.chmodSync(chatDbPath, 0o600);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 db.pragma('busy_timeout = 5000');

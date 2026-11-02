@@ -2,9 +2,25 @@ import { useState } from 'react';
 import Icon from '../Icon.jsx';
 import { Cover } from '../ui.jsx';
 import { formatDuration } from '../../format.js';
-import { chatMediaUrl, timeLeft } from '../../chat.jsx';
+import { useChatMediaUrl, timeLeft } from '../../chat.jsx';
 
 const TABS = ['Tracks', 'Links', 'Files'];
+
+function AttachmentRow({ message }) {
+  const url = useChatMediaUrl(message.media_name);
+  return (
+    <a key={message.id} className="cd-row" href={url || undefined} target="_blank" rel="noreferrer noopener"
+      onClick={(event) => { if (!url) event.preventDefault(); }} aria-disabled={!url}>
+      {message.kind === 'image'
+        ? <img className="cd-thumb" src={url || undefined} alt="" />
+        : <span className="cd-thumb cd-thumb--audio"><Icon name="wave" size={18} /></span>}
+      <span className="cd-row-meta">
+        <strong>{message.kind === 'image' ? 'Image' : 'Voice note'}</strong>
+        <em>{message.sender.name} · {timeLeft(message.expires_at)}</em>
+      </span>
+    </a>
+  );
+}
 
 /** Every http(s) link anyone dropped in the thread. */
 function linksIn(messages) {
@@ -216,17 +232,7 @@ export default function ChatDetails({
         {tab === 'Files' && (
           files.length === 0
             ? <p className="muted pad">No attachments yet</p>
-            : files.map((message) => (
-              <a key={message.id} className="cd-row" href={chatMediaUrl(message.media_name)} target="_blank" rel="noreferrer noopener">
-                {message.kind === 'image'
-                  ? <img className="cd-thumb" src={chatMediaUrl(message.media_name)} alt="" />
-                  : <span className="cd-thumb cd-thumb--audio"><Icon name="wave" size={18} /></span>}
-                <span className="cd-row-meta">
-                  <strong>{message.kind === 'image' ? 'Image' : 'Voice note'}</strong>
-                  <em>{message.sender.name} · {timeLeft(message.expires_at)}</em>
-                </span>
-              </a>
-            ))
+            : files.map((message) => <AttachmentRow key={message.id} message={message} />)
         )}
       </div>
 

@@ -32,7 +32,8 @@ after(async () => {
 async function boot() {
   const port = await freePort();
   const env = {
-    ...process.env, ...s3.env(), PORT: String(port), PULSE_DATA_DIR: dataDir, JWT_SECRET: 'test',
+    ...process.env, ...s3.env(), PORT: String(port), PULSE_DATA_DIR: dataDir, JWT_SECRET: 'test', NODE_ENV: 'test',
+    PULSE_APP_URL: `http://127.0.0.1:${port}`, PULSE_TEST_EMAIL_DIR: path.join(dataDir, 'test-mail'),
     LITESTREAM_CONFIG: configFile, PULSE_DB_SYNC_SECONDS: '1'
   };
   const child = spawn('bash', ['scripts/start-with-litestream.sh'], { cwd: root, env, detached: true });
@@ -43,7 +44,7 @@ async function boot() {
   const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
   await waitFor(() => log.includes('Server running') || child.exitCode !== null, { timeoutMs: 20000, what: 'the server to start' });
   assert.equal(child.exitCode, null, `the server exited early:\n${log}`);
-  const server = { url: `http://127.0.0.1:${port}` };
+  const server = { url: `http://127.0.0.1:${port}`, testMailDir: path.join(dataDir, 'test-mail') };
   return {
     server,
     api: call(server),

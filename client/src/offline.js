@@ -184,15 +184,6 @@ export async function downloadSong(song) {
   return added && isNew ? 'added' : 'cached';
 }
 
-/** The bearer token, if someone is signed in. Kept here to avoid importing the api module (which
- *  the offline store deliberately does not depend on — it must work with the network switched off). */
-function authHeader() {
-  try {
-    const token = localStorage.getItem('pulse_token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch { return {}; }
-}
-
 /**
  * Tell the catalogue a track was saved. Fire-and-forget: the copy is already on the device, so a
  * failed counter (offline, signed out) must never turn a successful save into an error.
@@ -203,7 +194,7 @@ function countSave(song) {
     ? `/api/episodes/${song.episode_id}/saved`
     : `/api/songs/${song.id}/saved`;
   try {
-    fetch(apiUrl(path), { method: 'POST', headers: authHeader() }).catch(() => {});
+    fetch(apiUrl(path), { method: 'POST', credentials: 'include' }).catch(() => {});
   } catch { /* ignore */ }
 }
 

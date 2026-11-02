@@ -108,9 +108,15 @@ words. It never prints your keys.
      doesn't have one, then runs the server under Litestream.
    - Health check: `GET /api/health` (unauthenticated, no DB work: Render only routes
      traffic once the instance answers).
-3. Open the `.onrender.com` URL and sign up. A new deployment is **blank**: there is no sample
-   data. The first track anyone uploads becomes the shared catalog that every later user sees.
-4. To enable "Continue with Google", create a **Web application** OAuth client
+3. Configure email delivery before accepting password sign-ups: set `SMTP_HOST`, `SMTP_FROM`, and
+   `PULSE_APP_URL` in the Render Environment settings (`PULSE_APP_URL` is the public HTTPS site URL).
+   Set `SMTP_PORT` to the provider's port (587 for STARTTLS) and, if required, set both `SMTP_USER`
+   and `SMTP_PASS`. Production refuses to start without the required mail settings; verification and
+   password recovery do not fall back to printing links or tokens.
+4. Open the `.onrender.com` URL and sign up. A new deployment is **blank**: there is no sample
+   data. Password sign-ups must verify their email before they can sign in. The first track anyone
+   uploads becomes the shared catalog that every later user sees.
+5. To enable "Continue with Google", create a **Web application** OAuth client
    in Google Cloud, add the deployed app's exact origin under **Authorized JavaScript
    origins**, then set `GOOGLE_CLIENT_ID` to that public client ID in the Render
    dashboard. The sign-in screen now explains when this backend setting is missing;

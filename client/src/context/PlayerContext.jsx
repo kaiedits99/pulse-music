@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { api, getToken } from '../api.js';
+import { api } from '../api.js';
 import { mediaUrl, getApiUrl } from '../config.js';
 import { playbackCandidates, mediaUrlCandidates } from '../media-url.js';
 import { resolvePlayableUrl } from '../offline.js';
@@ -228,7 +228,6 @@ export function PlayerProvider({ children }) {
     const state = progressRef.current;
     const audio = audioRef.current;
     if (!state.episodeId || !state.ready || !audio) return;
-    if (!getToken()) return;
     const t = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
     if (!force && Math.abs(t - state.last) < 10) return;
     state.last = t;

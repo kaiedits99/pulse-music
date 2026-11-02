@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { api, getToken, setToken } from '../api';
+import { api, setToken } from '../api';
 
 const AuthContext = createContext(null);
 const CACHED_USER_KEY = 'pulse_cached_user_v1';
@@ -27,7 +27,6 @@ export function AuthProvider({ children }) {
   const [sharePrompt, setSharePrompt] = useState(false);
 
   const loadMe = useCallback(async () => {
-    if (!getToken()) { setLoading(false); return; }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       setUser(readCached(CACHED_USER_KEY));
       setArtist(readCached(CACHED_ARTIST_KEY));
@@ -78,8 +77,8 @@ export function AuthProvider({ children }) {
   );
 
   const register = useCallback(
-    async (payload) => startSession(await api.post('/api/auth/register', payload)),
-    [startSession]
+    async (payload) => api.post('/api/auth/register', payload),
+    []
   );
 
   const loginWithGoogle = useCallback(
@@ -97,6 +96,7 @@ export function AuthProvider({ children }) {
   }, [artist]);
 
   const logout = useCallback(() => {
+    api.post('/api/auth/logout', {}).catch(() => {});
     setToken(null);
     cacheSession(null, null);
     setUser(null);

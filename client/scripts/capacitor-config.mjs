@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(here, '..', 'capacitor.config.json');
+const runtimePath = path.join(here, '..', 'public', 'capacitor-runtime.js');
 
 const raw = String(process.env.PULSE_APP_URL || process.env.VITE_API_URL || '').trim();
 const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(raw);
@@ -41,6 +42,9 @@ const base = {
 };
 
 const target = normalize(raw);
+// The native offline error page is a local asset; give its retry action the exact same
+// configured origin so it can wake a sleeping host instead of reloading the error page.
+fs.writeFileSync(runtimePath, `window.PULSE_CAPACITOR_RUNTIME = ${JSON.stringify({ remoteUrl: target || '' })};\n`);
 
 if (!target) {
   if (raw) {
@@ -61,9 +65,9 @@ const config = {
   server: {
     androidScheme: 'https',
     url: target,
-    // The page is the site itself, so staying inside it (and handing anything else to the browser)
-    // is exactly what the web app expects.
-    allowNavigation: [host],
+    // Keep the live site in the WebView and allow the local bundled sign-in as a recovery path;
+    // other destinations are handed to the system browser.
+    allowNavigation: [host, 'localhost'],
     // Kept inside the APK and shown when the site cannot be reached — a sleeping free instance, or
     // a phone with no signal — instead of a blank white window.
     errorPath: 'offline.html'
