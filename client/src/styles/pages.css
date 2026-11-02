@@ -774,6 +774,7 @@
 .auth-card { width: 100%; max-width: 420px; }
 .auth-card h2 { font-size: 27px; font-weight: 800; letter-spacing: -0.035em; margin-bottom: 7px; }
 .auth-card > p.auth-lead { font-size: 14px; color: var(--text-dim); margin-bottom: 26px; }
+.auth-forgot-row { display: flex; justify-content: flex-end; margin-top: -8px; }
 
 .auth-tabs {
   display: flex;
