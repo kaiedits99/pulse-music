@@ -14,6 +14,7 @@ import { keepAwakeConfig, formatWakeHours, startKeepAwake } from './keepalive.js
 import { installGracefulShutdown } from './shutdown.js';
 import { assertEmailConfiguration } from './email.js';
 import { ensureClientBuild, isClientBuilt, clientDir, missingBuildPage } from '../scripts/ensure-client-build.mjs';
+import { looksLikeFileRequest, missingFileHeaders, indexFileFor } from './lib/client-fallback.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -128,10 +129,17 @@ const dist = clientDir();
 
 if (isClientBuilt()) {
   console.log(`[pulse] Serving the web app from ${dist}`);
-  app.use(express.static(dist));
+  // index:false — the catch-all below decides, so a deep link and a missing file are not confused.
+  app.use(express.static(dist, { index: false }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
-    res.sendFile(path.join(dist, 'index.html'));
+    // A route gets the app; a missing script, stylesheet or image gets a 404. Serving the app there
+    // made the Android WebView refuse to start and let the service worker cache a page under a
+    // script's URL — the website looked fine, the phone showed a blank screen.
+    if (looksLikeFileRequest(req.path)) {
+      return res.status(404).type('text/plain').set(missingFileHeaders()).send('Not found');
+    }
+    return res.sendFile(indexFileFor(dist));
   });
 } else {
   console.warn(`[pulse] No web app to serve: ${build.reason || 'client/dist/index.html is missing'}. `

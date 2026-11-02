@@ -109,3 +109,39 @@ test('with a build, the site and every deep link are served — and the API is s
     fs.rmSync(clientDir, { recursive: true, force: true });
   }
 });
+
+test('a missing script or stylesheet is a 404, never the app page', async () => {
+  // Answering a file request with index.html (status 200) is what a blank Android app looked like:
+  // the WebView will not run a web page as a module, and a service worker can cache that page under
+  // the script's URL so the failure survives a reload. Routes still fall back to the app.
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-data-'));
+  const clientDir = tempClient('<!doctype html><html><body><div id="root">Pulse site</div></body></html>');
+  fs.mkdirSync(path.join(clientDir, 'assets'));
+  fs.writeFileSync(path.join(clientDir, 'assets', 'index-abc.js'), 'export const ok = true;');
+  const server = await startServer(dataDir, { PULSE_CLIENT_DIR: clientDir });
+  try {
+    for (const missing of ['/assets/index-old.js', '/assets/index-old.css', '/icon-missing.svg']) {
+      const res = await fetch(`${server.url}${missing}`);
+      assert.equal(res.status, 404, `${missing} must not look like a successful page`);
+      assert.doesNotMatch(res.headers.get('content-type') || '', /text\/html/, 'a 404 is not HTML');
+      assert.doesNotMatch(await res.text(), /Pulse site/);
+      assert.match(res.headers.get('cache-control') || '', /no-store/, 'a missing file is not cached');
+    }
+
+    // The real file is still served, with a type the browser can run.
+    const script = await fetch(`${server.url}/assets/index-abc.js`);
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get('content-type') || '', /javascript/);
+
+    // A route is still the app — including one that looks like a path segment.
+    for (const route of ['/', '/albums/12', '/messages/@someone']) {
+      const page = await fetch(`${server.url}${route}`);
+      assert.equal(page.status, 200);
+      assert.match(await page.text(), /Pulse site/);
+    }
+  } finally {
+    server.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(clientDir, { recursive: true, force: true });
+  }
+});

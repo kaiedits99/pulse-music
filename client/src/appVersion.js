@@ -73,7 +73,8 @@ export function updateFromRelease(release, current = APP_VERSION) {
     url: asset?.browser_download_url || release.html_url || RELEASES_PAGE,
     page: release.html_url || RELEASES_PAGE,
     size: asset?.size || 0,
-    name: asset?.name || ''
+    name: asset?.name || '',
+    apk: Boolean(asset)
   };
 }
 
@@ -97,6 +98,8 @@ export function writeCachedCheck(value, now = Date.now()) {
  * "no update to tell you about" rather than an error in someone's music app.
  */
 export async function checkForUpdate({ current = APP_VERSION, fetchImpl = globalThis.fetch, now = Date.now(), force = false } = {}) {
+  // A browser that knows it is offline should not wait on (or report) a failed GitHub call.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
   if (!force) {
     const cached = readCachedCheck(now);
     if (cached !== null) return cached;
